@@ -15,9 +15,13 @@ typedef struct {
     Value result;   // 线程返回值（join 时克隆取走）
 } ThreadSlot;
 
-static ThreadSlot g_slots[LM_MAX_THREADS];
+/* 动态线程表：容量按需翻倍扩容，无硬上限（上限由系统资源/OS 决定）。
+ * 注意 realloc 会移动表内存，但槽内只存值（handle/result），且所有访问都在
+ * g_lock 锁内取下标的瞬时值，线程体只通过 job->slot 下标访问，扩容安全。 */
+static ThreadSlot* g_slots = NULL;
+static int g_cap = 0;                 // 当前容量
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-static int g_next_id = 0;
+static int g_next_id = 0;             // 线程 id 自增（int，实际到不了上限）
 
 typedef struct {
     ThreadBody body;
@@ -47,13 +51,24 @@ static void* lm_thread_main(void* p)
 int lumin_thread_start(ThreadBody body, void* data, const Value* args, int argc)
 {
     pthread_mutex_lock(&g_lock);
+    if(!g_slots) {   // 首次：分配初始容量
+        g_slots = (ThreadSlot*)calloc(LM_THREAD_INITIAL_CAP, sizeof(ThreadSlot));
+        if(!g_slots) { pthread_mutex_unlock(&g_lock); runtime_error("thread: 内存不足"); }
+        g_cap = LM_THREAD_INITIAL_CAP;
+    }
     int slot = -1;
-    for(int i = 0; i < LM_MAX_THREADS; i++) {
+    for(int i = 0; i < g_cap; i++) {
         if(!g_slots[i].used) { slot = i; break; }
     }
     if(slot < 0) {
-        pthread_mutex_unlock(&g_lock);
-        runtime_error("thread: 线程表已满(64)，请 thread_join 已结束的线程");
+        // 容量翻倍扩容，新槽清零
+        int newcap = g_cap * 2;
+        ThreadSlot* ns = (ThreadSlot*)realloc(g_slots, (size_t)newcap * sizeof(ThreadSlot));
+        if(!ns) { pthread_mutex_unlock(&g_lock); runtime_error("thread: 线程表扩容内存不足"); }
+        memset(ns + g_cap, 0, (size_t)(newcap - g_cap) * sizeof(ThreadSlot));
+        g_slots = ns;
+        slot = g_cap;
+        g_cap = newcap;
     }
     g_slots[slot].used = 1;
     g_slots[slot].done = 0;
@@ -120,7 +135,7 @@ Value lumin_thread_join(int id)
 {
     pthread_mutex_lock(&g_lock);
     int slot = -1;
-    for(int i = 0; i < LM_MAX_THREADS; i++) {
+    for(int i = 0; i < g_cap; i++) {
         if(g_slots[i].used && g_slots[i].id == id) { slot = i; break; }
     }
     if(slot < 0) {

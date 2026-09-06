@@ -4,7 +4,7 @@
 //   - VM 端：vm.c 提供 vm_thread_body（interp_set_current_rf + entry），调 lumin_thread_start
 // 语义：
 //   - thread 返回自增线程 id（int），线程 joinable，join 后槽位回收
-//   - 线程函数返回值经 thread_join 获取；不 join 的线程退出后占槽（上限 64，满了报错）
+//   - 线程函数返回值经 thread_join 获取；不 join 的线程退出后占槽；线程表动态扩容，无硬上限
 //   - 参数按值克隆（字符串/数组深拷贝，函数为引用语义），线程内独立执行器状态（_Thread_local）
 //   - 线程内未捕获错误与主线程一致：runtime_error → 进程退出；推荐在线程函数内 try/catch
 //   - 脚本全局变量（lmvar_*）跨线程共享，竞态由用户负责（多线程固有语义）
@@ -13,7 +13,7 @@
 
 #include "ast/lumin_value_type.h"
 
-#define LM_MAX_THREADS 64
+#define LM_THREAD_INITIAL_CAP 64   // 线程表初始容量；按需翻倍扩容，无硬上限（受系统资源/OS 限制）
 
 // 线程启动上下文（线程体内使用）：args 为克隆参数（线程退出后由 lm_thread 释放）
 typedef struct {
