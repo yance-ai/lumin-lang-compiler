@@ -13,6 +13,7 @@ Value lumin_make_double(double d);
 Value lumin_make_bool(_Bool b);
 Value lumin_make_string(const char* s);
 Value lumin_make_char(char ch);
+Value lumin_make_byte(unsigned char b);   // byte：8 位无符号整数（0-255）
 
 // 算术
 Value lumin_add(Value a, Value b);
@@ -66,6 +67,7 @@ Value lumin_cast_bool(Value v);
 Value lumin_cast_string(Value v);
 Value lumin_cast_char(Value v);
 Value lumin_cast_ascii(Value v);
+Value lumin_cast_byte(Value v);
 
 int lumin_extract_int(Value v);
 

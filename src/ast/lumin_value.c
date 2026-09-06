@@ -267,6 +267,7 @@ Value val_clone(const Value* src) {
     case VAL_DOUBLE: dst.v.d = src->v.d; break;
     case VAL_BOOL:   dst.v.b = src->v.b; break;
     case VAL_CHAR:   dst.v.c = src->v.c; break;
+    case VAL_BYTE:   dst.v.i = src->v.i; break;
     case VAL_STRING: dst.v.s = strdup(src->v.s); break;
 
     case VAL_FUNC:

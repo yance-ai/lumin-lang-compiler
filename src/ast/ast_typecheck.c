@@ -580,6 +580,7 @@ int typecheck_expr(AstNode* node)
                     {"tryrdlock", 1, 1}, {"trywrlock", 1, 1},
                     {"condvar", 0, 0}, {"cond_wait", 2, 2}, {"cond_wait_timeout", 3, 3}, {"cond_signal", 1, 1}, {"cond_broadcast", 1, 1},
                     {"threadlocal_get", 1, 1}, {"threadlocal_set", 2, 2},
+                    {"get", 1, 3}, {"post", 1, 3}, {"put", 1, 3}, {"delete", 1, 3}, {"head", 1, 3}, {"patch", 1, 3},
                 };
                 int found = 0;
                 int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));

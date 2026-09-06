@@ -1,0 +1,50 @@
+// requests HTTP 请求测试（本地回环 127.0.0.1:8123；服务器不在时输出 srv-down，全量回归稳定）
+// 服务器：python3 /tmp/http_srv.py（GET/POST/PUT/DELETE/HEAD/PATCH echo）
+srv = "up";
+try {
+    p = requests.get("http://127.0.0.1:8123/ping");
+    if (p["status"] != 200) { srv = "down"; }
+} catch(e) {
+    srv = "down";
+}
+print("srv:" + srv);
+
+if (srv == "up") {
+    print("== GET ==");
+    r = requests.get("http://127.0.0.1:8123/echo");
+    print(r["status"]);                // 200
+    print(r["body"]);                  // json
+    print(r["headers"]["X-Test"]);     // lumin-http
+    print(type(r["headers"]));         // map
+
+    print("== 查询参数 ==");
+    r2 = requests.get("http://127.0.0.1:8123/echo", {"q": "hello world", "n": 42});
+    print(r2["body"]);                 // URL 编码后的 query
+    r2b = requests.get("http://127.0.0.1:8123/echo", "a=1&b=2");
+    print(r2b["body"]);                // 字符串查询串原样
+
+    print("== POST / body / headers ==");
+    r3 = requests.post("http://127.0.0.1:8123/echo", {"a": 1}, {"headers": {"Content-Type": "text/plain"}, "body": "hello-from-lm"});
+    print(r3["body"]);
+
+    print("== PUT / DELETE / PATCH / HEAD ==");
+    print(requests.put("http://127.0.0.1:8123/echo", "", {"body": "put-body"})["body"]);
+    print(requests.delete("http://127.0.0.1:8123/echo")["body"]);
+    print(requests.patch("http://127.0.0.1:8123/echo")["body"]);
+    print(requests.head("http://127.0.0.1:8123/echo")["status"]);
+
+    print("== 类型/参数错误 catch ==");
+    try { x = requests.get(123); print("no-error"); } catch(e) { print("caught-url"); }
+    try { x = requests.get("http://127.0.0.1:8123/echo", {"q": 1}, {"headers": "not-map"}); print("no-error"); } catch(e) { print("caught-headers"); }
+    try { x = requests.post("http://127.0.0.1:8123/echo", {"a": 1}, {"body": 42}); print("no-error"); } catch(e) { print("caught-body"); }
+
+    print("== 连接错误 catch ==");
+    try { x = requests.get("http://127.0.0.1:9999/none"); print("no-error"); } catch(e) { print("caught-conn"); }
+
+    print("== 响应复用（map 存响应）==");
+    rs = [requests.get("http://127.0.0.1:8123/echo"), requests.post("http://127.0.0.1:8123/echo")];
+    print(rs[0]["status"]);
+    print(rs[1]["status"]);
+} else {
+    print("(server down: 跳过请求场景)");
+}

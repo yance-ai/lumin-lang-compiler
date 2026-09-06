@@ -28,7 +28,8 @@ typedef enum {
     CAST_STRING,
     CAST_BOOL,
     CAST_ASCII,
-    CAST_CHAR
+    CAST_CHAR,
+    CAST_BYTE     // (byte)x 强转：C 风格截断为 8 位无符号整数
 } CastKind;
 
 // 值类型：语言支持的数据类型
@@ -42,7 +43,8 @@ typedef enum {
     VAL_FUNC,
     VAL_ARRAY,
     VAL_MAP,
-    VAL_ERROR      // 错误对象：type/message/stack（throw 与运行时错误统一）
+    VAL_ERROR,     // 错误对象：type/message/stack（throw 与运行时错误统一）
+    VAL_BYTE       // 8 位无符号整数（0-255，C 风格截断；算术/比较按数值类型处理）
 } ValueType;
 
 // 数组运行时对象，VAL_ARRAY 使用

@@ -9,6 +9,7 @@
 #include "runtime/lm_thread.h"
 #include "runtime/lm_lock.h"
 #include "runtime/lm_tls.h"
+#include "runtime/lm_http.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -287,6 +288,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_CAST_BOOL:   { Value v = stack[--sp]; stack[sp++] = lumin_cast_bool(v); break; }
             case OPC_CAST_STRING: { Value v = stack[--sp]; stack[sp++] = lumin_cast_string(v); break; }
             case OPC_CAST_ASCII:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_ascii(v); break; }
+            case OPC_CAST_BYTE:   { Value v = stack[--sp]; stack[sp++] = lumin_cast_byte(v); break; }
             case OPC_LOGIC_NOT:   { Value v = stack[--sp]; stack[sp++] = lumin_logic_not(v); break; }
             case OPC_ARRAY_LIT: {
                 int n = in.b;
@@ -515,6 +517,30 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(nm.type != VAL_STRING) runtime_error("threadlocal_set() 名字参数必须是字符串");
                         lumin_tls_set(nm.v.s, v);
                         stack[sp++] = v;    // 压回原值（表达式值）
+                        break;
+                    }
+                    case BUILTIN_HTTP_GET:
+                    case BUILTIN_HTTP_POST:
+                    case BUILTIN_HTTP_PUT:
+                    case BUILTIN_HTTP_DELETE:
+                    case BUILTIN_HTTP_HEAD:
+                    case BUILTIN_HTTP_PATCH: {
+                        int n = in.b;
+                        if(n < 1 || n > 3) runtime_error("requests 请求需要 1~3 个参数：url、可选 params、可选 config");
+                        const char* m = "GET";
+                        switch(in.a) {
+                            case BUILTIN_HTTP_POST:   m = "POST"; break;
+                            case BUILTIN_HTTP_PUT:    m = "PUT"; break;
+                            case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
+                            case BUILTIN_HTTP_HEAD:   m = "HEAD"; break;
+                            case BUILTIN_HTTP_PATCH:  m = "PATCH"; break;
+                            default: break;
+                        }
+                        Value url    = stack[sp - n];
+                        Value params = (n >= 2) ? stack[sp - n + 1] : val_none();
+                        Value config = (n >= 3) ? stack[sp - n + 2] : val_none();
+                        stack[sp - n] = lumin_http_request(m, url, params, config);
+                        sp = sp - n + 1;
                         break;
                     }
                     case BUILTIN_MAP:

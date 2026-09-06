@@ -51,6 +51,13 @@ Value lumin_make_char(char ch) {
     return v;
 }
 
+Value lumin_make_byte(unsigned char b) {
+    Value v;
+    v.type = VAL_BYTE;
+    v.v.i = (long long)(b & 0xFF);
+    return v;
+}
+
 // 获取value的数值，int转double
 double value_as_number(Value x) {
     if(x.type == VAL_INT)
@@ -59,6 +66,8 @@ double value_as_number(Value x) {
         return x.v.d;
     else if(x.type == VAL_CHAR)
         return (double)x.v.c;
+    else if(x.type == VAL_BYTE)
+        return (double)(x.v.i & 0xFF);
     return 0.0;
 }
 
@@ -90,6 +99,9 @@ char* value_to_str(Value v) {
         }
         case VAL_ERROR:
             return strdup(v.v.err.message ? v.v.err.message : "");
+        case VAL_BYTE:
+            snprintf(buf, sizeof(buf), "%lld", v.v.i & 0xFF);
+            break;
         case VAL_CHAR:
         {
             char buf2[2];
@@ -273,6 +285,7 @@ Value lumin_type(Value v) {
         case VAL_DOUBLE: return lumin_make_string("double");
         case VAL_BOOL:   return lumin_make_string("bool");
         case VAL_CHAR:   return lumin_make_string("char");
+        case VAL_BYTE:   return lumin_make_string("byte");
         case VAL_STRING: return lumin_make_string("string");
         case VAL_FUNC:   return lumin_make_string("func");
         case VAL_ARRAY:  return lumin_make_string("array");
@@ -453,6 +466,7 @@ _Bool lumin_to_bool(Value v) {
         case VAL_DOUBLE: return v.v.d != 0.0;
         case VAL_BOOL:   return v.v.b;
         case VAL_CHAR:   return (unsigned char)v.v.c != 0;
+        case VAL_BYTE:   return (v.v.i & 0xFF) != 0;
         default: return 0;
     }
 }
@@ -485,6 +499,38 @@ Value lumin_cast_char(Value v) {
             runtime_error("(char) cast: unsupported type");
     }
     return lumin_make_char(cv);
+}
+
+Value lumin_cast_byte(Value v) {
+    unsigned long long bv = 0;
+    switch(v.type)
+    {
+        case VAL_INT:
+            bv = (unsigned long long)v.v.i & 0xFFULL;
+            break;
+        case VAL_DOUBLE:
+            bv = ((unsigned long long)(long long)v.v.d) & 0xFFULL;
+            break;
+        case VAL_BOOL:
+            bv = v.v.b ? 1 : 0;
+            break;
+        case VAL_CHAR:
+            bv = (unsigned char)v.v.c;
+            break;
+        case VAL_BYTE:
+            bv = (unsigned long long)(v.v.i & 0xFF);
+            break;
+        case VAL_STRING:
+            bv = (unsigned long long)atoll(v.v.s) & 0xFFULL;
+            break;
+        case VAL_NONE:
+            bv = 0;
+            break;
+        default:
+            runtime_error("(byte) cast: unsupported type");
+            return val_none();
+    }
+    return lumin_make_byte((unsigned char)bv);
 }
 
 // (ASCII)v：char ↔ int，0‑255范围校验
@@ -626,6 +672,9 @@ void lumin_print(Value v) {
             break;
         case VAL_CHAR:
             printf("%c\n", v.v.c);
+            break;
+        case VAL_BYTE:
+            printf("%lld\n", v.v.i & 0xFF);
             break;
         case VAL_NONE:
             printf("null\n");

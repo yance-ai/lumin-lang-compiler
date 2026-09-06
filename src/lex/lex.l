@@ -61,6 +61,7 @@ static int is_expr_end(int t)
 "string"        { LEX_RET(TOK_STRING); }
 "bool"          { LEX_RET(TOK_BOOL); }
 "ASCII"         { LEX_RET(TOK_ASCII); }
+"byte"          { LEX_RET(TOK_BYTE); }
 
 "..."           { fprintf(stderr,"[LEX] ELLIPSIS\n"); LEX_RET(ELLIPSIS); }
 

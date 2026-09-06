@@ -102,6 +102,7 @@ static void emit_const(FILE* f, const Value* v)
         case VAL_DOUBLE: fprintf(f, "lumin_make_double(%.17g)", v->v.d); break;
         case VAL_BOOL:   fprintf(f, "lumin_make_bool(%d)", v->v.b ? 1 : 0); break;
         case VAL_CHAR:   fprintf(f, "lumin_make_char("); emit_c_char_lit(f, v->v.c); fprintf(f, ")"); break;
+        case VAL_BYTE:   fprintf(f, "lumin_make_byte(%d)", (int)(v->v.i & 0xFF)); break;
         case VAL_STRING: fprintf(f, "lumin_make_string("); emit_c_string_lit(f, v->v.s); fprintf(f, ")"); break;
         default:         fprintf(f, "val_none()"); break;
     }
@@ -232,6 +233,7 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_CAST_BOOL:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_bool(__v); }\n"); break;
             case OPC_CAST_STRING: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_string(__v); }\n"); break;
             case OPC_CAST_ASCII:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_ascii(__v); }\n"); break;
+            case OPC_CAST_BYTE:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_byte(__v); }\n"); break;
             case OPC_LOGIC_NOT:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_logic_not(__v); }\n"); break;
             case OPC_ARRAY_LIT: {
                 int n = in.b;
@@ -424,6 +426,29 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_THREADLOCAL_SET:
                         fprintf(out, "    { Value __v = __stk[--__sp]; Value __n = __stk[--__sp]; if(__n.type != VAL_STRING) runtime_error(\"threadlocal_set() 名字参数必须是字符串\"); lumin_tls_set(__n.v.s, __v); __stk[__sp++] = __v; }\n");
                         break;
+                    case BUILTIN_HTTP_GET:
+                    case BUILTIN_HTTP_POST:
+                    case BUILTIN_HTTP_PUT:
+                    case BUILTIN_HTTP_DELETE:
+                    case BUILTIN_HTTP_HEAD:
+                    case BUILTIN_HTTP_PATCH: {
+                        const char* m = "GET";
+                        switch(in.a) {
+                            case BUILTIN_HTTP_POST:   m = "POST"; break;
+                            case BUILTIN_HTTP_PUT:    m = "PUT"; break;
+                            case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
+                            case BUILTIN_HTTP_HEAD:   m = "HEAD"; break;
+                            case BUILTIN_HTTP_PATCH:  m = "PATCH"; break;
+                            default: break;
+                        }
+                        if(in.b == 1)
+                            fprintf(out, "    { Value __r = lumin_http_request(\"%s\", __stk[__sp-1], val_none(), val_none()); __stk[__sp-1] = __r; __sp = __sp - 1 + 1; }\n", m);
+                        else if(in.b == 2)
+                            fprintf(out, "    { Value __r = lumin_http_request(\"%s\", __stk[__sp-2], __stk[__sp-1], val_none()); __stk[__sp-2] = __r; __sp = __sp - 2 + 1; }\n", m);
+                        else
+                            fprintf(out, "    { Value __r = lumin_http_request(\"%s\", __stk[__sp-3], __stk[__sp-2], __stk[__sp-1]); __stk[__sp-3] = __r; __sp = __sp - 3 + 1; }\n", m);
+                        break;
+                    }
                     case BUILTIN_VALUES:
                         fprintf(out, "    { Value __r = lumin_map_values(__stk[__sp - %d]); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b);
                         break;

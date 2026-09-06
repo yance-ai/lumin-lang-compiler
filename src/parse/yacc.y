@@ -35,7 +35,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token LBRACE RBRACE
 %token WHILE FOR
 %token TOK_CHAR_LIT
-%token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII
+%token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
@@ -254,6 +254,7 @@ primary
     | LPAREN TOK_BOOL RPAREN primary       { $$ = new_cast_node(CAST_BOOL, $4); }
     | LPAREN TOK_ASCII RPAREN primary      { $$ = new_cast_node(CAST_ASCII, $4); }
     | LPAREN TOK_CHAR RPAREN primary       { $$ = new_cast_node(CAST_CHAR, $4); }
+    | LPAREN TOK_BYTE RPAREN primary        { $$ = new_cast_node(CAST_BYTE, $4); }
     | FUNC LPAREN param_list RPAREN block_stmt {
           /* 匿名函数表达式：生成内部名 _lambda_N，与具名同路注册（VM sym + IR 函数表） */
           char nm[64];
@@ -284,7 +285,15 @@ postfix_expr
     | postfix_expr DOT ID LPAREN arg_list RPAREN {
           AstNode* recv = $1;
           AstNode* margs = $5;
-          $$ = L(ast_call($3, margs ? ast_seq_front(margs, recv) : recv));
+          /* requests.get/post/put/delete/head/patch：内置 HTTP 命名空间，
+             接收者 requests 不进参数（url 是第一个实参） */
+          if(recv->type == AST_VAR && strcmp(recv->u.varname, "requests") == 0 &&
+             (strcmp($3, "get") == 0 || strcmp($3, "post") == 0 || strcmp($3, "put") == 0 ||
+              strcmp($3, "delete") == 0 || strcmp($3, "head") == 0 || strcmp($3, "patch") == 0)) {
+              $$ = L(ast_call($3, margs));
+          } else {
+              $$ = L(ast_call($3, margs ? ast_seq_front(margs, recv) : recv));
+          }
       }
     /* 无参方法 a.b → b(a) */
     | postfix_expr DOT ID { $$ = L(ast_call($3, $1)); }

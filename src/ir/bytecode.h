@@ -17,7 +17,7 @@ typedef enum {
     OPC_NEG, OPC_POS,
     OPC_LOGIC_NOT,   // 弹1压1 bool 取反
     OPC_PRE_INC, OPC_POST_INC, OPC_PRE_DEC, OPC_POST_DEC,  // a=符号表下标
-    OPC_CAST_INT, OPC_CAST_DOUBLE, OPC_CAST_CHAR, OPC_CAST_BOOL, OPC_CAST_STRING, OPC_CAST_ASCII,
+    OPC_CAST_INT, OPC_CAST_DOUBLE, OPC_CAST_CHAR, OPC_CAST_BOOL, OPC_CAST_STRING, OPC_CAST_ASCII, OPC_CAST_BYTE,
     OPC_ARRAY_LIT,    // b=元素个数；弹 b 个元素压数组
     OPC_MAP_LIT,      // b=键值对个数；弹 2b 个值（键、值交替）压字典
     OPC_INDEX_GET,    // 弹 arr,idx 压元素（数组元素 / 字符串字符）
@@ -108,6 +108,12 @@ typedef enum {
     BUILTIN_COND_BROADCAST, // cond_broadcast(cond) → 唤醒全部等待者
     BUILTIN_THREADLOCAL_GET, // threadlocal_get(name) → 当前线程局部值
     BUILTIN_THREADLOCAL_SET, // threadlocal_set(name, value) → 写当前线程局部槽，返回 value
+    BUILTIN_HTTP_GET,     // requests.get(url, params?, config?) → map{status,body,headers}
+    BUILTIN_HTTP_POST,    // requests.post(url, params?, config?)
+    BUILTIN_HTTP_PUT,     // requests.put(url, params?, config?)
+    BUILTIN_HTTP_DELETE,  // requests.delete(url, params?, config?)
+    BUILTIN_HTTP_HEAD,    // requests.head(url, params?, config?)
+    BUILTIN_HTTP_PATCH,   // requests.patch(url, params?, config?)
     BUILTIN_COUNT
 } BuiltinId;
 

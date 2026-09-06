@@ -323,6 +323,7 @@ static int fold_const(Ctx* c, AstNode* node, Value* out)
                 case CAST_BOOL:   *out = lumin_cast_bool(v); return 1;
                 case CAST_STRING: *out = lumin_cast_string(v); return 1;
                 case CAST_ASCII:  *out = lumin_cast_ascii(v); return 1;
+                case CAST_BYTE:   *out = lumin_cast_byte(v); return 1;
                 default: return 0;
             }
         }
@@ -444,6 +445,7 @@ static void c_expr(Ctx* c, AstNode* node)
                 [CAST_INT] = OPC_CAST_INT, [CAST_DOUBLE] = OPC_CAST_DOUBLE,
                 [CAST_CHAR] = OPC_CAST_CHAR, [CAST_BOOL] = OPC_CAST_BOOL,
                 [CAST_STRING] = OPC_CAST_STRING, [CAST_ASCII] = OPC_CAST_ASCII,
+                [CAST_BYTE] = OPC_CAST_BYTE,
             };
             emit(c, cmap[node->u.cast.cast_type], 0, 0);
             break;
@@ -462,7 +464,7 @@ static void c_expr(Ctx* c, AstNode* node)
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
-            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values", "thread", "thread_join", "mutex", "rmutex", "rwlock", "spinlock", "lock", "unlock", "trylock", "rdlock", "wrlock", "tryrdlock", "trywrlock", "condvar", "cond_wait", "cond_wait_timeout", "cond_signal", "cond_broadcast", "threadlocal_get", "threadlocal_set"};
+            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values", "thread", "thread_join", "mutex", "rmutex", "rwlock", "spinlock", "lock", "unlock", "trylock", "rdlock", "wrlock", "tryrdlock", "trywrlock", "condvar", "cond_wait", "cond_wait_timeout", "cond_signal", "cond_broadcast", "threadlocal_get", "threadlocal_set", "get", "post", "put", "delete", "head", "patch"};
             int bid = -1;
             if(!ir_func_table_lookup(node->u.call.name)) {
                 for(int k = 0; k < BUILTIN_COUNT; k++) {
@@ -669,7 +671,7 @@ static void c_stmt(Ctx* c, AstNode* node)
                     bf_patch(c->fn, c->fin_jmp[c->fin_depth][ji], fstart);
                 c->fin_pend_n[c->fin_depth] = 0;
                 c->fin_jmp_n[c->fin_depth] = 0;
-                /* 已消费，fbody 内 return/break 不再挂起（finally 体直接用完成动作）
+                /* 已消费，fbody 内 return/break 不再挂起（finally 体直接用完成动作） */
                 /* finally 体：内部 return 直接返回（不挂起，避免自跳） */
                 c->fin_depth--;
                 c_stmt(c, node->u.trynode.finally_body);
