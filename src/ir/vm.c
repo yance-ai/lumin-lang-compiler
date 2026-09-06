@@ -8,6 +8,7 @@
 #include "runtime/lm_runtime.h"
 #include "runtime/lm_thread.h"
 #include "runtime/lm_lock.h"
+#include "runtime/lm_tls.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -492,6 +493,30 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_COND_SIGNAL: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("cond_signal() 参数必须是条件id（整数）"); lumin_cond_signal((int)v.v.i); stack[sp++] = v; break; }
                     case BUILTIN_COND_BROADCAST: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("cond_broadcast() 参数必须是条件id（整数）"); lumin_cond_broadcast((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_COND_TIMEDWAIT: {
+                        Value ms = stack[--sp];
+                        Value lk = stack[--sp];
+                        Value cd = stack[--sp];
+                        if(ms.type != VAL_INT) runtime_error("cond_wait_timeout() 超时参数必须是整数毫秒");
+                        if(lk.type != VAL_INT) runtime_error("cond_wait_timeout() 锁参数必须是锁id（整数）");
+                        if(cd.type != VAL_INT) runtime_error("cond_wait_timeout() 条件参数必须是条件id（整数）");
+                        stack[sp++] = lumin_make_bool(lumin_cond_timedwait((int)cd.v.i, (int)lk.v.i, ms.v.i));
+                        break;
+                    }
+                    case BUILTIN_THREADLOCAL_GET: {
+                        Value nm = stack[--sp];
+                        if(nm.type != VAL_STRING) runtime_error("threadlocal_get() 名字参数必须是字符串");
+                        stack[sp++] = lumin_tls_get(nm.v.s);
+                        break;
+                    }
+                    case BUILTIN_THREADLOCAL_SET: {
+                        Value v = stack[--sp];
+                        Value nm = stack[--sp];
+                        if(nm.type != VAL_STRING) runtime_error("threadlocal_set() 名字参数必须是字符串");
+                        lumin_tls_set(nm.v.s, v);
+                        stack[sp++] = v;    // 压回原值（表达式值）
+                        break;
+                    }
                     case BUILTIN_MAP:
                     case BUILTIN_FILTER:
                     case BUILTIN_REDUCE: {

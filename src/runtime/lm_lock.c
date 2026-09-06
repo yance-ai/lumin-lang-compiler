@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
+#include <errno.h>
 
 #define LOCK_INITIAL_CAP 64
 
@@ -243,6 +245,26 @@ void lumin_cond_wait(int cond, int lock)
     // LK_MUTEX / LK_RMUTEX：pthread_cond_wait 原子释放一次锁并阻塞，唤醒后重新获取
     // （递归锁释放一次、唤醒后重获一次，与 pthread 语义一致）
     pthread_cond_wait(&c->cond, &o->u.mutex);
+}
+
+int lumin_cond_timedwait(int cond, int lock, long long ms)
+{
+    CondObj* c = cond_get(cond);
+    if(!c) runtime_error("cond_wait_timeout(): 无效的条件id（未创建或已销毁）");
+    LockObj* o = lock_get(lock);
+    if(!o) runtime_error("cond_wait_timeout(): 无效的锁id（未创建或已销毁）");
+    if(o->kind == LK_RW)  runtime_error("cond_wait_timeout(): 读写锁不能配条件变量（无互斥阻塞语义），请用 mutex()/rmutex()");
+    if(o->kind == LK_SPIN) runtime_error("cond_wait_timeout(): 自旋锁不能配条件变量（忙等无阻塞释放），请用 mutex()/rmutex()");
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_nsec += (long)(ms % 1000) * 1000000L;
+    ts.tv_sec += ms / 1000;
+    if(ts.tv_nsec >= 1000000000L) { ts.tv_sec += 1; ts.tv_nsec -= 1000000000L; }
+    int r = pthread_cond_timedwait(&c->cond, &o->u.mutex, &ts);
+    if(r == 0) return 1;            // 被 signal/broadcast 唤醒
+    if(r == ETIMEDOUT) return 0;    // 超时（超时返回后仍持有锁，与 C 语义一致）
+    runtime_error("cond_wait_timeout(): 等待失败");
+    return 0;
 }
 
 void lumin_cond_signal(int cond)

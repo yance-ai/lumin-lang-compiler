@@ -31,6 +31,9 @@ int  lumin_trywrlock(int id);    // trywrlock(id)：写锁非阻塞尝试，返�
 // ===== 条件变量（与互斥/递归互斥锁配合） =====
 int  lumin_condvar_create(void);            // condvar()：创建条件变量
 void lumin_cond_wait(int cond, int lock);   // cond_wait(cond, lock)：原子释放 lock 并等待
+int  lumin_cond_timedwait(int cond, int lock, long long ms);
+                                            // cond_wait_timeout(cond, lock, ms)：限时等待，
+                                            // 被唤醒返回 1，超时返回 0（超时后仍持有锁）
 void lumin_cond_signal(int cond);           // cond_signal(cond)：唤醒一个等待者
 void lumin_cond_broadcast(int cond);        // cond_broadcast(cond)：唤醒全部等待者
 

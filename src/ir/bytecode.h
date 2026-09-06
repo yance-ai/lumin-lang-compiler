@@ -103,8 +103,11 @@ typedef enum {
     BUILTIN_TRYWRLOCK,    // trywrlock(id) → bool（写锁非阻塞尝试，仅读写锁）
     BUILTIN_CONDVAR,      // condvar() → 条件变量 id
     BUILTIN_COND_WAIT,    // cond_wait(cond, lock) → 原子释放锁并等待
+    BUILTIN_COND_TIMEDWAIT, // cond_wait_timeout(cond, lock, ms) → bool（唤醒 true / 超时 false）
     BUILTIN_COND_SIGNAL,  // cond_signal(cond) → 唤醒一个等待者
     BUILTIN_COND_BROADCAST, // cond_broadcast(cond) → 唤醒全部等待者
+    BUILTIN_THREADLOCAL_GET, // threadlocal_get(name) → 当前线程局部值
+    BUILTIN_THREADLOCAL_SET, // threadlocal_set(name, value) → 写当前线程局部槽，返回 value
     BUILTIN_COUNT
 } BuiltinId;
 

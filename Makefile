@@ -63,6 +63,7 @@ C_SRCS += $(SRC_DIR)/runtime/lm_io.c
 C_SRCS += $(SRC_DIR)/runtime/lm_map.c
 C_SRCS += $(SRC_DIR)/runtime/lm_thread.c
 C_SRCS += $(SRC_DIR)/runtime/lm_lock.c
+C_SRCS += $(SRC_DIR)/runtime/lm_tls.c
 
 OBJS := $(C_SRCS:.c=.o)
 

@@ -415,6 +415,15 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_COND_BROADCAST:
                         fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"cond_broadcast() 参数必须是条件id（整数）\"); lumin_cond_broadcast((int)__v.v.i); __stk[__sp++] = __v; }\n");
                         break;
+                    case BUILTIN_COND_TIMEDWAIT:
+                        fprintf(out, "    { Value __ms = __stk[--__sp]; Value __lk = __stk[--__sp]; Value __cd = __stk[--__sp]; if(__ms.type != VAL_INT) runtime_error(\"cond_wait_timeout() 超时参数必须是整数毫秒\"); if(__lk.type != VAL_INT) runtime_error(\"cond_wait_timeout() 锁参数必须是锁id（整数）\"); if(__cd.type != VAL_INT) runtime_error(\"cond_wait_timeout() 条件参数必须是条件id（整数）\"); __stk[__sp++] = lumin_make_bool(lumin_cond_timedwait((int)__cd.v.i, (int)__lk.v.i, __ms.v.i)); }\n");
+                        break;
+                    case BUILTIN_THREADLOCAL_GET:
+                        fprintf(out, "    { Value __n = __stk[--__sp]; if(__n.type != VAL_STRING) runtime_error(\"threadlocal_get() 名字参数必须是字符串\"); __stk[__sp++] = lumin_tls_get(__n.v.s); }\n");
+                        break;
+                    case BUILTIN_THREADLOCAL_SET:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __n = __stk[--__sp]; if(__n.type != VAL_STRING) runtime_error(\"threadlocal_set() 名字参数必须是字符串\"); lumin_tls_set(__n.v.s, __v); __stk[__sp++] = __v; }\n");
+                        break;
                     case BUILTIN_VALUES:
                         fprintf(out, "    { Value __r = lumin_map_values(__stk[__sp - %d]); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b);
                         break;
