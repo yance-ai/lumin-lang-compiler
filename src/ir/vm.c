@@ -20,6 +20,43 @@ static void runtime_undefined(const char* what, const char* name)
 
 static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx);
 
+
+// 通过函数值调用（高阶函数内部使用）：与 OPC_CALL 的调用语义一致
+static Value vm_call_rf(RuntimeFunc* rf, Value* args, int argc, StackFrame* parent, EvalCtx* ctx)
+{
+    StackFrame* callee = stackframe_new(parent);
+    if(interp_func_is_payload(rf)) {
+        int pcnt = interp_func_param_cnt(rf);
+        int i = 0;
+        for(; i < pcnt; i++) {
+            const char* pname = interp_func_param_name(rf, i);
+            Value bound = (i < argc) ? val_clone(&args[i]) : val_none();
+            stackframe_bind(callee, pname, bound);
+        }
+        if(interp_func_has_variadic(rf)) {
+            const char* vname = interp_func_param_name(rf, pcnt);
+            int rest = argc - i;
+            if(rest < 0) rest = 0;
+            Value arr = val_array(rest);
+            for(int k = 0; k < rest; k++) {
+                arr.v.array.items[k] = val_clone(&args[i + k]);
+            }
+            stackframe_bind(callee, vname, arr);
+        }
+    }
+    RuntimeFunc* prev_rf = interp_set_current_rf(rf);
+    int saved_break = ctx->hit_break;
+    int saved_cont = ctx->hit_continue;
+    ctx->hit_break = 0;
+    ctx->hit_continue = 0;
+    Value ret = rf->entry(argc, args, ctx, callee);
+    ctx->hit_break = saved_break;
+    ctx->hit_continue = saved_cont;
+    interp_set_current_rf(prev_rf);
+    stackframe_destroy(callee);
+    return ret;
+}
+
 Value vm_run_main(BytecodeFunc* main_fn)
 {
     EvalCtx local_ctx = {0};
@@ -78,6 +115,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_LOAD_CONST:
                 stack[sp++] = val_clone(&bf->consts[in.a]);
                 break;
+            case OPC_GETFUNC: {
+                const char* fname = bf->syms[in.a];
+                Value fv;
+                if(sym_has(fname)) fv = sym_get(fname);
+                else runtime_undefined("函数", fname);
+                stack[sp++] = fv;
+                break;
+            }
             case OPC_LOAD_VAR: {
                 const char* name = bf->syms[in.a];
                 Value* vp = stackframe_get(frame, name);
@@ -254,6 +299,48 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_SORT:    { Value v = stack[--sp]; stack[sp++] = lumin_sort(v); break; }
                     case BUILTIN_REVERSE:{ Value v = stack[--sp]; stack[sp++] = lumin_reverse(v); break; }
+                    case BUILTIN_STRIP:   { Value v = stack[--sp]; stack[sp++] = lumin_strip(v); break; }
+                    case BUILTIN_STARTSWITH: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_startswith(l, r); break; }
+                    case BUILTIN_ENDSWITH:   { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_endswith(l, r); break; }
+                    case BUILTIN_MAP:
+                    case BUILTIN_FILTER:
+                    case BUILTIN_REDUCE: {
+                        int argc = in.b;
+                        Value fn, arr, init = val_none();
+                        if(argc == 3) { init = stack[--sp]; fn = stack[--sp]; arr = stack[--sp]; }
+                        else { fn = stack[--sp]; arr = stack[--sp]; }
+                        if(arr.type != VAL_ARRAY) runtime_error("map()/filter()/reduce() 第一个参数必须是数组");
+                        if(fn.type != VAL_FUNC) runtime_error("map()/filter()/reduce() 第二个参数必须是函数");
+                        RuntimeFunc* rf = fn.v.func.func_obj;
+                        int n = arr.v.array.len;
+                        if(in.a == BUILTIN_MAP) {
+                            Value out = val_array(n);
+                            for(int i = 0; i < n; i++) {
+                                Value a1[1] = { arr.v.array.items[i] };
+                                Value r = vm_call_rf(rf, a1, 1, frame, ctx);
+                                out.v.array.items[i] = val_clone(&r);
+                            }
+                            stack[sp++] = out;
+                        } else if(in.a == BUILTIN_FILTER) {
+                            Value out = val_array(n);
+                            int cnt = 0;
+                            for(int i = 0; i < n; i++) {
+                                Value a1[1] = { arr.v.array.items[i] };
+                                Value r = vm_call_rf(rf, a1, 1, frame, ctx);
+                                if(lumin_to_bool(r)) out.v.array.items[cnt++] = val_clone(&arr.v.array.items[i]);
+                            }
+                            out.v.array.len = cnt;
+                            stack[sp++] = out;
+                        } else {
+                            Value acc = init;
+                            for(int i = 0; i < n; i++) {
+                                Value a2[2] = { acc, arr.v.array.items[i] };
+                                acc = vm_call_rf(rf, a2, 2, frame, ctx);
+                            }
+                            stack[sp++] = acc;
+                        }
+                        break;
+                    }
                     default:
                         runtime_error("未知内置函数");
                         break;

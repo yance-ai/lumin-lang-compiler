@@ -9,6 +9,7 @@
 typedef enum {
     OPC_NOP,
     OPC_LOAD_CONST,     // a=常量池下标
+    OPC_GETFUNC,        // a=函数名符号下标：压入函数值
     OPC_LOAD_VAR,       // a=符号表下标
     OPC_STORE_VAR,      // a=符号表下标；弹值写变量（深拷贝入帧），原值压回（表达式值）
     OPC_ADD, OPC_SUB, OPC_MUL, OPC_DIV, OPC_MOD,
@@ -67,6 +68,12 @@ typedef enum {
     BUILTIN_FORMAT,       // format(fmt, args...) 变参
     BUILTIN_SORT,         // sort(arr)
     BUILTIN_REVERSE,      // reverse(arr)
+    BUILTIN_MAP,          // map(arr, fn) 高阶
+    BUILTIN_FILTER,       // filter(arr, fn) 高阶
+    BUILTIN_REDUCE,       // reduce(arr, fn, init) 高阶
+    BUILTIN_STRIP,        // strip(s)
+    BUILTIN_STARTSWITH,   // startswith(s, prefix)
+    BUILTIN_ENDSWITH,     // endswith(s, suffix)
     BUILTIN_COUNT
 } BuiltinId;
 

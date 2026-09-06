@@ -161,6 +161,14 @@ static void emit_insns(BytecodeFunc* fn)
                 emit_const(out, &fn->consts[in.a]);
                 fprintf(out, ";\n");
                 break;
+            case OPC_GETFUNC: {
+                int fidx = -1;
+                for(int fi = 0; fi < ir_func_table_count(); fi++)
+                    if(strcmp(ir_func_table_get(fi)->name, nm) == 0) { fidx = fi; break; }
+                if(fidx < 0) { fprintf(stderr, "codegen: 未定义函数: %s\n", nm); exit(EXIT_FAILURE); }
+                fprintf(out, "    { Value __f; __f.type = VAL_FUNC; __f.v.func.func_obj = (void*)lum_wrap_%d; __stk[__sp++] = __f; }\n", fidx);
+                break;
+            }
             case OPC_LOAD_VAR:
                 fprintf(out, "    __stk[__sp++] = %s;\n", cvar(nm));
                 break;
@@ -286,6 +294,57 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_REVERSE:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_reverse(__v); }\n");
                         break;
+                    case BUILTIN_STRIP:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_strip(__v); }\n");
+                        break;
+                    case BUILTIN_STARTSWITH:
+                        fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_startswith(__l, __r); }\n");
+                        break;
+                    case BUILTIN_ENDSWITH:
+                        fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_endswith(__l, __r); }\n");
+                        break;
+                    case BUILTIN_MAP:
+                    case BUILTIN_FILTER:
+                    case BUILTIN_REDUCE: {
+                        int argc = in.b;
+                        fprintf(out, "    {\n");
+                        fprintf(out, "        Value __fn, __arr, __init = val_none();\n");
+                        if(argc == 3)
+                            fprintf(out, "        __init = __stk[--__sp]; __fn = __stk[--__sp]; __arr = __stk[--__sp];\n");
+                        else
+                            fprintf(out, "        __fn = __stk[--__sp]; __arr = __stk[--__sp];\n");
+                        fprintf(out, "        if(__arr.type != VAL_ARRAY) runtime_error(\"map()/filter()/reduce() 第一个参数必须是数组\");\n");
+                        fprintf(out, "        if(__fn.type != VAL_FUNC) runtime_error(\"map()/filter()/reduce() 第二个参数必须是函数\");\n");
+                        fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
+                        fprintf(out, "        int __n = __arr.v.array.len;\n");
+                        if(in.a == BUILTIN_MAP) {
+                            fprintf(out, "        Value __out = val_array(__n);\n");
+                            fprintf(out, "        for(int __i = 0; __i < __n; __i++) {\n");
+                            fprintf(out, "            Value __a1[1]; __a1[0] = val_clone(&__arr.v.array.items[__i]);\n");
+                            fprintf(out, "            Value __r = __cf(__a1, 1);\n");
+                            fprintf(out, "            __out.v.array.items[__i] = val_clone(&__r);\n");
+                            fprintf(out, "        }\n");
+                            fprintf(out, "        __stk[__sp++] = __out;\n");
+                        } else if(in.a == BUILTIN_FILTER) {
+                            fprintf(out, "        Value __out = val_array(__n); int __cnt = 0;\n");
+                            fprintf(out, "        for(int __i = 0; __i < __n; __i++) {\n");
+                            fprintf(out, "            Value __a1[1]; __a1[0] = val_clone(&__arr.v.array.items[__i]);\n");
+                            fprintf(out, "            Value __r = __cf(__a1, 1);\n");
+                            fprintf(out, "            if(lumin_to_bool(__r)) __out.v.array.items[__cnt++] = val_clone(&__arr.v.array.items[__i]);\n");
+                            fprintf(out, "        }\n");
+                            fprintf(out, "        __out.v.array.len = __cnt;\n");
+                            fprintf(out, "        __stk[__sp++] = __out;\n");
+                        } else {
+                            fprintf(out, "        Value __acc = __init;\n");
+                            fprintf(out, "        for(int __i = 0; __i < __n; __i++) {\n");
+                            fprintf(out, "            Value __a2[2]; __a2[0] = __acc; __a2[1] = val_clone(&__arr.v.array.items[__i]);\n");
+                            fprintf(out, "            __acc = __cf(__a2, 2);\n");
+                            fprintf(out, "        }\n");
+                            fprintf(out, "        __stk[__sp++] = __acc;\n");
+                        }
+                        fprintf(out, "    }\n");
+                        break;
+                    }
                     case BUILTIN_AVG:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_avg(__v); }\n");
                         break;
@@ -315,6 +374,22 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_CALL: {
                 BytecodeFunc* callee = ir_func_table_lookup(nm);
                 if(!callee) {
+                    // 变量中存函数值 → 动态值调用（与 VM OPC_CALL 帧链语义一致）
+                    int is_var = (g_cur_fn && (fn_has_param(g_cur_fn, nm) || ns_has(&fn_locals, nm))) ||
+                                 ns_has(&g_globals, nm);
+                    if(is_var) {
+                        int argc = in.b;
+                        fprintf(out, "    {\n");
+                        fprintf(out, "        Value __f = %s;\n", cvar(nm));
+                        fprintf(out, "        if(__f.type != VAL_FUNC) runtime_error(\"尝试调用非函数: %s\");\n", nm);
+                        fprintf(out, "        int __argc = %d;\n", argc);
+                        fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
+                        fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - __argc + __k];\n");
+                        fprintf(out, "        __sp -= __argc;\n");
+                        fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))__f.v.func.func_obj)(__args, __argc);\n");
+                        fprintf(out, "    }\n");
+                        break;
+                    }
                     fprintf(stderr, "codegen: 未定义函数: %s\n", nm);
                     exit(EXIT_FAILURE);
                 }
@@ -408,6 +483,32 @@ static void emit_func_def(BytecodeFunc* fn)
     fprintf(out, "}\n\n");
 }
 
+// 生成统一签名包装（Value(*)(Value*, int)）与函数表：高阶函数调用入口
+static void emit_func_wraps(void)
+{
+    int cnt = ir_func_table_count();
+    for(int i = 0; i < cnt; i++) {
+        BytecodeFunc* fn = ir_func_table_get(i);
+        fprintf(out, "static Value lum_wrap_%d(Value* a, int n)\n{\n", i);
+        for(int k = 0; k < fn->param_cnt; k++)
+            fprintf(out, "    Value p%d = (n > %d) ? a[%d] : val_none();\n", k, k, k);
+        fprintf(out, "    return lumin_func_%s(", fn->name);
+        int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
+        for(int k = 0; k < total; k++) {
+            if(k) fprintf(out, ", ");
+            if(k < fn->param_cnt) fprintf(out, "p%d", k);
+            else {
+                fprintf(out, "(Value)val_array(0)");   // 变参打包为空数组
+            }
+        }
+        fprintf(out, ");\n}\n\n");
+    }
+    fprintf(out, "static Value (*const lumin_cfunc_tbl[])(Value*, int) = {\n");
+    for(int i = 0; i < cnt; i++)
+        fprintf(out, "    lum_wrap_%d,\n", i);
+    fprintf(out, "};\n\n");
+}
+
 static void emit_main(BytecodeFunc* main_fn)
 {
     // 全局变量：main 指令流里的全部变量引用
@@ -428,6 +529,9 @@ static void emit_main(BytecodeFunc* main_fn)
     for(int i = 0; i < ir_func_table_count(); i++) {
         emit_func_def(ir_func_table_get(i));
     }
+
+    // 高阶函数统一调用包装 + 函数表（VM 端 VAL_FUNC 指向 RuntimeFunc，C 端指向此包装）
+    emit_func_wraps();
 
     // main
     int maxd = bc_analyze_stack(main_fn, NULL, 0);

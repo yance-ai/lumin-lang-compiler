@@ -45,6 +45,16 @@ AstNode* ast_none(void)
     return p;
 }
 
+AstNode* ast_funcref(const char* name)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_FUNCREF;
+    p->val_type = VAL_FUNC;
+    p->line = yylineno;
+    p->u.varname = strdup(name);
+    return p;
+}
+
 AstNode* ast_new_char(char c)
 {
     AstNode* n = ast_new(AST_CHAR);
@@ -373,6 +383,7 @@ void ast_free(AstNode* node) {
             free(node->u.sval);
             break;
         case AST_VAR:
+        case AST_FUNCREF:
             free(node->u.varname);
             break;
         case AST_UNARY:

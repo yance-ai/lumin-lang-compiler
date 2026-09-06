@@ -4,6 +4,7 @@
 #include <string.h>
 #include <limits.h>
 #include <math.h>
+#include <ctype.h>
 
 Value lumin_make_int(long long i) {
     Value v;
@@ -938,4 +939,37 @@ Value lumin_reverse(Value arr) {
     Value r = val_array(n);
     for(int i = 0; i < n; i++) r.v.array.items[i] = val_clone(&arr.v.array.items[n - 1 - i]);
     return r;
+}
+
+// strip：去首尾空白（空格/tab/换行/回车/垂直制表/换页）
+Value lumin_strip(Value s)
+{
+    if(s.type != VAL_STRING) runtime_error("strip() 参数必须是字符串");
+    const char* p = s.v.s;
+    while(*p && isspace((unsigned char)*p)) p++;
+    size_t len = strlen(p);
+    while(len > 0 && isspace((unsigned char)p[len - 1])) len--;
+    char* out = (char*)malloc(len + 1);
+    if(!out) { perror("strip"); exit(EXIT_FAILURE); }
+    memcpy(out, p, len);
+    out[len] = '\0';
+    Value r = lumin_make_string(out);
+    free(out);
+    return r;
+}
+
+// startswith / endswith：前缀/后缀判断
+Value lumin_startswith(Value s, Value prefix)
+{
+    if(s.type != VAL_STRING || prefix.type != VAL_STRING)
+        runtime_error("startswith() 两个参数都必须是字符串");
+    size_t sl = strlen(s.v.s), pl = strlen(prefix.v.s);
+    return lumin_make_bool(pl <= sl && strncmp(s.v.s, prefix.v.s, pl) == 0);
+}
+Value lumin_endswith(Value s, Value suffix)
+{
+    if(s.type != VAL_STRING || suffix.type != VAL_STRING)
+        runtime_error("endswith() 两个参数都必须是字符串");
+    size_t sl = strlen(s.v.s), fl = strlen(suffix.v.s);
+    return lumin_make_bool(fl <= sl && strcmp(s.v.s + sl - fl, suffix.v.s) == 0);
 }

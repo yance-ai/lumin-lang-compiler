@@ -104,6 +104,7 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
     switch(in.op) {
         case OPC_LOAD_CONST:
         case OPC_LOAD_VAR:
+        case OPC_GETFUNC:
         case OPC_PRE_INC: case OPC_POST_INC: case OPC_PRE_DEC: case OPC_POST_DEC:
         case OPC_DUP:
             return +1;
@@ -209,6 +210,7 @@ static const char* opc_name(OpCode op)
     switch(op) {
         case OPC_NOP: return "NOP";
         case OPC_LOAD_CONST: return "LOAD_CONST";
+        case OPC_GETFUNC: return "GETFUNC";
         case OPC_LOAD_VAR: return "LOAD_VAR";
         case OPC_STORE_VAR: return "STORE_VAR";
         case OPC_ADD: return "ADD";
@@ -310,8 +312,8 @@ void bc_disasm(FILE* out, BytecodeFunc* fn)
                 snprintf(txt, sizeof(txt), "ARRAY_LIT n=%d", in.b);
                 break;
             case OPC_BUILTIN: {
-                static const char* bname[] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse"};
-                const char* bn = (in.a >= 0 && in.a < 25) ? bname[in.a] : "?";
+                static const char* bname[] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith"};
+                const char* bn = (in.a >= 0 && in.a < 31) ? bname[in.a] : "?";
                 snprintf(txt, sizeof(txt), "BUILTIN %s argc=%d", bn, in.b);
                 break;
             }

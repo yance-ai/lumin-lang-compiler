@@ -241,6 +241,13 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_VAR:
             emit(c, OPC_LOAD_VAR, bf_sym(c->fn, node->u.varname), 0);
             break;
+        case AST_FUNCREF:
+            // 真函数（全局函数表）→ 取函数值；否则为存函数值的变量 → 读变量
+            if(ir_func_table_lookup(node->u.varname))
+                emit(c, OPC_GETFUNC, bf_sym(c->fn, node->u.varname), 0);
+            else
+                emit(c, OPC_LOAD_VAR, bf_sym(c->fn, node->u.varname), 0);
+            break;
         case AST_ASSIGN:
             c_expr(c, node->u.assign.expr);
             emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.assign.varname), 0);
@@ -332,7 +339,7 @@ static void c_expr(Ctx* c, AstNode* node)
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
-            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse"};
+            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith"};
             int bid = -1;
             if(!ir_func_table_lookup(node->u.call.name)) {
                 for(int k = 0; k < BUILTIN_COUNT; k++) {

@@ -13,6 +13,7 @@ typedef enum {
     AST_CHAR,
     AST_STRING,
     AST_NONE,   // null 字面量
+    AST_FUNCREF,  // 函数名引用（函数作为值）
     AST_VAR,
     AST_BINOP,
     AST_UNARY,

@@ -63,6 +63,9 @@ Value lumin_range_n(Value* args, int n);  // range(n) / range(a,b) / range(a,b,s
 Value lumin_format(Value* args, int n);   // format(fmt, args...)：{} 占位替换
 Value lumin_sort(Value arr);   // sort(arr)：升序（全数字或全字符串），返回新数组
 Value lumin_reverse(Value arr);  // reverse(arr)：反转，返回新数组
+Value lumin_strip(Value s);  // strip(s)：去首尾空白
+Value lumin_startswith(Value s, Value prefix);  // startswith(s, prefix)
+Value lumin_endswith(Value s, Value suffix);    // endswith(s, suffix)
 Value lumin_avg(Value arr);  // avg(arr)：数字数组平均值（double），空数组报错
 
 // ===== 强转新API =====
