@@ -461,9 +461,10 @@ int typecheck_expr(AstNode* node)
                     {"format", 1, -1}, {"sort", 1, 1}, {"reverse", 1, 1},
                     {"map", 2, 2}, {"filter", 2, 2}, {"reduce", 3, 3},
                     {"strip", 1, 1}, {"startswith", 2, 2}, {"endswith", 2, 2},
+                    {"read_file", 1, 1}, {"write_file", 2, 2}, {"file_exists", 1, 1},
                 };
                 int found = 0;
-                for(int k = 0; k < 31; k++) {
+                for(int k = 0; k < 34; k++) {
                     if(strcmp(node->u.call.name, builtins[k].name) == 0) {
                         found = 1;
                         int nargs = count_args(node->u.call.args);

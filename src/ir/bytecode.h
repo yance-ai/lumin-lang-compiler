@@ -75,6 +75,9 @@ typedef enum {
     BUILTIN_STRIP,        // strip(s)
     BUILTIN_STARTSWITH,   // startswith(s, prefix)
     BUILTIN_ENDSWITH,     // endswith(s, suffix)
+    BUILTIN_READ_FILE,    // read_file(path) → 文件内容
+    BUILTIN_WRITE_FILE,   // write_file(path, content)
+    BUILTIN_FILE_EXISTS,  // file_exists(path) → bool
     BUILTIN_COUNT
 } BuiltinId;
 

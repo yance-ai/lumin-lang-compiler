@@ -6,6 +6,7 @@
 #include "ast/ast.h"
 #include "ast/func_compile.h"
 #include <stdio.h>
+#include <string.h>
 extern int yylineno;
 AstNode* new_cast_node(int cast_type, AstNode* child);
 AstNode* maybe_template(const char* s);      // 字符串模板拆解（parse/tmpl.c）
@@ -39,6 +40,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token SWITCH CASE DEFAULT BREAK RETURN
 %token CONTINUE
 %token FUNC ELLIPSIS
+%token READ WRITE
 %token COMMA
 %token AND OR NOT MOD
 %token PLUSEQ MINUSEQ MULEQ DIVEQ
@@ -90,6 +92,12 @@ closed_stmt
     | continue_stmt                  { $$ = $1; }
     | return_stmt                    { $$ = $1; }
     | func_def                       { $$ = $1; }          /* 新增函数定义语句 */
+    | WRITE STRING_LIT expr SEMI {
+          /* write "path" value → write_file(path, value)；路径支持模板内插 */
+          AstNode* p = maybe_template($2);
+          free($2);
+          $$ = L(ast_call(strdup("write_file"), ast_seq(p, $3)));
+      }
     ;
 
 func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
@@ -236,6 +244,12 @@ primary
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
           sym_set(nm, func_val);
+      }
+    | READ STRING_LIT {
+          /* read "path" → 文件内容；路径支持模板内插；结果可后续缀（.len() 等） */
+          AstNode* p = maybe_template($2);
+          free($2);
+          $$ = L(ast_call(strdup("read_file"), p));
       }
     ;
 

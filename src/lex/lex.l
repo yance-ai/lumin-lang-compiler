@@ -72,6 +72,8 @@ static int is_expr_end(int t)
 }
 
 [a-zA-Z_][a-zA-Z0-9_]*  {
+    if(strcmp(yytext, "read") == 0) { fprintf(stderr,"[LEX] READ\n"); LEX_RET(READ); }
+    if(strcmp(yytext, "write") == 0) { fprintf(stderr,"[LEX] WRITE\n"); LEX_RET(WRITE); }
     fprintf(stderr,"[LEX] ID %s\n",yytext);
     yylval.s = strdup(yytext);
     LEX_RET(ID);

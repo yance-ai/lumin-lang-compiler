@@ -303,6 +303,15 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_ENDSWITH:
                         fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_endswith(__l, __r); }\n");
                         break;
+                    case BUILTIN_READ_FILE:
+                        fprintf(out, "    { Value __r = lumin_read_file(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b, in.b);
+                        break;
+                    case BUILTIN_WRITE_FILE:
+                        fprintf(out, "    { Value __r = lumin_write_file(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b, in.b);
+                        break;
+                    case BUILTIN_FILE_EXISTS:
+                        fprintf(out, "    { Value __r = lumin_file_exists(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b, in.b);
+                        break;
                     case BUILTIN_MAP:
                     case BUILTIN_FILTER:
                     case BUILTIN_REDUCE: {

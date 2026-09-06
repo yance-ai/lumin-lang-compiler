@@ -302,6 +302,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_STRIP:   { Value v = stack[--sp]; stack[sp++] = lumin_strip(v); break; }
                     case BUILTIN_STARTSWITH: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_startswith(l, r); break; }
                     case BUILTIN_ENDSWITH:   { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_endswith(l, r); break; }
+                    case BUILTIN_READ_FILE:  { int n2 = in.b; Value r = lumin_read_file(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
+                    case BUILTIN_WRITE_FILE: { int n2 = in.b; Value r = lumin_write_file(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
+                    case BUILTIN_FILE_EXISTS:{ int n2 = in.b; Value r = lumin_file_exists(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
                     case BUILTIN_MAP:
                     case BUILTIN_FILTER:
                     case BUILTIN_REDUCE: {

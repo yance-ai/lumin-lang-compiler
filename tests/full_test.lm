@@ -236,3 +236,22 @@ print("{t2}");                        // x=5（原样，不二次内插）
 print("{{x}} {n2}");                // {x} 5（{{ 转义 + {n2} 内插混合）
 print(format("{{x}} {}", n2));      // {x} 5（format 占位 + 转义混合）
 print("v={\"a{b}c\".len()}");         // v=5（内插表达式内字符串用 \"）
+
+// ============ 11. 文件 IO ============
+print(file_exists("/tmp/ft_io_nonexist.txt")); // false
+write "/tmp/ft_io.txt" "alpha\nbeta\n";
+print(file_exists("/tmp/ft_io.txt"));        // true
+print(read "/tmp/ft_io.txt");                // alpha\nbeta\n
+print(len(read "/tmp/ft_io.txt"));           // 11
+print((read "/tmp/ft_io.txt").strip());      // alpha\nbeta
+lines = split((read "/tmp/ft_io.txt").strip(), "\n");
+print(join(lines, "|"));                     // alpha|beta
+print(lines[1]);                             // beta
+write "/tmp/ft_io.txt" "overwrite";
+print(read "/tmp/ft_io.txt");                // overwrite
+write "/tmp/ft_io.txt" "n={42}";
+print(read "/tmp/ft_io.txt");                // n=42
+idx = 2;
+write "/tmp/ft_data_{idx}.txt" "x";          // 模板路径
+print(file_exists("/tmp/ft_data_2.txt"));    // true
+print(read "/tmp/ft_data_2.txt");            // x
