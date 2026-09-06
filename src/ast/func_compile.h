@@ -2,6 +2,16 @@
 #define FUNC_COMPILE_H
 #include "lumin_value_type.h"
 #include "ast_node_type.h"
+#include "ir/bytecode.h"
+
+// 解释器 payload：挂在 RuntimeFunc.captures（capture_count == -1 标记），不修改 RuntimeFunc 结构体
+typedef struct InterpFuncPayload {
+    AstNode* body;            // 函数体 AST（保留引用，VM 模式不再执行）
+    BytecodeFunc* bytecode;   // 函数体字节码 IR（VM 执行）
+    char** param_names;       // 参数名拷贝（普通参数在前，可变参数最后）
+    int param_cnt;
+    int has_variadic;
+} InterpFuncPayload;
 
 // 将AST_FUNC_DEF节点编译生成RuntimeFunc（不持有AstNode，内部提取信息生成IR/解释器句柄）
 RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast);

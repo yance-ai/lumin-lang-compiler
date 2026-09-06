@@ -1,0 +1,19 @@
+#ifndef LUMIN_IR_COMPILE_H
+#define LUMIN_IR_COMPILE_H
+
+#include "bytecode.h"
+#include "ast/ast_node.h"
+
+// 编译一个 lum 函数体为字节码（yacc 期注册函数时调用）
+BytecodeFunc* ir_compile_function(const char* name, AstNode* params, AstNode* body);
+
+// 编译顶层语句为 main 字节码（执行 / -c 生成 C 共用同一 IR）
+BytecodeFunc* ir_compile_main(AstNode* root);
+
+// 全局函数表（ir_compile_function / ir_compile_main 注册；ir_cgen 遍历用）
+void ir_func_table_reset(void);
+int ir_func_table_count(void);
+BytecodeFunc* ir_func_table_get(int i);
+BytecodeFunc* ir_func_table_lookup(const char* name);
+
+#endif // LUMIN_IR_COMPILE_H

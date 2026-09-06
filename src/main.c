@@ -5,7 +5,9 @@
 
 #include "yacc/yacc.tab.h"
 #include "ast/ast.h"
-#include "codegen/codegen.h"
+#include "ir/ir_compile.h"
+#include "ir/vm.h"
+#include "ir/ir_cgen.h"
 
 extern AstNode* root;
 extern int yyparse(void);
@@ -86,7 +88,9 @@ int main(int argc, char** argv) {
             snprintf(c_path, sizeof(c_path), "%s.c", base);
             snprintf(exe_path, sizeof(exe_path), "%s", base);
 
-            codegen_generate(root, c_path);
+            BytecodeFunc* main_fn = ir_compile_main(root);
+            ir_cgen_file(c_path, main_fn);
+            bytecode_func_free(main_fn);
             printf("[CodeGen] 已生成 %s\n", c_path);
 
             if(!only_emit_c) {
@@ -102,7 +106,10 @@ int main(int argc, char** argv) {
                 }
             }
         } else {
-            ast_eval(root);
+            // 字节码 VM 执行（AST → IR → vm）
+            BytecodeFunc* main_fn = ir_compile_main(root);
+            vm_run_main(main_fn);
+            bytecode_func_free(main_fn);
         }
         ast_free(root);
     }

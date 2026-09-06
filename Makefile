@@ -53,6 +53,8 @@ C_SRCS := $(shell find $(SRC_DIR) \( -path $(SRC_DIR)/runtime -o -path $(BUILD_D
 # 追加自动生成的二进制数据c文件
 C_SRCS += $(RT_EMBED_C_SRC) $(RT_EMBED_C_RT)
 C_SRCS += $(LEX_GEN) $(YACC_GEN_C)
+# 编译器本体链接语言运行时运算层（字节码 VM 解释器直接调用；generate 侧仍以 src/runtime/ 为源）
+C_SRCS += $(SRC_DIR)/runtime/lm_value.c
 
 OBJS := $(C_SRCS:.c=.o)
 

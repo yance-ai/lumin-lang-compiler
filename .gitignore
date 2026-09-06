@@ -66,3 +66,10 @@ generated/yacc.output
 tests/*.lm.c
 tests/*.lm.out
 tests/stackframe_test
+
+# 构建产物 / 生成源码（可重现，不入库）
+bin/
+src/yacc/
+src/embed/
+src/runtime-full/
+src/lex/lex.yy.c
