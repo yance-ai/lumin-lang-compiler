@@ -131,6 +131,78 @@ static void c_args(Ctx* c, AstNode* args, int* argc)
     c_args(c, args->u.seq.second, argc);
 }
 
+// ---------------- 常量折叠 ----------------
+// 纯字面量表达式在编译期求值（调用运行时 lumin_*，语义与执行期一致）。
+// 除零不折叠（保留运行期错误行为）。
+
+static int fold_lit(AstNode* node, Value* out)
+{
+    switch(node->type) {
+        case AST_INT:    *out = lumin_make_int(node->u.inum); return 1;
+        case AST_NUM:    *out = lumin_make_double(node->u.num); return 1;
+        case AST_BOOL:   *out = lumin_make_bool(node->u.bval ? 1 : 0); return 1;
+        case AST_CHAR:   *out = lumin_make_char(node->u.ch); return 1;
+        case AST_STRING: *out = lumin_make_string(node->u.sval); return 1;
+        default:         return 0;
+    }
+}
+
+static int fold_const(Ctx* c, AstNode* node, Value* out)
+{
+    (void)c;
+    switch(node->type) {
+        case AST_INT: case AST_NUM: case AST_BOOL: case AST_CHAR: case AST_STRING:
+            return fold_lit(node, out);
+        case AST_BINOP: {
+            Value l, r;
+            if(!fold_const(c, node->u.bin.left, &l)) return 0;
+            if(!fold_const(c, node->u.bin.right, &r)) return 0;
+            switch(node->u.bin.op) {
+                case OP_ADD: *out = lumin_add(l, r); return 1;
+                case OP_SUB: *out = lumin_sub(l, r); return 1;
+                case OP_MUL: *out = lumin_mul(l, r); return 1;
+                case OP_DIV:
+                    if((r.type == VAL_INT && r.v.i != 0) || (r.type == VAL_DOUBLE && r.v.d != 0.0)) {
+                        *out = lumin_div(l, r);
+                        return 1;
+                    }
+                    return 0;
+                case OP_GT: *out = lumin_gt(l, r); return 1;
+                case OP_LT: *out = lumin_lt(l, r); return 1;
+                case OP_GE: *out = lumin_ge(l, r); return 1;
+                case OP_LE: *out = lumin_le(l, r); return 1;
+                case OP_EQ: *out = lumin_eq(l, r); return 1;
+                case OP_NE: *out = lumin_ne(l, r); return 1;
+                default: return 0;
+            }
+        }
+        case AST_UNARY: {
+            Value v;
+            if(!fold_const(c, node->u.uny.child, &v)) return 0;
+            switch(node->u.uny.op) {
+                case OP_UNARY_PLUS:  *out = lumin_unary_plus(v); return 1;
+                case OP_UNARY_MINUS: *out = lumin_unary_minus(v); return 1;
+                default: return 0;
+            }
+        }
+        case AST_CAST: {
+            Value v;
+            if(!fold_const(c, node->u.cast.child, &v)) return 0;
+            switch(node->u.cast.cast_type) {
+                case CAST_INT:    *out = lumin_cast_int(v); return 1;
+                case CAST_DOUBLE: *out = lumin_cast_double(v); return 1;
+                case CAST_CHAR:   *out = lumin_cast_char(v); return 1;
+                case CAST_BOOL:   *out = lumin_cast_bool(v); return 1;
+                case CAST_STRING: *out = lumin_cast_string(v); return 1;
+                case CAST_ASCII:  *out = lumin_cast_ascii(v); return 1;
+                default: return 0;
+            }
+        }
+        default:
+            return 0;
+    }
+}
+
 static void c_expr(Ctx* c, AstNode* node)
 {
     if(!node) { emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0); return; }
@@ -158,6 +230,11 @@ static void c_expr(Ctx* c, AstNode* node)
             emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.assign.varname), 0);
             break;
         case AST_BINOP: {
+            Value fv;
+            if(fold_const(c, node, &fv)) {
+                emit(c, OPC_LOAD_CONST, bf_const(c->fn, fv), 0);
+                break;
+            }
             c_expr(c, node->u.bin.left);
             c_expr(c, node->u.bin.right);
             static const OpCode map[] = {
@@ -175,13 +252,26 @@ static void c_expr(Ctx* c, AstNode* node)
                 case OP_POST_INC:  emit(c, OPC_POST_INC, bf_sym(c->fn, kid->u.varname), 0); break;
                 case OP_PRE_DEC:   emit(c, OPC_PRE_DEC, bf_sym(c->fn, kid->u.varname), 0); break;
                 case OP_POST_DEC:  emit(c, OPC_POST_DEC, bf_sym(c->fn, kid->u.varname), 0); break;
-                case OP_UNARY_PLUS:  c_expr(c, kid); emit(c, OPC_POS, 0, 0); break;
-                case OP_UNARY_MINUS: c_expr(c, kid); emit(c, OPC_NEG, 0, 0); break;
+                case OP_UNARY_PLUS: {
+                    Value fv;
+                    if(fold_const(c, node, &fv)) { emit(c, OPC_LOAD_CONST, bf_const(c->fn, fv), 0); break; }
+                    c_expr(c, kid); emit(c, OPC_POS, 0, 0); break;
+                }
+                case OP_UNARY_MINUS: {
+                    Value fv;
+                    if(fold_const(c, node, &fv)) { emit(c, OPC_LOAD_CONST, bf_const(c->fn, fv), 0); break; }
+                    c_expr(c, kid); emit(c, OPC_NEG, 0, 0); break;
+                }
                 default: break;
             }
             break;
         }
         case AST_CAST: {
+            Value fv;
+            if(fold_const(c, node, &fv)) {
+                emit(c, OPC_LOAD_CONST, bf_const(c->fn, fv), 0);
+                break;
+            }
             c_expr(c, node->u.cast.child);
             static const OpCode cmap[] = {
                 [CAST_INT] = OPC_CAST_INT, [CAST_DOUBLE] = OPC_CAST_DOUBLE,

@@ -75,34 +75,45 @@ int main(int argc, char** argv) {
             root = NULL;
             ret = 1;
         } else if(codegen_mode) {
-            char base[256];
-            if(out_base) {
-                strncpy(base, out_base, sizeof(base) - 1);
-                base[sizeof(base) - 1] = '\0';
+            if(only_emit_c) {
+                // -S：输出字节码指令文本（反汇编）
+                BytecodeFunc* main_fn = ir_compile_main(root);
+                for(int k = 0; k < ir_func_table_count(); k++) {
+                    bc_disasm(stdout, ir_func_table_get(k));
+                }
+                bc_disasm(stdout, main_fn);
+                bytecode_func_free(main_fn);
+                ret = 0;
             } else {
-                default_basename(src_file, base, sizeof(base));
-            }
-
-            char c_path[300];
-            char exe_path[300];
-            snprintf(c_path, sizeof(c_path), "%s.c", base);
-            snprintf(exe_path, sizeof(exe_path), "%s", base);
-
-            BytecodeFunc* main_fn = ir_compile_main(root);
-            ir_cgen_file(c_path, main_fn);
-            bytecode_func_free(main_fn);
-            printf("[CodeGen] 已生成 %s\n", c_path);
-
-            if(!only_emit_c) {
-                char cmd[512];
-                snprintf(cmd, sizeof(cmd), "gcc -std=gnu11 %s -o %s", c_path, exe_path);
-                int sys_ret = system(cmd);
-
-                if(sys_ret == 0) {
-                    printf("[CodeGen] 已编译为 ./%s\n", exe_path);
+                char base[256];
+                if(out_base) {
+                    strncpy(base, out_base, sizeof(base) - 1);
+                    base[sizeof(base) - 1] = '\0';
                 } else {
-                    fprintf(stderr, "[CodeGen] gcc 编译失败\n");
-                    return 1;
+                    default_basename(src_file, base, sizeof(base));
+                }
+
+                char c_path[300];
+                char exe_path[300];
+                snprintf(c_path, sizeof(c_path), "%s.c", base);
+                snprintf(exe_path, sizeof(exe_path), "%s", base);
+
+                BytecodeFunc* main_fn = ir_compile_main(root);
+                ir_cgen_file(c_path, main_fn);
+                bytecode_func_free(main_fn);
+                printf("[CodeGen] 已生成 %s\n", c_path);
+
+                if(!only_emit_c) {
+                    char cmd[512];
+                    snprintf(cmd, sizeof(cmd), "gcc -std=gnu11 %s -o %s", c_path, exe_path);
+                    int sys_ret = system(cmd);
+
+                    if(sys_ret == 0) {
+                        printf("[CodeGen] 已编译为 ./%s\n", exe_path);
+                    } else {
+                        fprintf(stderr, "[CodeGen] gcc 编译失败\n");
+                        return 1;
+                    }
                 }
             }
         } else {

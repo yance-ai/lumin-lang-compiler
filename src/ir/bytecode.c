@@ -95,3 +95,209 @@ void bf_patch(BytecodeFunc* fn, int pos, int target)
     }
     fn->code[pos].a = target;
 }
+
+// ---------------- 静态栈深度分析 ----------------
+
+// 指令对栈的净变化（执行一条指令前后 sp 差）
+static int op_stack_delta(BytecodeFunc* fn, Instruction in)
+{
+    switch(in.op) {
+        case OPC_LOAD_CONST:
+        case OPC_LOAD_VAR:
+        case OPC_PRE_INC: case OPC_POST_INC: case OPC_PRE_DEC: case OPC_POST_DEC:
+        case OPC_DUP:
+            return +1;
+        case OPC_POP:
+            return -1;
+        case OPC_ADD: case OPC_SUB: case OPC_MUL: case OPC_DIV:
+        case OPC_GT: case OPC_LT: case OPC_GE: case OPC_LE: case OPC_EQ: case OPC_NE:
+            return -1;                       // 弹2压1
+        case OPC_NEG: case OPC_POS:
+        case OPC_CAST_INT: case OPC_CAST_DOUBLE: case OPC_CAST_CHAR:
+        case OPC_CAST_BOOL: case OPC_CAST_STRING: case OPC_CAST_ASCII:
+            return 0;                        // 弹1压1
+        case OPC_STORE_VAR:
+            return 0;                        // 弹1压1
+        case OPC_PRINT:
+        case OPC_TO_BOOL:
+        case OPC_JMP:
+        case OPC_RETURN_NIL:
+        case OPC_HALT:
+        case OPC_NOP:
+            return 0;
+        case OPC_JMP_IF_FALSE:
+        case OPC_JMP_IF_TRUE:
+            return -1;                       // 弹条件
+        case OPC_CALL:
+            return -in.b + 1;                // 弹 argc 实参，压 1 返回值
+        case OPC_RETURN:
+            return -1;                       // 弹返回值
+    }
+    return 0;
+}
+
+// 指令执行瞬间的额外栈高（压栈动作造成的峰值超出进入深度部分）
+static int op_stack_push(OpCode op)
+{
+    switch(op) {
+        case OPC_LOAD_CONST:
+        case OPC_LOAD_VAR:
+        case OPC_PRE_INC: case OPC_POST_INC: case OPC_PRE_DEC: case OPC_POST_DEC:
+        case OPC_DUP:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+int bc_analyze_stack(BytecodeFunc* fn, int* depth_out, int depth_cap)
+{
+    if(!fn || fn->code_len == 0) return 0;
+    int n = fn->code_len;
+    int* d = (int*)malloc(sizeof(int) * n);
+    if(!d) { perror("bc_analyze_stack"); exit(EXIT_FAILURE); }
+    for(int i = 0; i < n; i++) d[i] = -1;
+    d[0] = 0;
+
+    // 数据流迭代：顺序后继 + 跳转后继，直到收敛
+    int changed = 1;
+    while(changed) {
+        changed = 0;
+        for(int i = 0; i < n; i++) {
+            if(d[i] < 0) continue;
+            Instruction in = fn->code[i];
+            int nd = d[i] + op_stack_delta(fn, in);
+            if(nd < 0) {
+                fprintf(stderr, "IR 栈深分析: 指令 %d 栈下溢（深度 %d）——IR 生成错误\n", i, nd);
+                free(d);
+                return -1;
+            }
+            if(in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE) {
+                if(in.a >= 0 && in.a < n && d[in.a] < nd) { d[in.a] = nd; changed = 1; }
+            }
+            if(in.op != OPC_RETURN && in.op != OPC_RETURN_NIL && in.op != OPC_HALT &&
+               in.op != OPC_JMP) {
+                if(i + 1 < n && d[i + 1] < nd) { d[i + 1] = nd; changed = 1; }
+            }
+        }
+    }
+
+    int maxd = 0;
+    for(int i = 0; i < n; i++) {
+        int depth = (d[i] < 0) ? 0 : d[i];   // 不可达指令深度记 0
+        if(depth_out && i < depth_cap) depth_out[i] = depth;
+        int peak = depth + op_stack_push(fn->code[i].op);
+        if(peak > maxd) maxd = peak;
+    }
+    free(d);
+    return maxd;
+}
+
+// ---------------- 反汇编（-S） ----------------
+
+static const char* opc_name(OpCode op)
+{
+    switch(op) {
+        case OPC_NOP: return "NOP";
+        case OPC_LOAD_CONST: return "LOAD_CONST";
+        case OPC_LOAD_VAR: return "LOAD_VAR";
+        case OPC_STORE_VAR: return "STORE_VAR";
+        case OPC_ADD: return "ADD";
+        case OPC_SUB: return "SUB";
+        case OPC_MUL: return "MUL";
+        case OPC_DIV: return "DIV";
+        case OPC_GT: return "GT";
+        case OPC_LT: return "LT";
+        case OPC_GE: return "GE";
+        case OPC_LE: return "LE";
+        case OPC_EQ: return "EQ";
+        case OPC_NE: return "NE";
+        case OPC_NEG: return "NEG";
+        case OPC_POS: return "POS";
+        case OPC_PRE_INC: return "PRE_INC";
+        case OPC_POST_INC: return "POST_INC";
+        case OPC_PRE_DEC: return "PRE_DEC";
+        case OPC_POST_DEC: return "POST_DEC";
+        case OPC_CAST_INT: return "CAST_INT";
+        case OPC_CAST_DOUBLE: return "CAST_DOUBLE";
+        case OPC_CAST_CHAR: return "CAST_CHAR";
+        case OPC_CAST_BOOL: return "CAST_BOOL";
+        case OPC_CAST_STRING: return "CAST_STRING";
+        case OPC_CAST_ASCII: return "CAST_ASCII";
+        case OPC_PRINT: return "PRINT";
+        case OPC_TO_BOOL: return "TO_BOOL";
+        case OPC_DUP: return "DUP";
+        case OPC_POP: return "POP";
+        case OPC_JMP: return "JMP";
+        case OPC_JMP_IF_FALSE: return "JMP_IF_FALSE";
+        case OPC_JMP_IF_TRUE: return "JMP_IF_TRUE";
+        case OPC_CALL: return "CALL";
+        case OPC_RETURN: return "RETURN";
+        case OPC_RETURN_NIL: return "RETURN_NIL";
+        case OPC_HALT: return "HALT";
+    }
+    return "?";
+}
+
+static void const_to_text(Value v, char* buf, int cap)
+{
+    switch(v.type) {
+        case VAL_INT:    snprintf(buf, cap, "%lld", v.v.i); break;
+        case VAL_DOUBLE: snprintf(buf, cap, "%.17g", v.v.d); break;
+        case VAL_BOOL:   snprintf(buf, cap, "%s", v.v.b ? "true" : "false"); break;
+        case VAL_CHAR:   snprintf(buf, cap, "'%c'", v.v.c); break;
+        case VAL_STRING: snprintf(buf, cap, "\"%s\"", v.v.s); break;
+        default:         snprintf(buf, cap, "nil"); break;
+    }
+}
+
+void bc_disasm(FILE* out, BytecodeFunc* fn)
+{
+    int* depth = (int*)malloc(sizeof(int) * (fn->code_len ? fn->code_len : 1));
+    int maxd = bc_analyze_stack(fn, depth, fn->code_len);
+
+    fprintf(out, "%s (code_len=%d, max_stack=%d):\n",
+            fn->name ? fn->name : "<main>", fn->code_len, maxd);
+    if(fn->param_cnt > 0 || fn->has_variadic) {
+        fprintf(out, "  ; params:");
+        for(int i = 0; i < fn->param_cnt + fn->has_variadic; i++) {
+            fprintf(out, " %s", fn->params[i]);
+        }
+        fprintf(out, "%s\n", fn->has_variadic ? " ..." : "");
+    }
+
+    for(int i = 0; i < fn->code_len; i++) {
+        Instruction in = fn->code[i];
+        char txt[256];
+        switch(in.op) {
+            case OPC_LOAD_CONST: {
+                char cb[128];
+                const_to_text(fn->consts[in.a], cb, sizeof(cb));
+                snprintf(txt, sizeof(txt), "%s %d ; %s", opc_name(in.op), in.a, cb);
+                break;
+            }
+            case OPC_LOAD_VAR:
+            case OPC_STORE_VAR:
+            case OPC_PRE_INC: case OPC_POST_INC: case OPC_PRE_DEC: case OPC_POST_DEC:
+                snprintf(txt, sizeof(txt), "%s %s", opc_name(in.op),
+                         (in.a >= 0 && in.a < fn->sym_cnt) ? fn->syms[in.a] : "?");
+                break;
+            case OPC_JMP:
+            case OPC_JMP_IF_FALSE:
+            case OPC_JMP_IF_TRUE:
+                snprintf(txt, sizeof(txt), "%s L%d", opc_name(in.op), in.a);
+                break;
+            case OPC_CALL:
+                snprintf(txt, sizeof(txt), "CALL %s argc=%d",
+                         (in.a >= 0 && in.a < fn->sym_cnt) ? fn->syms[in.a] : "?", in.b);
+                break;
+            default:
+                snprintf(txt, sizeof(txt), "%s", opc_name(in.op));
+                break;
+        }
+        int d = (i < fn->code_len) ? depth[i] : 0;
+        fprintf(out, "  %4d: [%2d] %-20s\n", i, d, txt);
+    }
+    free(depth);
+    fputc('\n', out);
+}

@@ -58,4 +58,11 @@ void bf_emit(BytecodeFunc* fn, OpCode op, int a, int b);
 int bf_emit_here(BytecodeFunc* fn, OpCode op, int a, int b);
 void bf_patch(BytecodeFunc* fn, int pos, int target);
 
+// 静态栈深度分析：计算每条指令执行前的栈深（写入 depth_out，可 NULL），
+// 返回整个函数的最大栈深。IR 生成正确时每点栈深确定；不可达指令深度记 0。
+int bc_analyze_stack(BytecodeFunc* fn, int* depth_out, int depth_cap);
+
+// 反汇编：输出指令文本（-S 模式）
+void bc_disasm(FILE* out, BytecodeFunc* fn);
+
 #endif // LUMIN_IR_BYTECODE_H

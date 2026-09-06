@@ -46,12 +46,23 @@ Value vm_func_entry(int arg_cnt, const Value* args, EvalCtx* ctx, StackFrame* fr
 
 static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
 {
-    Value stack[VM_STACK_MAX];
+    // 静态栈深度分析：精确分配执行栈，并校验 IR 栈平衡
+    int maxd = bc_analyze_stack(bf, NULL, 0);
+    if(maxd < 0) exit(EXIT_FAILURE);   // 已打印下溢位置
+    if(maxd + 2 > VM_STACK_MAX) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "vm: 函数 %s 需要栈深 %d 超过上限 %d",
+                 bf->name ? bf->name : "<main>", maxd, VM_STACK_MAX);
+        runtime_error(buf);
+    }
+    Value* stack = (Value*)malloc(sizeof(Value) * (maxd + 2));
+    if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
     int sp = 0;
     int pc = 0;
 
     if(getenv("LUMIN_BC_DUMP")) {
-        fprintf(stderr, "== bc dump: %s (code_len=%d) ==\n", bf->name ? bf->name : "<main>", bf->code_len);
+        fprintf(stderr, "== bc dump: %s (code_len=%d, max_stack=%d) ==\n",
+                bf->name ? bf->name : "<main>", bf->code_len, maxd);
         for(int i = 0; i < bf->code_len; i++) {
             Instruction in = bf->code[i];
             const char* n = (in.a >= 0 && in.a < bf->sym_cnt) ? bf->syms[in.a] : "?";
@@ -189,11 +200,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             }
             case OPC_RETURN: {
                 Value v = stack[--sp];
+                free(stack);
                 return val_clone(&v);
             }
             case OPC_RETURN_NIL:
+                free(stack);
                 return val_none();
             case OPC_HALT:
+                free(stack);
                 return val_none();
             default:
                 runtime_error("vm: 未知指令");

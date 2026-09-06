@@ -293,8 +293,9 @@ static void emit_func_def(BytecodeFunc* fn)
         if(i) fprintf(out, ", ");
         fprintf(out, "Value lmloc_%s", fn->params[i]);
     }
+    int maxd = bc_analyze_stack(fn, NULL, 0);
     fprintf(out, ")\n{\n");
-    fprintf(out, "    Value __stk[256];\n");
+    fprintf(out, "    Value __stk[%d];\n", maxd + 2);
     fprintf(out, "    int __sp = 0;\n");
     for(int i = 0; i < fn_locals.count; i++) {
         fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
@@ -327,8 +328,9 @@ static void emit_main(BytecodeFunc* main_fn)
     }
 
     // main
+    int maxd = bc_analyze_stack(main_fn, NULL, 0);
     fprintf(out, "int main(void){\n");
-    fprintf(out, "    Value __stk[256];\n");
+    fprintf(out, "    Value __stk[%d];\n", maxd + 2);
     fprintf(out, "    int __sp = 0;\n");
     g_cur_fn = NULL;
     emit_insns(main_fn);
