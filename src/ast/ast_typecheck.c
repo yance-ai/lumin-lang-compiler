@@ -590,8 +590,8 @@ int typecheck_expr(AstNode* node)
                     {"threadlocal_get", 1, 1}, {"threadlocal_set", 2, 2},
                     {"get", 1, 3}, {"post", 1, 3}, {"put", 1, 3}, {"delete", 1, 3}, {"head", 1, 3}, {"patch", 1, 3},
                     {"json", 1, 1}, {"stringify", 1, 1},
-                    {"add", 2, 2}, {"remove", 2, 2}, {"clear", 1, 1},
-                    {"arr_get", 2, 2}, {"indexOf", 2, 2}, {"set", 3, 3}, {"first", 1, 1}, {"last", 1, 1},
+                    {"add", 2, 3}, {"remove", 2, 2}, {"clear", 1, 1},
+                    {"arr_get", 2, 2}, {"indexOf", 2, 2}, {"set", 3, 3}, {"first", 1, 1}, {"last", 1, 1}, {"has", 2, 2},
                 };
                 int found = 0;
                 int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));

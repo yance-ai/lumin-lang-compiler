@@ -21,3 +21,6 @@ Value lumin_array_get_safe(Value arr, Value idx); // 安全取，越界 → null
 Value lumin_array_set_method(Value arr, Value idx, Value val); // 原地改，返回数组
 Value lumin_array_first(Value arr);               // 首元素，空 → null
 Value lumin_array_last(Value arr);                // 尾元素，空 → null
+
+Value lumin_map_add(Value m, Value k, Value v);  // 字典设键值，返回 m（m.add(k,v)）
+Value lumin_array_clear(Value v);                // 清空容器：数组→[]，字典→{}

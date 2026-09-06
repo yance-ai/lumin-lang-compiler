@@ -430,7 +430,10 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_HTTP_POST:
                     case BUILTIN_HTTP_PUT:
                     case BUILTIN_ARRAY_ADD:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_add(__arr, __v); }\n");
+                        if(in.b == 3)
+                            fprintf(out, "    { Value __v = __stk[--__sp]; Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_map_add(__m, __k, __v); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_add(__arr, __v); }\n");
                         break;
                     case BUILTIN_ARRAY_REMOVE:
                         fprintf(out, "    { Value __idx = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
@@ -451,7 +454,10 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_last(__arr); }\n");
                         break;
                     case BUILTIN_ARRAY_CLEAR:
-                        fprintf(out, "    { __stk[--__sp]; __stk[__sp++] = val_array(0); }\n");
+                        fprintf(out, "    { Value __c = __stk[--__sp]; __stk[__sp++] = lumin_array_clear(__c); }\n");
+                        break;
+                    case BUILTIN_MAP_HAS:
+                        fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(__k.type == VAL_STRING && lumin_map_has(__m, __k.v.s)); }\n");
                         break;
                     case BUILTIN_JSON:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse(__v.v.s); }\n");
@@ -467,7 +473,10 @@ static void emit_insns(BytecodeFunc* fn)
                             case BUILTIN_HTTP_POST:   m = "POST"; break;
                             case BUILTIN_HTTP_PUT:    m = "PUT"; break;
                             case BUILTIN_ARRAY_ADD:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_add(__arr, __v); }\n");
+                        if(in.b == 3)
+                            fprintf(out, "    { Value __v = __stk[--__sp]; Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_map_add(__m, __k, __v); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_add(__arr, __v); }\n");
                         break;
                     case BUILTIN_ARRAY_REMOVE:
                         fprintf(out, "    { Value __idx = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
@@ -488,7 +497,10 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_last(__arr); }\n");
                         break;
                     case BUILTIN_ARRAY_CLEAR:
-                        fprintf(out, "    { __stk[--__sp]; __stk[__sp++] = val_array(0); }\n");
+                        fprintf(out, "    { Value __c = __stk[--__sp]; __stk[__sp++] = lumin_array_clear(__c); }\n");
+                        break;
+                    case BUILTIN_MAP_HAS:
+                        fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(__k.type == VAL_STRING && lumin_map_has(__m, __k.v.s)); }\n");
                         break;
                     case BUILTIN_JSON:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse(__v.v.s); }\n");

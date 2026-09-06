@@ -80,6 +80,29 @@ c = [].add(1).add(2).add(3).set(0, 8).add(4);  // 链式组合
 print(join(c, ","));            // 8,2,3,4
 print(c.indexOf(3));            // 2
 
+print("== map 方法（get/set/add/has/remove/first/last/clear）==");
+m = {"a": 1, "b": "x"};
+print(m.get("a"));             // 1（安全取键）
+print(m.get("zz") == null);    // true（缺键 null）
+print(m.has("a"));             // true（键存在）
+print(m.has("zz"));            // false
+m.set("c", 42);                // 设键（原地）
+print(m["c"]);                 // 42
+m2 = m.add("d", 99);           // add 设键，返回 m（链式）
+print(m["d"]);                 // 99
+print(m2 == m);                // true（原地 + 返回自身）
+print(m.remove("a")["b"]);     // x（remove 删键，返回新 map）
+print(m.has("a"));             // true（remove 值语义，原 map 不变）
+print(m.first());              // 1（首键值，插入序）
+print(m.last());               // 99（尾键值）
+print(m.clear() == {});        // true（清空返回空 map）
+n = {}.add("x", 1).add("y", 2).set("z", 3);  // 链式
+print(n["y"]);                 // 2
+print(n.first());              // 1
+print(n.last());               // 3
+print(len(n.keys()));          // 3（map 方法嵌套）
+print(n.values()[0]);          // 1
+
 print("== 边界 ==");
 print(len([].clear()));                // 0
 try { [1, 2].remove(5); print("no"); } catch (e) { print("caught"); }

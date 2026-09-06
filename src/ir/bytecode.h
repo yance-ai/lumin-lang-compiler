@@ -124,6 +124,7 @@ typedef enum {
     BUILTIN_ARRAY_SET,    // set(arr, i, v)：原地改，返回数组（arr.set(i,v) 链式）
     BUILTIN_ARRAY_FIRST,  // first(arr)：首元素（空 → null）
     BUILTIN_ARRAY_LAST,   // last(arr)：尾元素（空 → null）
+    BUILTIN_MAP_HAS,      // has(m, k)：键是否存在（m.has(k) 方法链）
     BUILTIN_COUNT
 } BuiltinId;
 

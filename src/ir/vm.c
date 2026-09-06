@@ -524,9 +524,16 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_HTTP_POST:
                     case BUILTIN_HTTP_PUT:
                     case BUILTIN_ARRAY_ADD: {
-                        Value v = stack[--sp];
-                        Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_add(arr, v);
+                        if(in.b == 3) {
+                            Value v = stack[--sp];
+                            Value k = stack[--sp];
+                            Value m = stack[--sp];
+                            stack[sp++] = lumin_map_add(m, k, v);
+                        } else {
+                            Value v = stack[--sp];
+                            Value arr = stack[--sp];
+                            stack[sp++] = lumin_array_add(arr, v);
+                        }
                         break;
                     }
                     case BUILTIN_ARRAY_REMOVE: {
@@ -565,8 +572,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_ARRAY_CLEAR: {
-                        stack[--sp];
-                        stack[sp++] = val_array(0);
+                        Value c = stack[--sp];
+                        stack[sp++] = lumin_array_clear(c);
+                        break;
+                    }
+                    case BUILTIN_MAP_HAS: {
+                        Value k = stack[--sp];
+                        Value m = stack[--sp];
+                        stack[sp++] = lumin_make_bool(k.type == VAL_STRING && lumin_map_has(m, k.v.s));
                         break;
                     }
                     case BUILTIN_JSON: {
@@ -592,9 +605,16 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             case BUILTIN_HTTP_POST:   m = "POST"; break;
                             case BUILTIN_HTTP_PUT:    m = "PUT"; break;
                             case BUILTIN_ARRAY_ADD: {
-                        Value v = stack[--sp];
-                        Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_add(arr, v);
+                        if(in.b == 3) {
+                            Value v = stack[--sp];
+                            Value k = stack[--sp];
+                            Value m = stack[--sp];
+                            stack[sp++] = lumin_map_add(m, k, v);
+                        } else {
+                            Value v = stack[--sp];
+                            Value arr = stack[--sp];
+                            stack[sp++] = lumin_array_add(arr, v);
+                        }
                         break;
                     }
                     case BUILTIN_ARRAY_REMOVE: {
@@ -633,8 +653,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_ARRAY_CLEAR: {
-                        stack[--sp];
-                        stack[sp++] = val_array(0);
+                        Value c = stack[--sp];
+                        stack[sp++] = lumin_array_clear(c);
+                        break;
+                    }
+                    case BUILTIN_MAP_HAS: {
+                        Value k = stack[--sp];
+                        Value m = stack[--sp];
+                        stack[sp++] = lumin_make_bool(k.type == VAL_STRING && lumin_map_has(m, k.v.s));
                         break;
                     }
                     case BUILTIN_JSON: {

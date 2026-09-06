@@ -92,6 +92,11 @@ Value lumin_index_of(Value arr, Value x)
 // arr_get(arr, i)：安全取（越界/非数组 → null，不抛错）
 Value lumin_array_get_safe(Value arr, Value idx)
 {
+    if(arr.type == VAL_MAP) {
+        if(idx.type != VAL_STRING) return val_none();
+        int i = lumin_map_find(arr.v.map, idx.v.s);
+        return i < 0 ? val_none() : arr.v.map->values[i];
+    }
     if(arr.type != VAL_ARRAY) return val_none();
     if(idx.type != VAL_INT) return val_none();
     long long i = idx.v.i;
@@ -102,7 +107,12 @@ Value lumin_array_get_safe(Value arr, Value idx)
 // set(arr, i, v)：原地改（与 a[i]=v 一致），返回数组本身支持链式
 Value lumin_array_set_method(Value arr, Value idx, Value val)
 {
-    if(arr.type != VAL_ARRAY) runtime_error("set() 第一个参数必须是数组");
+    if(arr.type == VAL_MAP) {
+        if(idx.type != VAL_STRING) runtime_error("set() 字典键必须是字符串");
+        lumin_map_set(&arr, idx, val);
+        return arr;
+    }
+    if(arr.type != VAL_ARRAY) runtime_error("set() 第一个参数必须是数组或字典");
     if(idx.type != VAL_INT) runtime_error("set() 下标必须是整数");
     long long i = idx.v.i;
     if(i < 0 || i >= arr.v.array.len) {
@@ -118,13 +128,34 @@ Value lumin_array_set_method(Value arr, Value idx, Value val)
 // first(arr) / last(arr)：首/尾元素（空数组 → null）
 Value lumin_array_first(Value arr)
 {
+    if(arr.type == VAL_MAP)
+        return arr.v.map->len == 0 ? val_none() : arr.v.map->values[0];
     if(arr.type != VAL_ARRAY || arr.v.array.len == 0) return val_none();
     return arr.v.array.items[0];
 }
 Value lumin_array_last(Value arr)
 {
+    if(arr.type == VAL_MAP)
+        return arr.v.map->len == 0 ? val_none() : arr.v.map->values[arr.v.map->len - 1];
     if(arr.type != VAL_ARRAY || arr.v.array.len == 0) return val_none();
     return arr.v.array.items[arr.v.array.len - 1];
+}
+
+// add 的 map 路径：m.add(k, v) 设键值，返回 m（链式）
+Value lumin_map_add(Value m, Value k, Value v)
+{
+    if(m.type != VAL_MAP) runtime_error("add() 第一个参数必须是数组或字典");
+    if(k.type != VAL_STRING) runtime_error("add() 字典键必须是字符串");
+    lumin_map_set(&m, k, v);
+    return m;
+}
+
+// clear 容器：数组 → 空数组；字典 → 空字典
+Value lumin_array_clear(Value v)
+{
+    if(v.type == VAL_MAP) return val_map();
+    if(v.type != VAL_ARRAY) runtime_error("clear() 参数必须是数组或字典");
+    return val_array(0);
 }
 
 // floor/ceil：向下/向上取整，返回 int
