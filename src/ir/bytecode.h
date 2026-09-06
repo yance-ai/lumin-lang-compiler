@@ -116,6 +116,9 @@ typedef enum {
     BUILTIN_HTTP_PATCH,   // requests.patch(url, params?, config?)
     BUILTIN_JSON,         // json(s)：解析 JSON 文本 → 值
     BUILTIN_STRINGIFY,    // stringify(v)：值 → JSON 文本
+    BUILTIN_ARRAY_ADD,    // add(arr, x)：追加元素，返回新数组（arr.add(x) 方法链）
+    BUILTIN_ARRAY_REMOVE, // remove(arr, i)：删下标 i，返回新数组（arr.remove(i)）
+    BUILTIN_ARRAY_CLEAR,  // clear(arr)：清空，返回空数组（arr.clear()）
     BUILTIN_COUNT
 } BuiltinId;
 

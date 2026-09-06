@@ -51,6 +51,17 @@ Value lumin_del(Value arr, Value idx)
     return r;
 }
 
+// add(arr, val)：追加元素，返回新数组（arr.add(x) 方法链 / add(arr,x) 内置）
+Value lumin_array_add(Value arr, Value val)
+{
+    if(arr.type != VAL_ARRAY) runtime_error("add() 第一个参数必须是数组");
+    int n = arr.v.array.len;
+    Value r = val_array(n + 1);
+    for(int k = 0; k < n; k++) r.v.array.items[k] = val_clone(&arr.v.array.items[k]);
+    r.v.array.items[n] = val_clone(&val);
+    return r;
+}
+
 // insert(arr, idx, val)：返回在第 idx 个位置插入 val 后的新数组（idx 允许 0..n）
 
 Value lumin_insert(Value arr, Value idx, Value val)

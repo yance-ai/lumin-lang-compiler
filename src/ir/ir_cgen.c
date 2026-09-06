@@ -429,6 +429,15 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_HTTP_GET:
                     case BUILTIN_HTTP_POST:
                     case BUILTIN_HTTP_PUT:
+                    case BUILTIN_ARRAY_ADD:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_add(__arr, __v); }\n");
+                        break;
+                    case BUILTIN_ARRAY_REMOVE:
+                        fprintf(out, "    { Value __idx = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
+                        break;
+                    case BUILTIN_ARRAY_CLEAR:
+                        fprintf(out, "    { __stk[--__sp]; __stk[__sp++] = val_array(0); }\n");
+                        break;
                     case BUILTIN_JSON:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse(__v.v.s); }\n");
                         break;
@@ -442,7 +451,16 @@ static void emit_insns(BytecodeFunc* fn)
                         switch(in.a) {
                             case BUILTIN_HTTP_POST:   m = "POST"; break;
                             case BUILTIN_HTTP_PUT:    m = "PUT"; break;
-                            case BUILTIN_JSON:
+                            case BUILTIN_ARRAY_ADD:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_add(__arr, __v); }\n");
+                        break;
+                    case BUILTIN_ARRAY_REMOVE:
+                        fprintf(out, "    { Value __idx = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
+                        break;
+                    case BUILTIN_ARRAY_CLEAR:
+                        fprintf(out, "    { __stk[--__sp]; __stk[__sp++] = val_array(0); }\n");
+                        break;
+                    case BUILTIN_JSON:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse(__v.v.s); }\n");
                         break;
                     case BUILTIN_STRINGIFY:

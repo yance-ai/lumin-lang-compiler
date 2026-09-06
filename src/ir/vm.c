@@ -523,6 +523,23 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_HTTP_GET:
                     case BUILTIN_HTTP_POST:
                     case BUILTIN_HTTP_PUT:
+                    case BUILTIN_ARRAY_ADD: {
+                        Value v = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_add(arr, v);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_REMOVE: {
+                        Value idx = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_del(arr, idx);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_CLEAR: {
+                        stack[--sp];
+                        stack[sp++] = val_array(0);
+                        break;
+                    }
                     case BUILTIN_JSON: {
                         Value v = stack[--sp];
                         stack[sp++] = lumin_json_parse(v.v.s);
@@ -545,7 +562,24 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         switch(in.a) {
                             case BUILTIN_HTTP_POST:   m = "POST"; break;
                             case BUILTIN_HTTP_PUT:    m = "PUT"; break;
-                            case BUILTIN_JSON: {
+                            case BUILTIN_ARRAY_ADD: {
+                        Value v = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_add(arr, v);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_REMOVE: {
+                        Value idx = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_del(arr, idx);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_CLEAR: {
+                        stack[--sp];
+                        stack[sp++] = val_array(0);
+                        break;
+                    }
+                    case BUILTIN_JSON: {
                         Value v = stack[--sp];
                         stack[sp++] = lumin_json_parse(v.v.s);
                         break;

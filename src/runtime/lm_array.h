@@ -13,3 +13,5 @@ Value lumin_sort(Value arr);              // sort(arr)：升序，返回新数�
 Value lumin_reverse(Value arr);           // reverse(arr)：反转，返回新数组
 
 #endif //LM_ARRAY_H
+
+Value lumin_array_add(Value arr, Value val);  // 追加元素，返回新数组

@@ -355,8 +355,8 @@ postfix_expr
               $$ = L(ast_call($3, margs ? ast_seq_front(margs, recv) : recv));
           }
       }
-    /* 无参方法 a.b → b(a) */
-    | postfix_expr DOT ID { $$ = L(ast_call($3, $1)); }
+    /* 属性访问 a.b → a["b"]（map 点属性；无参方法链语法不再保留） */
+    | postfix_expr DOT ID { $$ = L(ast_index($1, ast_string($3))); }
     ;
 
 /* 字典字面量 {"k": v, name: 1, ...}；键为字符串字面量（支持模板）或标识符 */
@@ -441,6 +441,9 @@ assignment_expr
         { $$ = ast_index_assign($1, $3, ast_binop(OP_MUL, ast_index(ast_clone_node($1), ast_clone_node($3)), $6)); }
     | postfix_expr LBRACKET expr RBRACKET DIVEQ assignment_expr
         { $$ = ast_index_assign($1, $3, ast_binop(OP_DIV, ast_index(ast_clone_node($1), ast_clone_node($3)), $6)); }
+    /* 属性赋值 m.key = v → m["key"] = v */
+    | postfix_expr DOT ID ASSIGN assignment_expr
+        { $$ = ast_index_assign($1, ast_string($3), $5); }
     ;
 
 expr
