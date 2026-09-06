@@ -8,6 +8,7 @@
 AstNode* ast_int(long long v);
 AstNode* ast_num(double v);
 AstNode* ast_bool(_Bool v);
+AstNode* ast_none(void);
 AstNode* ast_new_char(char c);
 AstNode* ast_string(const char* s);
 AstNode* ast_var(char* name);

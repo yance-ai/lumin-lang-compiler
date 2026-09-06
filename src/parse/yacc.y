@@ -25,7 +25,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 }
 
 %token PRINT ID NUMBER INTEGER PLUS MINUS MUL DIV ASSIGN SEMI LPAREN RPAREN
-%token TRUE FALSE STRING_LIT
+%token TRUE FALSE NULL_LIT STRING_LIT
 %token IF ELSEIF ELSE
 %token GE LE EQ NE GT LT
 %token LBRACE RBRACE
@@ -210,6 +210,7 @@ primary
     | INTEGER                 { $$ = ast_int($1); }
     | TRUE                    { $$ = ast_bool(1); }
     | FALSE                   { $$ = ast_bool(0); }
+    | NULL_LIT                { $$ = ast_none(); }
     | STRING_LIT              { $$ = ast_string($1); free($1); }
     | char_lit                { $$ = ast_new_char($1); }
     | ID                      { $$ = L(ast_var($1)); }

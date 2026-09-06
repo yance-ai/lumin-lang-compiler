@@ -550,6 +550,12 @@ void lumin_print(Value v) {
         case VAL_CHAR:
             printf("%c\n", v.v.c);
             break;
+        case VAL_NONE:
+            printf("null\n");
+            break;
+        case VAL_FUNC:
+            printf("<func>\n");
+            break;
         case VAL_ARRAY:
             printf("<array>\n");
             break;
@@ -557,4 +563,58 @@ void lumin_print(Value v) {
             printf("<unknown>\n");
             break;
     }
+}
+
+// toupper/tolower：ASCII 大小写转换（非 ASCII 保持）
+static Value str_case(Value s, int upper)
+{
+    if(s.type != VAL_STRING) runtime_error("参数必须是字符串");
+    char* out = (char*)malloc(strlen(s.v.s) + 1);
+    if(!out) { perror("str_case"); exit(EXIT_FAILURE); }
+    const unsigned char* p = (const unsigned char*)s.v.s;
+    char* q = out;
+    while(*p) {
+        if(upper && *p >= 'a' && *p <= 'z') *q = *p - 'a' + 'A';
+        else if(!upper && *p >= 'A' && *p <= 'Z') *q = *p - 'A' + 'a';
+        else *q = (char)*p;
+        p++; q++;
+    }
+    *q = '\0';
+    Value r = lumin_make_string(out);
+    free(out);
+    return r;
+}
+
+Value lumin_toupper(Value s) { return str_case(s, 1); }
+Value lumin_tolower(Value s) { return str_case(s, 0); }
+
+// split(s, sep)：按分隔符拆成字符串数组
+Value lumin_split(Value s, Value sep)
+{
+    if(s.type != VAL_STRING || sep.type != VAL_STRING)
+        runtime_error("split() 参数必须是字符串");
+    if(sep.v.s[0] == '\0') runtime_error("split() 分隔符不能为空");
+    const char* p = s.v.s;
+    const char* sp = sep.v.s;
+    size_t splen = strlen(sp);
+    int count = 1;
+    for(const char* t = p; (t = strstr(t, sp)) != NULL; t += splen) count++;
+    Value arr = val_array(count);
+    int idx = 0;
+    const char* start = p;
+    const char* hit = strstr(start, sp);
+    while(hit) {
+        size_t len = (size_t)(hit - start);
+        char* piece = (char*)malloc(len + 1);
+        memcpy(piece, start, len);
+        piece[len] = '\0';
+        Value item = lumin_make_string(piece);
+        free(piece);
+        arr.v.array.items[idx++] = val_clone(&item);
+        start = hit + splen;
+        hit = strstr(start, sp);
+    }
+    Value item = lumin_make_string(start);
+    arr.v.array.items[idx++] = val_clone(&item);
+    return arr;
 }

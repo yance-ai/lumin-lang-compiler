@@ -43,6 +43,9 @@ Value lumin_type(Value v);          // type(x)：类型名字符串
 Value lumin_input(void);            // input()：读一行（去换行）
 Value lumin_range(Value n);         // range(n)：[0..n-1]
 Value lumin_substr(Value s, Value start, Value n);  // substr(s, i, n)
+Value lumin_toupper(Value s);  // toupper(s)：ASCII 大写
+Value lumin_tolower(Value s);  // tolower(s)：ASCII 小写
+Value lumin_split(Value s, Value sep);  // split(s, sep)：按分隔符拆数组
 
 // ===== 强转新API =====
 Value lumin_cast_int(Value v);

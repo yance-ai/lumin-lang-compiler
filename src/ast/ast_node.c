@@ -31,7 +31,17 @@ AstNode* ast_bool(_Bool v)
     AstNode* p = malloc(sizeof(AstNode));
     p->type = AST_BOOL;
     p->val_type = VAL_BOOL;
+    p->line = yylineno;
     p->u.bval = v;
+    return p;
+}
+
+AstNode* ast_none(void)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_NONE;
+    p->val_type = VAL_NONE;
+    p->line = yylineno;
     return p;
 }
 
@@ -213,6 +223,7 @@ AstNode* ast_clone_node(const AstNode* src)
         case AST_INT:    return ast_int(src->u.inum);
         case AST_NUM:    return ast_num(src->u.num);
         case AST_BOOL:   return ast_bool(src->u.bval ? 1 : 0);
+        case AST_NONE:   return ast_none();
         case AST_CHAR:   return ast_new_char(src->u.ch);
         case AST_STRING: return ast_string(src->u.sval);
         case AST_VAR:    return ast_var(strdup(src->u.varname));
@@ -356,6 +367,7 @@ void ast_free(AstNode* node) {
         case AST_NUM:
         case AST_BOOL:
         case AST_CHAR:
+        case AST_NONE:
             break;
         case AST_STRING:
             free(node->u.sval);

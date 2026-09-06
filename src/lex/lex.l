@@ -30,6 +30,7 @@ static int is_expr_end(int t)
 "print"         { fprintf(stderr,"[LEX] PRINT\n"); LEX_RET(PRINT); }
 "true"          { fprintf(stderr,"[LEX] TRUE\n"); LEX_RET(TRUE); }
 "false"         { fprintf(stderr,"[LEX] FALSE\n"); LEX_RET(FALSE); }
+"null"          { fprintf(stderr,"[LEX] NULL\n"); LEX_RET(NULL_LIT); }
 "if"            { fprintf(stderr,"[LEX] IF\n"); LEX_RET(IF); }
 "elseif"        { fprintf(stderr,"[LEX] ELSEIF\n"); LEX_RET(ELSEIF); }
 "else"          { fprintf(stderr,"[LEX] ELSE\n"); LEX_RET(ELSE); }

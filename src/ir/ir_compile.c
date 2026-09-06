@@ -229,6 +229,9 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_BOOL:
             emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_bool(node->u.bval ? 1 : 0)), 0);
             break;
+        case AST_NONE:
+            emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
+            break;
         case AST_CHAR:
             emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_char(node->u.ch)), 0);
             break;
@@ -329,7 +332,7 @@ static void c_expr(Ctx* c, AstNode* node)
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
-            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr"};
+            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split"};
             int bid = -1;
             if(!ir_func_table_lookup(node->u.call.name)) {
                 for(int k = 0; k < BUILTIN_COUNT; k++) {
@@ -410,6 +413,7 @@ static void c_stmt(Ctx* c, AstNode* node)
         case AST_BOOL:
         case AST_CHAR:
         case AST_STRING:
+        case AST_NONE:
             c_expr(c, node);
             emit(c, OPC_POP, 0, 0);
             break;

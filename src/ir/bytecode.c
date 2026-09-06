@@ -310,8 +310,8 @@ void bc_disasm(FILE* out, BytecodeFunc* fn)
                 snprintf(txt, sizeof(txt), "ARRAY_LIT n=%d", in.b);
                 break;
             case OPC_BUILTIN: {
-                static const char* bname[] = {"len", "type", "input", "range", "substr"};
-                const char* bn = (in.a >= 0 && in.a < 5) ? bname[in.a] : "?";
+                static const char* bname[] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split"};
+                const char* bn = (in.a >= 0 && in.a < 8) ? bname[in.a] : "?";
                 snprintf(txt, sizeof(txt), "BUILTIN %s argc=%d", bn, in.b);
                 break;
             }

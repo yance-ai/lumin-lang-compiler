@@ -12,6 +12,7 @@ typedef enum {
     AST_BOOL,
     AST_CHAR,
     AST_STRING,
+    AST_NONE,   // null 字面量
     AST_VAR,
     AST_BINOP,
     AST_UNARY,

@@ -1,0 +1,36 @@
+// string_test.lm —— null 字面量 + 混合类型数组 + 字符串函数族
+// 预期输出（双通道一致）：
+//   null / is null / 4 / null / HELLO WORLD / hello world
+//   3 / a / c / hello / 5 / 1 / true
+
+// ---- null 字面量 ----
+x = null;
+print(x);
+if (x == null) { print("is null"); }
+if (null == null) { print("null == null"); }
+
+// ---- 混合类型数组（数字/字符串/bool/char/null/double）----
+a = [1, "hi", null, true, 'c', 3.5];
+print(len(a));
+print(a[2]);          // null 元素
+print(a[1]);          // 字符串元素
+print(a[4]);          // char 元素
+
+// ---- 数组元素写入混合值 ----
+a[0] = "one";
+print(a[0]);
+a[1] = 99;
+print(a[1]);
+
+// ---- 字符串函数族 ----
+s = "Hello World";
+print(toupper(s));
+print(tolower(s));
+print(substr(s, 0, 5));       // "Hello"
+print(len(s));                // 11 -> "Hello World" 是 11 字符
+
+// ---- split ----
+parts = split("a,b,c", ",");
+print(len(parts));
+print(parts[0]);
+print(parts[2]);

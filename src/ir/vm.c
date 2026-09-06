@@ -175,6 +175,22 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = lumin_substr(s, st, n);
                         break;
                     }
+                    case BUILTIN_TOUPPER: {
+                        Value v = stack[--sp];
+                        stack[sp++] = lumin_toupper(v);
+                        break;
+                    }
+                    case BUILTIN_TOLOWER: {
+                        Value v = stack[--sp];
+                        stack[sp++] = lumin_tolower(v);
+                        break;
+                    }
+                    case BUILTIN_SPLIT: {
+                        Value sep = stack[--sp];
+                        Value s = stack[--sp];
+                        stack[sp++] = lumin_split(s, sep);
+                        break;
+                    }
                     default:
                         runtime_error("未知内置函数");
                         break;

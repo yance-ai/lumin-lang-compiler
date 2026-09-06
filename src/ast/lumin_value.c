@@ -166,7 +166,7 @@ void val_print(const Value* v) {
         printf("]");
         break;
     }
-    case VAL_NONE: printf("<none>"); break;
+    case VAL_NONE: printf("null"); break;
     default: printf("<?type=%d>",(int)v->type);
     }
 }

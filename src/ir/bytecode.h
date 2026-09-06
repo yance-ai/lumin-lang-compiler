@@ -47,6 +47,9 @@ typedef enum {
     BUILTIN_INPUT,        // input()：读一行
     BUILTIN_RANGE,        // range(n)：[0..n-1] 数组
     BUILTIN_SUBSTR,       // substr(s, start, n)
+    BUILTIN_TOUPPER,      // toupper(s)
+    BUILTIN_TOLOWER,      // tolower(s)
+    BUILTIN_SPLIT,        // split(s, sep)
     BUILTIN_COUNT
 } BuiltinId;
 

@@ -225,6 +225,15 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_SUBSTR:
                         fprintf(out, "    { Value __n = __stk[--__sp], __st = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_substr(__s, __st, __n); }\n");
                         break;
+                    case BUILTIN_TOUPPER:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_toupper(__v); }\n");
+                        break;
+                    case BUILTIN_TOLOWER:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_tolower(__v); }\n");
+                        break;
+                    case BUILTIN_SPLIT:
+                        fprintf(out, "    { Value __sep = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_split(__s, __sep); }\n");
+                        break;
                 }
                 break;
             case OPC_PRINT:
