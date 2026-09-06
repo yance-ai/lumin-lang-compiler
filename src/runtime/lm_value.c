@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 Value lumin_make_int(long long i) {
     Value v;
@@ -169,6 +170,64 @@ Value lumin_div(Value a, Value b) {
     double na = value_as_number(a);
     double nb = value_as_number(b);
     return lumin_make_double(na / nb);
+}
+
+// % 取模：int%int → int（C 语义，负数与 C 一致）；任一 double → fmod
+Value lumin_mod(Value a, Value b) {
+    if(a.type == VAL_INT && b.type == VAL_INT) {
+        if(b.v.i == 0) return lumin_make_double(0.0 / 0.0);  // 除零得 NaN，避免 UB
+        return lumin_make_int(a.v.i % b.v.i);
+    }
+    double na = value_as_number(a);
+    double nb = value_as_number(b);
+    return lumin_make_double(fmod(na, nb));
+}
+
+// ! 逻辑非：返回 bool
+Value lumin_logic_not(Value v) {
+    return lumin_make_bool(!lumin_to_bool(v));
+}
+
+// ---------------- 数组 ----------------
+
+// 下标必须是数值；越界运行时错误
+static long long array_index_of(Value idx) {
+    if(idx.type == VAL_INT) return idx.v.i;
+    if(idx.type == VAL_DOUBLE) return (long long)idx.v.d;
+    if(idx.type == VAL_CHAR) return (unsigned char)idx.v.c;
+    runtime_error("数组下标必须是数值");
+    return 0;
+}
+
+Value lumin_array_get(Value arr, Value idx) {
+    if(arr.type != VAL_ARRAY) runtime_error("下标访问的对象不是数组");
+    long long i = array_index_of(idx);
+    if(i < 0 || i >= arr.v.array.len) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "数组下标越界: %lld (长度 %d)", i, arr.v.array.len);
+        runtime_error(buf);
+    }
+    return arr.v.array.items[i];   // 返回数组持有值的引用（调用方如需长期持有需 clone）
+}
+
+// 写回数组元素（深拷贝），返回 val 作为表达式值
+Value lumin_array_set(Value arr, Value idx, Value val) {
+    if(arr.type != VAL_ARRAY) runtime_error("下标访问的对象不是数组");
+    long long i = array_index_of(idx);
+    if(i < 0 || i >= arr.v.array.len) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "数组下标越界: %lld (长度 %d)", i, arr.v.array.len);
+        runtime_error(buf);
+    }
+    Value* slot = &arr.v.array.items[i];
+    val_destroy(slot);
+    *slot = val_clone(&val);
+    return val;
+}
+
+Value lumin_array_len(Value arr) {
+    if(arr.type != VAL_ARRAY) runtime_error("len() 参数必须是数组");
+    return lumin_make_int(arr.v.array.len);
 }
 
 // > 弱类型：任意一方为字符串 → 字典序strcmp；否则数值比较

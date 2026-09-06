@@ -173,6 +173,18 @@ static int fold_const(Ctx* c, AstNode* node, Value* out)
                 case OP_LE: *out = lumin_le(l, r); return 1;
                 case OP_EQ: *out = lumin_eq(l, r); return 1;
                 case OP_NE: *out = lumin_ne(l, r); return 1;
+                case OP_MOD:
+                    if((r.type == VAL_INT && r.v.i != 0) || (r.type == VAL_DOUBLE && r.v.d != 0.0)) {
+                        *out = lumin_mod(l, r);
+                        return 1;
+                    }
+                    return 0;
+                case OP_LOGIC_AND:
+                    *out = lumin_make_bool(lumin_to_bool(l) && lumin_to_bool(r));
+                    return 1;
+                case OP_LOGIC_OR:
+                    *out = lumin_make_bool(lumin_to_bool(l) || lumin_to_bool(r));
+                    return 1;
                 default: return 0;
             }
         }
@@ -182,6 +194,7 @@ static int fold_const(Ctx* c, AstNode* node, Value* out)
             switch(node->u.uny.op) {
                 case OP_UNARY_PLUS:  *out = lumin_unary_plus(v); return 1;
                 case OP_UNARY_MINUS: *out = lumin_unary_minus(v); return 1;
+                case OP_LOGIC_NOT:   *out = lumin_logic_not(v); return 1;
                 default: return 0;
             }
         }
@@ -235,14 +248,30 @@ static void c_expr(Ctx* c, AstNode* node)
                 emit(c, OPC_LOAD_CONST, bf_const(c->fn, fv), 0);
                 break;
             }
+            BinOp bop = node->u.bin.op;
+            if(bop == OP_LOGIC_AND || bop == OP_LOGIC_OR) {
+                // 短路求值：&& 假跳过右；|| 真跳过右
+                c_expr(c, node->u.bin.left);
+                OpCode jop = (bop == OP_LOGIC_AND) ? OPC_JMP_IF_FALSE : OPC_JMP_IF_TRUE;
+                int jskip = bf_emit_here(c->fn, jop, -1, 0);   // 弹左值
+                c_expr(c, node->u.bin.right);
+                emit(c, OPC_TO_BOOL, 0, 0);                    // 右值 → bool
+                int jend = bf_emit_here(c->fn, OPC_JMP, -1, 0);
+                bf_patch(c->fn, jskip, c->fn->code_len);       // 短路路径：
+                emit(c, OPC_LOAD_CONST,
+                     bf_const(c->fn, lumin_make_bool(bop == OP_LOGIC_OR)), 0);
+                bf_patch(c->fn, jend, c->fn->code_len);
+                break;
+            }
             c_expr(c, node->u.bin.left);
             c_expr(c, node->u.bin.right);
             static const OpCode map[] = {
                 [OP_ADD] = OPC_ADD, [OP_SUB] = OPC_SUB, [OP_MUL] = OPC_MUL, [OP_DIV] = OPC_DIV,
+                [OP_MOD] = OPC_MOD,
                 [OP_GT] = OPC_GT, [OP_LT] = OPC_LT, [OP_GE] = OPC_GE, [OP_LE] = OPC_LE,
                 [OP_EQ] = OPC_EQ, [OP_NE] = OPC_NE,
             };
-            emit(c, map[node->u.bin.op], 0, 0);
+            emit(c, map[bop], 0, 0);
             break;
         }
         case AST_UNARY: {
@@ -261,6 +290,11 @@ static void c_expr(Ctx* c, AstNode* node)
                     Value fv;
                     if(fold_const(c, node, &fv)) { emit(c, OPC_LOAD_CONST, bf_const(c->fn, fv), 0); break; }
                     c_expr(c, kid); emit(c, OPC_NEG, 0, 0); break;
+                }
+                case OP_LOGIC_NOT: {
+                    Value fv;
+                    if(fold_const(c, node, &fv)) { emit(c, OPC_LOAD_CONST, bf_const(c->fn, fv), 0); break; }
+                    c_expr(c, kid); emit(c, OPC_LOGIC_NOT, 0, 0); break;
                 }
                 default: break;
             }
@@ -294,7 +328,28 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_CALL: {
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
-            emit(c, OPC_CALL, bf_sym(c->fn, node->u.call.name), argc);
+            if(strcmp(node->u.call.name, "len") == 0 && !ir_func_table_lookup(node->u.call.name)) {
+                emit(c, OPC_LEN, 0, 0);   // 内置 len(数组)：实参已压栈
+            } else {
+                emit(c, OPC_CALL, bf_sym(c->fn, node->u.call.name), argc);
+            }
+            break;
+        }
+        case AST_INDEX:
+            c_expr(c, node->u.index.arr);
+            c_expr(c, node->u.index.idx);
+            emit(c, OPC_INDEX_GET, 0, 0);
+            break;
+        case AST_INDEX_ASSIGN:
+            c_expr(c, node->u.index_assign.arr);
+            c_expr(c, node->u.index_assign.idx);
+            c_expr(c, node->u.index_assign.value);
+            emit(c, OPC_INDEX_SET, 0, 0);
+            break;
+        case AST_ARRAY_LIT: {
+            int n = 0;
+            c_args(c, node->u.array_lit.elems, &n);
+            emit(c, OPC_ARRAY_LIT, 0, n);
             break;
         }
         case AST_PRINT:
@@ -350,6 +405,12 @@ static void c_stmt(Ctx* c, AstNode* node)
         case AST_BOOL:
         case AST_CHAR:
         case AST_STRING:
+            c_expr(c, node);
+            emit(c, OPC_POP, 0, 0);
+            break;
+        case AST_INDEX:
+        case AST_INDEX_ASSIGN:
+        case AST_ARRAY_LIT:
             c_expr(c, node);
             emit(c, OPC_POP, 0, 0);
             break;

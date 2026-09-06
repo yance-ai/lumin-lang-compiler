@@ -43,6 +43,14 @@ AstNode* ast_param_append(AstNode* list, AstNode* p);
 AstNode* ast_call(char* func_name, AstNode* arg_list);
 AstNode* ast_arg_append(AstNode* list, AstNode* arg);
 
+// 数组
+AstNode* ast_index(AstNode* arr, AstNode* idx);
+AstNode* ast_index_assign(AstNode* arr, AstNode* idx, AstNode* value);
+AstNode* ast_array_lit(AstNode* elems);
+
+// 深拷贝（复合赋值下标展开防双重释放）
+AstNode* ast_clone_node(const AstNode* src);
+
 // 释放AST
 void ast_free(AstNode* node);
 

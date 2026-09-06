@@ -109,13 +109,21 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
             return +1;
         case OPC_POP:
             return -1;
-        case OPC_ADD: case OPC_SUB: case OPC_MUL: case OPC_DIV:
+        case OPC_ADD: case OPC_SUB: case OPC_MUL: case OPC_DIV: case OPC_MOD:
         case OPC_GT: case OPC_LT: case OPC_GE: case OPC_LE: case OPC_EQ: case OPC_NE:
             return -1;                       // 弹2压1
         case OPC_NEG: case OPC_POS:
+        case OPC_LOGIC_NOT:
+        case OPC_LEN:
         case OPC_CAST_INT: case OPC_CAST_DOUBLE: case OPC_CAST_CHAR:
         case OPC_CAST_BOOL: case OPC_CAST_STRING: case OPC_CAST_ASCII:
             return 0;                        // 弹1压1
+        case OPC_ARRAY_LIT:
+            return -in.b + 1;                // 弹 b 元素，压 1 数组
+        case OPC_INDEX_GET:
+            return -1;                       // 弹2压1
+        case OPC_INDEX_SET:
+            return -2;                       // 弹3压1
         case OPC_STORE_VAR:
             return 0;                        // 弹1压1
         case OPC_PRINT:
@@ -206,6 +214,7 @@ static const char* opc_name(OpCode op)
         case OPC_SUB: return "SUB";
         case OPC_MUL: return "MUL";
         case OPC_DIV: return "DIV";
+        case OPC_MOD: return "MOD";
         case OPC_GT: return "GT";
         case OPC_LT: return "LT";
         case OPC_GE: return "GE";
@@ -214,6 +223,7 @@ static const char* opc_name(OpCode op)
         case OPC_NE: return "NE";
         case OPC_NEG: return "NEG";
         case OPC_POS: return "POS";
+        case OPC_LOGIC_NOT: return "LOGIC_NOT";
         case OPC_PRE_INC: return "PRE_INC";
         case OPC_POST_INC: return "POST_INC";
         case OPC_PRE_DEC: return "PRE_DEC";
@@ -224,6 +234,10 @@ static const char* opc_name(OpCode op)
         case OPC_CAST_BOOL: return "CAST_BOOL";
         case OPC_CAST_STRING: return "CAST_STRING";
         case OPC_CAST_ASCII: return "CAST_ASCII";
+        case OPC_ARRAY_LIT: return "ARRAY_LIT";
+        case OPC_INDEX_GET: return "INDEX_GET";
+        case OPC_INDEX_SET: return "INDEX_SET";
+        case OPC_LEN: return "LEN";
         case OPC_PRINT: return "PRINT";
         case OPC_TO_BOOL: return "TO_BOOL";
         case OPC_DUP: return "DUP";
@@ -290,6 +304,9 @@ void bc_disasm(FILE* out, BytecodeFunc* fn)
             case OPC_CALL:
                 snprintf(txt, sizeof(txt), "CALL %s argc=%d",
                          (in.a >= 0 && in.a < fn->sym_cnt) ? fn->syms[in.a] : "?", in.b);
+                break;
+            case OPC_ARRAY_LIT:
+                snprintf(txt, sizeof(txt), "ARRAY_LIT n=%d", in.b);
                 break;
             default:
                 snprintf(txt, sizeof(txt), "%s", opc_name(in.op));

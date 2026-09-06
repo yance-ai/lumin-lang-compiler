@@ -34,19 +34,25 @@ AstNode* root;
 %token CONTINUE
 %token FUNC ELLIPSIS
 %token COMMA
+%token AND OR NOT MOD
+%token PLUSEQ MINUSEQ MULEQ DIVEQ
+%token LBRACKET RBRACKET
+%token ARRAY_OPEN
 %token ERROR
 
 %right PLUSPLUS MINUSMINUS   /*后置自增，最高优先级*/
 %left PLUS MINUS
-%left MUL DIV
+%left MUL DIV MOD
 %left GT LT GE LE EQ NE
+%left AND
+%left OR
 %right QMARK COLON   /*三元 ?: 右结合，低于比较*/
 %right ASSIGN        /*赋值最低*/
 %precedence ELSE
 
 %type<node> program stmt_list closed_stmt open_stmt block_stmt
 %type<node> elif_clause_list elif_clause else_part
-%type<node> expr ternary_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary
+%type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> func_def param_list param arg_list arg
 %type <ch> char_lit
@@ -204,6 +210,7 @@ primary
     | char_lit                { $$ = ast_new_char($1); }
     | ID                      { $$ = ast_var($1); }
     | ID LPAREN arg_list RPAREN { $$ = ast_call($1, $3); }  /* 函数调用 foo(a,b,c) */
+    | ARRAY_OPEN arg_list RBRACKET { $$ = ast_array_lit($2); }  /* 数组字面量 [1,2,3] / []（lexer 按上下文消歧） */
     | LPAREN expr RPAREN      { $$ = $2; }
     | LPAREN TOK_INT RPAREN primary        { $$ = new_cast_node(CAST_INT, $4); }
     | LPAREN TOK_DOUBLE RPAREN primary     { $$ = new_cast_node(CAST_DOUBLE, $4); }
@@ -215,6 +222,7 @@ primary
 
 postfix_expr
     : primary
+    | postfix_expr LBRACKET expr RBRACKET  { $$ = ast_index($1, $3); }  /* 数组下标 a[i] */
     | postfix_expr PLUSPLUS   { $$ = ast_unary(OP_POST_INC, $1); }
     | postfix_expr MINUSMINUS { $$ = ast_unary(OP_POST_DEC, $1); }
     ;
@@ -225,12 +233,14 @@ unary_expr
     | MINUSMINUS unary_expr   { $$ = ast_unary(OP_PRE_DEC, $2); }
     | PLUS unary_expr         { $$ = ast_unary(OP_UNARY_PLUS, $2); }
     | MINUS unary_expr        { $$ = ast_unary(OP_UNARY_MINUS, $2); }
+    | NOT unary_expr          { $$ = ast_unary(OP_LOGIC_NOT, $2); }
     ;
 
 multiplicative_expr
     : unary_expr
     | multiplicative_expr MUL unary_expr  { $$ = ast_binop(OP_MUL, $1, $3); }
     | multiplicative_expr DIV unary_expr  { $$ = ast_binop(OP_DIV, $1, $3); }
+    | multiplicative_expr MOD unary_expr  { $$ = ast_binop(OP_MOD, $1, $3); }
     ;
 
 additive_expr
@@ -249,14 +259,38 @@ comparison_expr
     | comparison_expr NE additive_expr    { $$ = ast_binop(OP_NE, $1, $3); }
     ;
 
-ternary_expr
+logic_and_expr
     : comparison_expr
-    | comparison_expr QMARK expr COLON ternary_expr  { $$ = ast_ternary($1, $3, $5); }
+    | logic_and_expr AND comparison_expr  { $$ = ast_binop(OP_LOGIC_AND, $1, $3); }
+    ;
+
+logic_or_expr
+    : logic_and_expr
+    | logic_or_expr OR logic_and_expr     { $$ = ast_binop(OP_LOGIC_OR, $1, $3); }
+    ;
+
+ternary_expr
+    : logic_or_expr
+    | logic_or_expr QMARK expr COLON ternary_expr  { $$ = ast_ternary($1, $3, $5); }
     ;
 
 assignment_expr
     : ternary_expr
     | ID ASSIGN assignment_expr  { $$ = ast_assign($1, $3); }
+    | ID PLUSEQ assignment_expr  { $$ = ast_assign($1, ast_binop(OP_ADD, ast_var($1), $3)); }
+    | ID MINUSEQ assignment_expr { $$ = ast_assign($1, ast_binop(OP_SUB, ast_var($1), $3)); }
+    | ID MULEQ assignment_expr   { $$ = ast_assign($1, ast_binop(OP_MUL, ast_var($1), $3)); }
+    | ID DIVEQ assignment_expr   { $$ = ast_assign($1, ast_binop(OP_DIV, ast_var($1), $3)); }
+    | postfix_expr LBRACKET expr RBRACKET ASSIGN assignment_expr
+        { $$ = ast_index_assign($1, $3, $6); }
+    | postfix_expr LBRACKET expr RBRACKET PLUSEQ assignment_expr
+        { $$ = ast_index_assign($1, $3, ast_binop(OP_ADD, ast_index(ast_clone_node($1), ast_clone_node($3)), $6)); }
+    | postfix_expr LBRACKET expr RBRACKET MINUSEQ assignment_expr
+        { $$ = ast_index_assign($1, $3, ast_binop(OP_SUB, ast_index(ast_clone_node($1), ast_clone_node($3)), $6)); }
+    | postfix_expr LBRACKET expr RBRACKET MULEQ assignment_expr
+        { $$ = ast_index_assign($1, $3, ast_binop(OP_MUL, ast_index(ast_clone_node($1), ast_clone_node($3)), $6)); }
+    | postfix_expr LBRACKET expr RBRACKET DIVEQ assignment_expr
+        { $$ = ast_index_assign($1, $3, ast_binop(OP_DIV, ast_index(ast_clone_node($1), ast_clone_node($3)), $6)); }
     ;
 
 expr

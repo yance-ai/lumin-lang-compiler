@@ -2,93 +2,124 @@
 #include "yacc.tab.h"
 #include <stdio.h>
 #include <string.h>
+
+// 前一个 token：用于区分 `[` 是下标（表达式后）还是数组字面量（表达式开始）
+static int prev_token = 0;
+
+// 表达式结束类 token（其后 `[` 是下标）
+static int is_expr_end(int t)
+{
+    switch(t) {
+        case ID: case INTEGER: case NUMBER: case STRING_LIT: case TOK_CHAR_LIT:
+        case TRUE: case FALSE: case RBRACKET: case RPAREN:
+        case PLUSPLUS: case MINUSMINUS:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+#define LEX_RET(t) do { prev_token = (t); return (t); } while(0)
 %}
 
 %%
-"func"          { fprintf(stderr,"[LEX] FUNC\n"); return FUNC; }
+"func"          { fprintf(stderr,"[LEX] FUNC\n"); LEX_RET(FUNC); }
 
-"print"         { fprintf(stderr,"[LEX] PRINT\n"); return PRINT; }
-"true"          { fprintf(stderr,"[LEX] TRUE\n"); return TRUE; }
-"false"         { fprintf(stderr,"[LEX] FALSE\n"); return FALSE; }
-"if"            { fprintf(stderr,"[LEX] IF\n"); return IF; }
-"elseif"        { fprintf(stderr,"[LEX] ELSEIF\n"); return ELSEIF; }
-"else"          { fprintf(stderr,"[LEX] ELSE\n"); return ELSE; }
-"while"         { fprintf(stderr,"[LEX] WHILE\n"); return WHILE; }
-"for"           { fprintf(stderr,"[LEX] FOR\n"); return FOR; }
+"print"         { fprintf(stderr,"[LEX] PRINT\n"); LEX_RET(PRINT); }
+"true"          { fprintf(stderr,"[LEX] TRUE\n"); LEX_RET(TRUE); }
+"false"         { fprintf(stderr,"[LEX] FALSE\n"); LEX_RET(FALSE); }
+"if"            { fprintf(stderr,"[LEX] IF\n"); LEX_RET(IF); }
+"elseif"        { fprintf(stderr,"[LEX] ELSEIF\n"); LEX_RET(ELSEIF); }
+"else"          { fprintf(stderr,"[LEX] ELSE\n"); LEX_RET(ELSE); }
+"while"         { fprintf(stderr,"[LEX] WHILE\n"); LEX_RET(WHILE); }
+"for"           { fprintf(stderr,"[LEX] FOR\n"); LEX_RET(FOR); }
 
-"switch"        { fprintf(stderr,"[LEX] SWITCH\n");  return SWITCH; }
-"case"          { fprintf(stderr,"[LEX] CASE\n");    return CASE; }
-"default"       { fprintf(stderr,"[LEX] DEFAULT\n"); return DEFAULT; }
-"break"         { fprintf(stderr,"[LEX] BREAK\n");   return BREAK; }
-"continue"      { fprintf(stderr,"[LEX] CONTINUE\n"); return CONTINUE; }
-"return"        { fprintf(stderr,"[LEX] RETURN\n");  return RETURN; }
+"switch"        { fprintf(stderr,"[LEX] SWITCH\n");  LEX_RET(SWITCH); }
+"case"          { fprintf(stderr,"[LEX] CASE\n");    LEX_RET(CASE); }
+"default"       { fprintf(stderr,"[LEX] DEFAULT\n"); LEX_RET(DEFAULT); }
+"break"         { fprintf(stderr,"[LEX] BREAK\n");   LEX_RET(BREAK); }
+"continue"      { fprintf(stderr,"[LEX] CONTINUE\n"); LEX_RET(CONTINUE); }
+"return"        { fprintf(stderr,"[LEX] RETURN\n");  LEX_RET(RETURN); }
 
-"int"           { return TOK_INT; }
-"double"        { return TOK_DOUBLE; }
-"char"          { return TOK_CHAR; }
-"string"        { return TOK_STRING; }
-"bool"          { return TOK_BOOL; }
-"ASCII"         { return TOK_ASCII; }
+"int"           { LEX_RET(TOK_INT); }
+"double"        { LEX_RET(TOK_DOUBLE); }
+"char"          { LEX_RET(TOK_CHAR); }
+"string"        { LEX_RET(TOK_STRING); }
+"bool"          { LEX_RET(TOK_BOOL); }
+"ASCII"         { LEX_RET(TOK_ASCII); }
 
-"..."           { fprintf(stderr,"[LEX] ELLIPSIS\n"); return ELLIPSIS; }
+"..."           { fprintf(stderr,"[LEX] ELLIPSIS\n"); LEX_RET(ELLIPSIS); }
 
 \"([^"\\]|\\.)*\"   {
     fprintf(stderr,"[LEX] STRING_LIT %s\n",yytext);
     yylval.s = strdup(yytext+1);
     yylval.s[strlen(yylval.s)-1] = '\0';
-    return STRING_LIT;
+    LEX_RET(STRING_LIT);
 }
 
 '[^'\''\n]'      {
     yylval.ch = yytext[1];
     fprintf(stderr,"[LEX] TOK_CHAR_LIT %c\n", yylval.ch);
-    return TOK_CHAR_LIT;
+    LEX_RET(TOK_CHAR_LIT);
 }
 
 [a-zA-Z_][a-zA-Z0-9_]*  {
     fprintf(stderr,"[LEX] ID %s\n",yytext);
     yylval.s = strdup(yytext);
-    return ID;
+    LEX_RET(ID);
 }
 
 [0-9]+\.[0-9]+          {
     fprintf(stderr,"[LEX] NUMBER %s\n",yytext);
     yylval.d = atof(yytext);
-    return NUMBER;
+    LEX_RET(NUMBER);
 }
 
 [0-9]+                  {
     fprintf(stderr,"[LEX] INTEGER %s\n",yytext);
     yylval.ll = atoll(yytext);
-    return INTEGER;
+    LEX_RET(INTEGER);
 }
 
-"++"        { fprintf(stderr,"[LEX] PLUSPLUS\n"); return PLUSPLUS; }
-"--"        { fprintf(stderr,"[LEX] MINUSMINUS\n"); return MINUSMINUS; }
-">="        { fprintf(stderr,"[LEX] GE\n"); return GE; }
-"<="        { fprintf(stderr,"[LEX] LE\n"); return LE; }
-"=="        { fprintf(stderr,"[LEX] EQ\n"); return EQ; }
-"!="        { fprintf(stderr,"[LEX] NE\n"); return NE; }
-">"         { fprintf(stderr,"[LEX] GT\n"); return GT; }
-"<"         { fprintf(stderr,"[LEX] LT\n"); return LT; }
+"++"        { fprintf(stderr,"[LEX] PLUSPLUS\n"); LEX_RET(PLUSPLUS); }
+"--"        { fprintf(stderr,"[LEX] MINUSMINUS\n"); LEX_RET(MINUSMINUS); }
+">="        { fprintf(stderr,"[LEX] GE\n"); LEX_RET(GE); }
+"<="        { fprintf(stderr,"[LEX] LE\n"); LEX_RET(LE); }
+"=="        { fprintf(stderr,"[LEX] EQ\n"); LEX_RET(EQ); }
+"!="        { fprintf(stderr,"[LEX] NE\n"); LEX_RET(NE); }
+">"         { fprintf(stderr,"[LEX] GT\n"); LEX_RET(GT); }
+"<"         { fprintf(stderr,"[LEX] LT\n"); LEX_RET(LT); }
+"&&"        { fprintf(stderr,"[LEX] AND\n"); LEX_RET(AND); }
+"||"        { fprintf(stderr,"[LEX] OR\n"); LEX_RET(OR); }
+"!"         { fprintf(stderr,"[LEX] NOT\n"); LEX_RET(NOT); }
+"%"         { fprintf(stderr,"[LEX] MOD\n"); LEX_RET(MOD); }
 
-"+"             { fprintf(stderr,"[LEX] PLUS\n"); return PLUS; }
-"-"             { fprintf(stderr,"[LEX] MINUS\n"); return MINUS; }
-"*"             { fprintf(stderr,"[LEX] MUL\n"); return MUL; }
-"/"             { fprintf(stderr,"[LEX] DIV\n"); return DIV; }
+"+"             { fprintf(stderr,"[LEX] PLUS\n"); LEX_RET(PLUS); }
+"-"             { fprintf(stderr,"[LEX] MINUS\n"); LEX_RET(MINUS); }
+"*"             { fprintf(stderr,"[LEX] MUL\n"); LEX_RET(MUL); }
+"/"             { fprintf(stderr,"[LEX] DIV\n"); LEX_RET(DIV); }
 
-"?"         { fprintf(stderr,"[LEX] QMARK\n"); return QMARK; }
-":"         { fprintf(stderr,"[LEX] COLON\n"); return COLON; }
+"+="        { fprintf(stderr,"[LEX] PLUSEQ\n"); LEX_RET(PLUSEQ); }
+"-="        { fprintf(stderr,"[LEX] MINUSEQ\n"); LEX_RET(MINUSEQ); }
+"*="        { fprintf(stderr,"[LEX] MULEQ\n"); LEX_RET(MULEQ); }
+"/="        { fprintf(stderr,"[LEX] DIVEQ\n"); LEX_RET(DIVEQ); }
 
-"="             { fprintf(stderr,"[LEX] ASSIGN\n"); return ASSIGN; }
-";"             { fprintf(stderr,"[LEX] SEMI\n"); return SEMI; }
+"?"         { fprintf(stderr,"[LEX] QMARK\n"); LEX_RET(QMARK); }
+":"         { fprintf(stderr,"[LEX] COLON\n"); LEX_RET(COLON); }
 
-"("             { fprintf(stderr,"[LEX] LPAREN\n"); return LPAREN; }
-")"             { fprintf(stderr,"[LEX] RPAREN\n"); return RPAREN; }
-"{"             { fprintf(stderr,"[LEX] LBRACE\n"); return LBRACE; }
-"}"             { fprintf(stderr,"[LEX] RBRACE\n"); return RBRACE; }
+"="             { fprintf(stderr,"[LEX] ASSIGN\n"); LEX_RET(ASSIGN); }
+";"             { fprintf(stderr,"[LEX] SEMI\n"); LEX_RET(SEMI); }
 
-","         { fprintf(stderr,"[LEX] COMMA\n"); return COMMA; }
+"("             { fprintf(stderr,"[LEX] LPAREN\n"); LEX_RET(LPAREN); }
+")"             { fprintf(stderr,"[LEX] RPAREN\n"); LEX_RET(RPAREN); }
+"{"             { fprintf(stderr,"[LEX] LBRACE\n"); LEX_RET(LBRACE); }
+"}"             { fprintf(stderr,"[LEX] RBRACE\n"); LEX_RET(RBRACE); }
+"["             { fprintf(stderr,"[LEX] %s\n", is_expr_end(prev_token) ? "LBRACKET" : "ARRAY_OPEN");
+                  if(is_expr_end(prev_token)) LEX_RET(LBRACKET);
+                  else { prev_token = ARRAY_OPEN; return ARRAY_OPEN; } }
+"]"             { fprintf(stderr,"[LEX] RBRACKET\n"); LEX_RET(RBRACKET); }
+
+","         { fprintf(stderr,"[LEX] COMMA\n"); LEX_RET(COMMA); }
 
 "//"[^\n]*           ;   /* 行注释 */
 "/*"([^*]|\*+[^*/])*\*+"/" ;   /* 块注释 */
@@ -99,7 +130,7 @@
 
 .               {
     fprintf(stderr,"[LEX] 非法字符: %c (0x%02x)\n", *yytext, (unsigned char)*yytext);
-    return ERROR;
+    LEX_RET(ERROR);
 }
 %%
 

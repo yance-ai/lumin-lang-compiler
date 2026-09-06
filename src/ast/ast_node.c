@@ -199,6 +199,40 @@ AstNode* ast_ternary(AstNode* cond, AstNode* t, AstNode* f)
     return n;
 }
 
+// 深拷贝 AST 节点（复合赋值下标展开时避免同一节点被引用两次导致双重释放）
+AstNode* ast_clone_node(const AstNode* src)
+{
+    if(!src) return NULL;
+    switch(src->type) {
+        case AST_INT:    return ast_int(src->u.inum);
+        case AST_NUM:    return ast_num(src->u.num);
+        case AST_BOOL:   return ast_bool(src->u.bval ? 1 : 0);
+        case AST_CHAR:   return ast_new_char(src->u.ch);
+        case AST_STRING: return ast_string(src->u.sval);
+        case AST_VAR:    return ast_var(strdup(src->u.varname));
+        case AST_BINOP:  return ast_binop(src->u.bin.op,
+                                           ast_clone_node(src->u.bin.left),
+                                           ast_clone_node(src->u.bin.right));
+        case AST_UNARY:  return ast_unary(src->u.uny.op, ast_clone_node(src->u.uny.child));
+        case AST_CAST: {
+            AstNode* n = ast_new(AST_CAST);
+            n->u.cast.cast_type = src->u.cast.cast_type;
+            n->u.cast.child = ast_clone_node(src->u.cast.child);
+            return n;
+        }
+        case AST_INDEX:  return ast_index(ast_clone_node(src->u.index.arr),
+                                          ast_clone_node(src->u.index.idx));
+        default:
+            // 复合赋值下标展开只会克隆表达式节点；其余类型直接复制（保守）
+            {
+                AstNode* n = ast_new(src->type);
+                *n = *src;   // 浅拷贝整个结构（含 union）
+                n->u.sval = NULL;   // 防止误用；展开场景不触达
+                return n;
+            }
+    }
+}
+
 AstNode* ast_switch(AstNode* expr, AstNode* cases)
 {
     AstNode* n = ast_new(AST_SWITCH);
@@ -277,6 +311,27 @@ AstNode* ast_call(char* func_name, AstNode* args) {
     AstNode* n = ast_new(AST_CALL);
     n->u.call.name = strdup(func_name);
     n->u.call.args = args;
+    return n;
+}
+
+AstNode* ast_index(AstNode* arr, AstNode* idx) {
+    AstNode* n = ast_new(AST_INDEX);
+    n->u.index.arr = arr;
+    n->u.index.idx = idx;
+    return n;
+}
+
+AstNode* ast_index_assign(AstNode* arr, AstNode* idx, AstNode* value) {
+    AstNode* n = ast_new(AST_INDEX_ASSIGN);
+    n->u.index_assign.arr = arr;
+    n->u.index_assign.idx = idx;
+    n->u.index_assign.value = value;
+    return n;
+}
+
+AstNode* ast_array_lit(AstNode* elems) {
+    AstNode* n = ast_new(AST_ARRAY_LIT);
+    n->u.array_lit.elems = elems;
     return n;
 }
 
@@ -407,6 +462,18 @@ void ast_free(AstNode* node) {
             ast_free(node->u.call.args);
             break;
         }
+        case AST_INDEX:
+            ast_free(node->u.index.arr);
+            ast_free(node->u.index.idx);
+            break;
+        case AST_INDEX_ASSIGN:
+            ast_free(node->u.index_assign.arr);
+            ast_free(node->u.index_assign.idx);
+            ast_free(node->u.index_assign.value);
+            break;
+        case AST_ARRAY_LIT:
+            ast_free(node->u.array_lit.elems);
+            break;
         case AST_PARAM:
             // 只被AST_FUNC_DEF内部循环释放，外部不会单独走到这里
             break;

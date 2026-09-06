@@ -17,6 +17,7 @@ Value lumin_add(Value a, Value b);
 Value lumin_sub(Value a, Value b);
 Value lumin_mul(Value a, Value b);
 Value lumin_div(Value a, Value b);
+Value lumin_mod(Value a, Value b);
 Value lumin_unary_plus(Value v);
 Value lumin_unary_minus(Value v);
 
@@ -29,6 +30,12 @@ Value lumin_eq(Value a, Value b);
 Value lumin_ne(Value a, Value b);
 
 _Bool lumin_to_bool(Value v);
+Value lumin_logic_not(Value v);
+
+// ===== 数组 =====
+Value lumin_array_get(Value arr, Value idx);
+Value lumin_array_set(Value arr, Value idx, Value val);
+Value lumin_array_len(Value arr);
 
 // ===== 强转新API =====
 Value lumin_cast_int(Value v);

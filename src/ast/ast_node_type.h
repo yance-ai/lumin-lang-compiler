@@ -108,6 +108,21 @@ struct AstNode {
             char* name;
             AstNode* args;   // 实参链表
         } call;
+
+        struct {
+            AstNode* arr;    // 数组表达式
+            AstNode* idx;    // 下标表达式
+        } index;
+
+        struct {
+            AstNode* arr;    // 数组表达式
+            AstNode* idx;    // 下标表达式
+            AstNode* value;  // 赋值表达式
+        } index_assign;
+
+        struct {
+            AstNode* elems;  // AST_SEQ 链：数组元素
+        } array_lit;
     } u;
 };
 

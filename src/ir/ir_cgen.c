@@ -171,6 +171,7 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_SUB: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_sub(__l, __r); }\n"); break;
             case OPC_MUL: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_mul(__l, __r); }\n"); break;
             case OPC_DIV: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_div(__l, __r); }\n"); break;
+            case OPC_MOD: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_mod(__l, __r); }\n"); break;
             case OPC_GT:  fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_gt(__l, __r); }\n"); break;
             case OPC_LT:  fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_lt(__l, __r); }\n"); break;
             case OPC_GE:  fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_ge(__l, __r); }\n"); break;
@@ -189,6 +190,27 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_CAST_BOOL:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_bool(__v); }\n"); break;
             case OPC_CAST_STRING: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_string(__v); }\n"); break;
             case OPC_CAST_ASCII:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_ascii(__v); }\n"); break;
+            case OPC_LOGIC_NOT:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_logic_not(__v); }\n"); break;
+            case OPC_ARRAY_LIT: {
+                int n = in.b;
+                fprintf(out, "    {\n");
+                fprintf(out, "        Value __arr = val_array(%d);\n", n);
+                for(int k = 0; k < n; k++)
+                    fprintf(out, "        __arr.v.array.items[%d] = val_clone(&__stk[__sp - %d + %d]);\n", k, n, k);
+                fprintf(out, "        __sp = __sp - %d + 1;\n", n);
+                fprintf(out, "        __stk[__sp - 1] = __arr;\n");
+                fprintf(out, "    }\n");
+                break;
+            }
+            case OPC_INDEX_GET:
+                fprintf(out, "    { Value __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_get(__arr, __idx); }\n");
+                break;
+            case OPC_INDEX_SET:
+                fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_set(__arr, __idx, __val); }\n");
+                break;
+            case OPC_LEN:
+                fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_array_len(__v); }\n");
+                break;
             case OPC_PRINT:
                 fprintf(out, "    lumin_print(__stk[__sp-1]);\n");
                 break;

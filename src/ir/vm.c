@@ -96,6 +96,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_SUB: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_sub(l, r); break; }
             case OPC_MUL: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_mul(l, r); break; }
             case OPC_DIV: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_div(l, r); break; }
+            case OPC_MOD: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_mod(l, r); break; }
             case OPC_GT:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_gt(l, r); break; }
             case OPC_LT:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_lt(l, r); break; }
             case OPC_GE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_ge(l, r); break; }
@@ -122,6 +123,30 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_CAST_BOOL:   { Value v = stack[--sp]; stack[sp++] = lumin_cast_bool(v); break; }
             case OPC_CAST_STRING: { Value v = stack[--sp]; stack[sp++] = lumin_cast_string(v); break; }
             case OPC_CAST_ASCII:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_ascii(v); break; }
+            case OPC_LOGIC_NOT:   { Value v = stack[--sp]; stack[sp++] = lumin_logic_not(v); break; }
+            case OPC_ARRAY_LIT: {
+                int n = in.b;
+                Value arr = val_array(n);
+                for(int k = 0; k < n; k++)
+                    arr.v.array.items[k] = val_clone(&stack[sp - n + k]);
+                sp = sp - n + 1;
+                stack[sp - 1] = arr;
+                break;
+            }
+            case OPC_INDEX_GET: {
+                Value idx = stack[--sp];
+                Value arr = stack[--sp];
+                stack[sp++] = lumin_array_get(arr, idx);
+                break;
+            }
+            case OPC_INDEX_SET: {
+                Value val = stack[--sp];
+                Value idx = stack[--sp];
+                Value arr = stack[--sp];
+                stack[sp++] = lumin_array_set(arr, idx, val);
+                break;
+            }
+            case OPC_LEN: { Value v = stack[--sp]; stack[sp++] = lumin_array_len(v); break; }
             case OPC_PRINT:
                 lumin_print(stack[sp - 1]);
                 break;

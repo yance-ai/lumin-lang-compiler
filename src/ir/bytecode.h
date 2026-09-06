@@ -11,11 +11,16 @@ typedef enum {
     OPC_LOAD_CONST,     // a=常量池下标
     OPC_LOAD_VAR,       // a=符号表下标
     OPC_STORE_VAR,      // a=符号表下标；弹值写变量（深拷贝入帧），原值压回（表达式值）
-    OPC_ADD, OPC_SUB, OPC_MUL, OPC_DIV,
+    OPC_ADD, OPC_SUB, OPC_MUL, OPC_DIV, OPC_MOD,
     OPC_GT, OPC_LT, OPC_GE, OPC_LE, OPC_EQ, OPC_NE,
     OPC_NEG, OPC_POS,
+    OPC_LOGIC_NOT,   // 弹1压1 bool 取反
     OPC_PRE_INC, OPC_POST_INC, OPC_PRE_DEC, OPC_POST_DEC,  // a=符号表下标
     OPC_CAST_INT, OPC_CAST_DOUBLE, OPC_CAST_CHAR, OPC_CAST_BOOL, OPC_CAST_STRING, OPC_CAST_ASCII,
+    OPC_ARRAY_LIT,    // b=元素个数；弹 b 个元素压数组
+    OPC_INDEX_GET,    // 弹 arr,idx 压元素
+    OPC_INDEX_SET,    // 弹 arr,idx,val 写回；压回 val（表达式值）
+    OPC_LEN,          // 弹1压1 数组长度
     OPC_PRINT,        // 打印栈顶，不弹出
     OPC_TO_BOOL,      // 弹1压1 bool
     OPC_DUP,          // 复制栈顶

@@ -34,6 +34,9 @@ typedef enum {
     AST_FUNC_DEF,      // 函数定义 func f(a,...args){}
     AST_PARAM,         // 形参节点（普通 / ...可变）
     AST_CALL,          // 函数调用 f(1,2,3)
+    AST_INDEX,         // 数组下标读 a[i]
+    AST_INDEX_ASSIGN,  // 数组下标写 a[i] = v
+    AST_ARRAY_LIT,     // 数组字面量 [1,2,3]
 } AstType;
 
 // 二元运算符
@@ -42,12 +45,16 @@ typedef enum {
     OP_SUB,
     OP_MUL,
     OP_DIV,
+    OP_MOD,
     OP_GT,
     OP_LT,
     OP_GE,
     OP_LE,
     OP_EQ,
     OP_NE,
+    OP_LOGIC_AND,
+    OP_LOGIC_OR,
+    OP_LOGIC_NOT,
     OP_PRE_INC,
     OP_POST_INC,
     OP_PRE_DEC,

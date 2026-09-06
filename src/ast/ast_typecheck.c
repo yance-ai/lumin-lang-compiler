@@ -52,6 +52,18 @@ static void collect_top_level(AstNode* node) {
         case AST_CAST:
             collect_top_level(node->u.cast.child);
             break;
+        case AST_INDEX:
+            collect_top_level(node->u.index.arr);
+            collect_top_level(node->u.index.idx);
+            break;
+        case AST_INDEX_ASSIGN:
+            collect_top_level(node->u.index_assign.arr);
+            collect_top_level(node->u.index_assign.idx);
+            collect_top_level(node->u.index_assign.value);
+            break;
+        case AST_ARRAY_LIT:
+            collect_top_level(node->u.array_lit.elems);
+            break;
         case AST_TERNARY:
             collect_top_level(node->u.ternary.cond);
             collect_top_level(node->u.ternary.true_expr);
@@ -237,6 +249,20 @@ int typecheck_expr(AstNode* node)
                     }
                 }
                 node->val_type = VAL_BOOL;
+            } else if(op == OP_LOGIC_AND || op == OP_LOGIC_OR) {
+                // 逻辑运算：任意类型按 truthy 判定，结果 bool
+                node->val_type = VAL_BOOL;
+            } else if(op == OP_MOD) {
+                if(!(left_unknown || right_unknown)) {
+                    if(!(left_is_num && right_is_num)) {
+                        fprintf(stderr,"语义错误：%% 只支持数值类型\n");
+                        err = 1;
+                    }
+                }
+                if(tl == VAL_DOUBLE || tr == VAL_DOUBLE)
+                    node->val_type = VAL_DOUBLE;
+                else
+                    node->val_type = VAL_INT;
             } else {
                 if(!(left_unknown || right_unknown)) {
                     if(!(left_is_num && right_is_num)) {
@@ -255,6 +281,33 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.assign.expr);
             node->val_type = node->u.assign.expr->val_type;
             static_sym_put(node->u.assign.varname, node->val_type);
+            break;
+        case AST_INDEX: {
+            err |= typecheck_expr(node->u.index.arr);
+            err |= typecheck_expr(node->u.index.idx);
+            if(node->u.index.arr->val_type != VAL_ARRAY &&
+               node->u.index.arr->val_type != VAL_NONE) {
+                fprintf(stderr,"语义错误：下标访问的对象不是数组\n");
+                err = 1;
+            }
+            node->val_type = VAL_NONE;   // 元素类型不可静态追踪
+            break;
+        }
+        case AST_INDEX_ASSIGN: {
+            err |= typecheck_expr(node->u.index_assign.arr);
+            err |= typecheck_expr(node->u.index_assign.idx);
+            err |= typecheck_expr(node->u.index_assign.value);
+            if(node->u.index_assign.arr->val_type != VAL_ARRAY &&
+               node->u.index_assign.arr->val_type != VAL_NONE) {
+                fprintf(stderr,"语义错误：下标访问的对象不是数组\n");
+                err = 1;
+            }
+            node->val_type = node->u.index_assign.value->val_type;
+            break;
+        }
+        case AST_ARRAY_LIT:
+            err |= typecheck_expr(node->u.array_lit.elems);
+            node->val_type = VAL_ARRAY;
             break;
         case AST_PRINT:
             err |= typecheck_expr(node->u.print.expr);
@@ -341,11 +394,26 @@ int typecheck_expr(AstNode* node)
         case AST_CALL: {
             // 实参逐个检查（含嵌套调用）
             err |= typecheck_call_args(node->u.call.args);
-            // 函数名：已定义函数 或 赋过函数值的变量 均可（与解释器一致）
+            // 函数名：已定义函数 或 赋过函数值的变量 均可（与解释器一致）；
+            // 内置函数白名单：len（数组长度）
             ValueType t;
             if(!static_sym_get(node->u.call.name, &t)) {
-                fprintf(stderr,"语义错误：调用未定义函数 %s\n", node->u.call.name);
-                err = 1;
+                if(strcmp(node->u.call.name, "len") != 0) {
+                    fprintf(stderr,"语义错误：调用未定义函数 %s\n", node->u.call.name);
+                    err = 1;
+                } else {
+                    // len 必须 1 个实参
+                    int nargs = 0;
+                    AstNode* a = node->u.call.args;
+                    while(a) {
+                        nargs++;
+                        a = (a->type == AST_SEQ) ? a->u.seq.second : NULL;
+                    }
+                    if(nargs != 1) {
+                        fprintf(stderr,"语义错误：len() 需要 1 个实参\n");
+                        err = 1;
+                    }
+                }
             } else if(t != VAL_NONE && t != VAL_FUNC) {
                 fprintf(stderr,"语义错误：%s 不是函数\n", node->u.call.name);
                 err = 1;
