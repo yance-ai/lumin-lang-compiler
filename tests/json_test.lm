@@ -54,6 +54,27 @@ print(stringify((byte)65));       // 65（byte → 数字）
 print(stringify(1.0));            // 1（%g 去尾零）
 print(stringify(3.5));            // 3.5
 
+print("== 多层嵌套（map 包 array 包 map 交叉）==");
+nested = {
+  "name": "root",
+  "list": [
+    {"id": 1, "tags": ["a", "b"]},
+    {"id": 2, "tags": ["c", "d"], "inner": {"deep": [10, 20, [30, 40]]}},
+    [1, [2, {"x": "y"}]]
+  ],
+  "matrix": [[1, 2], [3, [4, 5]]]
+};
+njs = stringify(nested);
+print(njs);
+nm = json(njs);
+print(nm["name"]);                    // root
+print(nm["list"][0]["id"]);           // 1
+print(nm["list"][0]["tags"][1]);      // b
+print(nm["list"][1]["inner"]["deep"][2][1]); // 40
+print(nm["list"][2][1][1]["x"]);      // y
+print(nm["matrix"][1][1][0]);         // 4
+print(stringify(nm) == njs);          // true 深层 round-trip
+
 print("== unicode ==");
 print(json(q + "\u4f60\u597d" + q));   // 你好（\u 转义）
 print(json(q + "\ud83d\ude00" + q));   // 😀（代理对合并）
