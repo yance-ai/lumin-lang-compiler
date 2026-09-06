@@ -45,9 +45,9 @@ Value lumin_type(Value v);          // type(x)：类型名字符串
 Value lumin_input(void);            // input()：读一行（去换行）
 
 // ===== 错误机制全局（定义在 lm_value.c） =====
-extern char g_err_type[64];
-extern const char* g_trace[64];
-extern int g_trace_n;
+extern _Thread_local char g_err_type[64];
+extern _Thread_local const char* g_trace[64];
+extern _Thread_local int g_trace_n;
 
 // ===== 错误对象 =====
 Value lumin_make_error(const char* type, const char* msg, const char* stack);

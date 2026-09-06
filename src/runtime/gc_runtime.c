@@ -15,8 +15,13 @@ GCObject* gc_alloc(size_t payload_size, GCObjTag tag)
     }
     p->tag = tag;
     p->marked = 0;
-    p->next = gc_head;
-    gc_head = p;
+    /* 无锁头插：CAS 保证多线程分配时链表不损坏（当前 gc_collect 无调用点，
+     * 链表只增不减；未来启用回收时再评估每线程堆或加锁方案） */
+    for (;;) {
+        GCObject* old = gc_head;
+        p->next = old;
+        if (__sync_bool_compare_and_swap(&gc_head, old, p)) break;
+    }
     return p;
 }
 

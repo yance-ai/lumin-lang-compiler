@@ -11,18 +11,18 @@
 #include <setjmp.h>
 
 /* try/catch 错误处理器栈（VM 侧；C 生成侧用局部 jmp_buf） */
-static jmp_buf vm_jbs[64];
-static jmp_buf* vm_prev[64];
-static int vm_depth = 0;
-static int vm_sp[64];
-static int vm_target[64];   /* 每层的 catch 目标（longjmp 后自动变量不可靠） */
-static int vm_tn[64];       /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
-static int vm_fn[64];       /* 每层 TRY 时的 finally 完成栈深度 */
-static int vm_fin_act[64];  /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
-static int vm_fin_tgt[64];
-static int vm_fin_dep[64];  /* FIN_PUSH 时的恢复深度（FINISH act=1/3/4 恢复，防循环内 depth 漂移） */
-static int vm_fin_n = 0;
-static Value vm_pend_val;   /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
+static _Thread_local jmp_buf vm_jbs[64];
+static _Thread_local jmp_buf* vm_prev[64];
+static _Thread_local int vm_depth = 0;
+static _Thread_local int vm_sp[64];
+static _Thread_local int vm_target[64];   /* 每层的 catch 目标（longjmp 后自动变量不可靠） */
+static _Thread_local int vm_tn[64];       /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
+static _Thread_local int vm_fn[64];       /* 每层 TRY 时的 finally 完成栈深度 */
+static _Thread_local int vm_fin_act[64];  /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
+static _Thread_local int vm_fin_tgt[64];
+static _Thread_local int vm_fin_dep[64];  /* FIN_PUSH 时的恢复深度（FINISH act=1/3/4 恢复，防循环内 depth 漂移） */
+static _Thread_local int vm_fin_n = 0;
+static _Thread_local Value vm_pend_val;   /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
 
 #define VM_STACK_MAX 256
 
@@ -424,10 +424,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 char* st = lumin_build_stack_trace();
                 stack[sp++] = lumin_make_error(g_err_type, g_err_msg, st);
                 free(st);
-                if(vm_depth > 0) {
-                    g_trace_n = vm_tn[vm_depth - 1];
-                    vm_fin_n = vm_fn[vm_depth - 1];
-                }
+                /* TRY 存 vm_tn[d]/vm_fn[d]（d=TRY 层深度），GET_ERR 时 vm_depth=d → 直接用 vm_depth */
+                g_trace_n = vm_tn[vm_depth];
+                vm_fin_n = vm_fn[vm_depth];
                 break;
             }
             case OPC_THROW: {

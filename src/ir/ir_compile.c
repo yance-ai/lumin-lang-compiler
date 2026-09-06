@@ -1,3 +1,5 @@
+/* 编译期模块：ir_func_table/ir_func_count 为编译期状态，单线程编译设计；
+ * 未来支持并发编译时需实例化（每编译任务一份），不影响运行时多线程。 */
 // AST → 字节码 IR 编译器
 // 遍历结构与 ast_typecheck.c / codegen.c 对齐（用户建议复用其递归结构）。
 #include "ir_compile.h"

@@ -1,3 +1,5 @@
+/* 编译期模块：out/g_globals/fn_locals/g_cur_fn/fin_lab_* 均为单次编译状态，
+ * 未来并发编译需实例化；运行时多线程由 _Thread_local 执行器状态保证。 */
 // IR → C 生成器：把字节码指令流翻译为 C（栈模拟 + goto 标号），语义与 VM 一致。
 // 变量两级收集（全局/函数局部+参数）与旧 codegen 对齐：全局 = main 中引用的名字；
 // 函数局部 = 参数 + 函数内 STORE/INC/DEC 的名字（排除参数与全局）。
@@ -424,7 +426,7 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    { char* __st = lumin_build_stack_trace();\n");
                 fprintf(out, "      __stk[__sp++] = lumin_make_error(g_err_type, g_err_msg, __st);\n");
                 fprintf(out, "      free(__st);\n");
-                fprintf(out, "      if(__g_depth > 0) { g_trace_n = __g_tn[__g_depth - 1]; __g_fin_n = __g_fn[__g_depth - 1]; }\n");
+                fprintf(out, "      g_trace_n = __g_tn[__g_depth]; __g_fin_n = __g_fn[__g_depth];\n");
                 fprintf(out, "    }\n");
                 break;
             }
@@ -460,7 +462,7 @@ static void emit_insns(BytecodeFunc* fn)
                 if(!g_cur_fn)
                     fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; return 0; }\n");
                 else
-                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; { Value __v = __g_pend_val; return val_clone(&__v); } }\n");
+                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; if(g_trace_n > 0) g_trace_n--; { Value __v = __g_pend_val; return val_clone(&__v); } }\n");
                 fprintf(out, "      else runtime_error(\"finally 完成动作未知\");\n");
                 fprintf(out, "    }\n");
                 break;

@@ -1,25 +1,25 @@
 #include "lumin_value.h"
 #include <string.h>
 
-jmp_buf* g_err_jmp = NULL;
-char g_err_msg[1024] = {0};
-char g_err_type[64] = "RuntimeError";   // 最近一次错误/throw 的类型名（GET_ERR 构造错误对象用）
+_Thread_local jmp_buf* g_err_jmp = NULL;
+_Thread_local char g_err_msg[1024] = {0};
+_Thread_local char g_err_type[64] = "RuntimeError";   // 最近一次错误/throw 的类型名（GET_ERR 构造错误对象用）
 /* 调用栈回溯记录（VM 的 OPC_CALL / C 生成函数入口 push，返回 pop；longjmp 后由 TRY 层截断） */
-const char* g_trace[64];
-int g_trace_n = 0;
+_Thread_local const char* g_trace[64];
+_Thread_local int g_trace_n = 0;
 /* C 生成通道的 try/catch 处理器栈（VM 通道用 vm.c 的 vm_jbs，互不干扰） */
-jmp_buf __g_jbs[64];
-jmp_buf* __g_prev[64];
-int __g_depth = 0;
-int __g_sp0[64];
-int __g_tgt[64];
+_Thread_local jmp_buf __g_jbs[64];
+_Thread_local jmp_buf* __g_prev[64];
+_Thread_local int __g_depth = 0;
+_Thread_local int __g_sp0[64];
+_Thread_local int __g_tgt[64];
 int __g_tn[64];        /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
 int __g_fn[64];        /* 每层 TRY 时的 finally 完成栈深度 */
-int __g_fin_act[64];
+_Thread_local int __g_fin_act[64];
 int __g_fin_dep[64];   /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
-int __g_fin_tgt[64];
-int __g_fin_n = 0;
-Value __g_pend_val;    /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
+_Thread_local int __g_fin_tgt[64];
+_Thread_local int __g_fin_n = 0;
+_Thread_local Value __g_pend_val;    /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
 
 // 运行时错误：有 try 处理器则恢复（longjmp），否则打印并退出
 void runtime_error(const char* msg) {

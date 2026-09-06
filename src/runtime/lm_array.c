@@ -7,7 +7,7 @@
 #include <math.h>
 
 // sort_cmp 排序方向（lumin_sort 设置后调用 qsort）
-static int g_sort_numeric = 0;
+static _Thread_local int g_sort_numeric = 0;   /* TLS：多线程 sort 互不干扰 */
 
 
 

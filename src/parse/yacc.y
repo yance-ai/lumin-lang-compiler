@@ -1,3 +1,4 @@
+/* 编译期模块：g_lambda_seq 为单线程语法状态，未来并发编译需实例化。 */
 %code requires {
     typedef struct AstNode AstNode;
 }

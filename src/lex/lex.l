@@ -1,3 +1,4 @@
+/* 编译期模块：prev_token/in_case_expr 为单线程词法状态，未来并发编译需实例化。 */
 %{
 #include "yacc.tab.h"
 #include <stdio.h>

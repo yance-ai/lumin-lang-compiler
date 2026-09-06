@@ -202,3 +202,30 @@ while (i12 < 5) {
     i12 = i12 + 1;
 }
 print("n12: s=" + s12); // 5+6 +61+5 +66+3+5 +74+4+5 = 83
+
+// ---- n13: 函数内 throw 被同函数 catch 捕获 + finally（GET_ERR trace 截断索引 / FINISH act=5 trace 平衡回归）----
+func n13_f(x) {
+    try {
+        if (x == 1) { throw "n13-e"; }
+        return x * 10;
+    } catch (e) {
+        return -1;
+    } finally {
+        n13_c = n13_c + 1;
+    }
+}
+func n13_g(x) {
+    try {
+        return n13_f(x);   // 嵌套：内层 throw 穿透到外层同函数 catch
+    } catch (e) {
+        return -100;
+    }
+}
+n13_c = 0;
+n13_a = n13_f(1);   // throw → catch → -1
+n13_b = n13_f(0);   // 正常 → 0
+n13_d = n13_f(2);   // 正常 → 20
+n13_e = n13_f(1);   // 再 throw：trace 栈已平衡，连续调用不泄漏
+n13_g1 = n13_g(1);  // 内层 throw 穿透 n13_g catch → -100
+n13_g2 = n13_g(0);  // 正常 → 0
+print("n13: a=" + n13_a + " b=" + n13_b + " d=" + n13_d + " e=" + n13_e + " g1=" + n13_g1 + " g2=" + n13_g2 + " fin=" + n13_c);

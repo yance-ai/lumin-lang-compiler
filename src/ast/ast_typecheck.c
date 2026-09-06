@@ -1,3 +1,5 @@
+/* 编译期模块：func_depth/in_lambda/lambda_locals_cnt/g_global_vars_cnt 为单线程编译状态，
+ * 未来并发编译需实例化。 */
 #include "ast_typecheck.h"
 #include <stdio.h>
 #include <stdlib.h>
