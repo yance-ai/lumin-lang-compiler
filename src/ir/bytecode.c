@@ -114,10 +114,11 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
             return -1;                       // 弹2压1
         case OPC_NEG: case OPC_POS:
         case OPC_LOGIC_NOT:
-        case OPC_LEN:
         case OPC_CAST_INT: case OPC_CAST_DOUBLE: case OPC_CAST_CHAR:
         case OPC_CAST_BOOL: case OPC_CAST_STRING: case OPC_CAST_ASCII:
             return 0;                        // 弹1压1
+        case OPC_BUILTIN:
+            return -in.b + 1;                // 弹 b 实参，压 1 结果
         case OPC_ARRAY_LIT:
             return -in.b + 1;                // 弹 b 元素，压 1 数组
         case OPC_INDEX_GET:
@@ -237,7 +238,7 @@ static const char* opc_name(OpCode op)
         case OPC_ARRAY_LIT: return "ARRAY_LIT";
         case OPC_INDEX_GET: return "INDEX_GET";
         case OPC_INDEX_SET: return "INDEX_SET";
-        case OPC_LEN: return "LEN";
+        case OPC_BUILTIN: return "BUILTIN";
         case OPC_PRINT: return "PRINT";
         case OPC_TO_BOOL: return "TO_BOOL";
         case OPC_DUP: return "DUP";
@@ -308,6 +309,12 @@ void bc_disasm(FILE* out, BytecodeFunc* fn)
             case OPC_ARRAY_LIT:
                 snprintf(txt, sizeof(txt), "ARRAY_LIT n=%d", in.b);
                 break;
+            case OPC_BUILTIN: {
+                static const char* bname[] = {"len", "type", "input", "range", "substr"};
+                const char* bn = (in.a >= 0 && in.a < 5) ? bname[in.a] : "?";
+                snprintf(txt, sizeof(txt), "BUILTIN %s argc=%d", bn, in.b);
+                break;
+            }
             default:
                 snprintf(txt, sizeof(txt), "%s", opc_name(in.op));
                 break;

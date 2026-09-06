@@ -328,11 +328,16 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_CALL: {
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
-            if(strcmp(node->u.call.name, "len") == 0 && !ir_func_table_lookup(node->u.call.name)) {
-                emit(c, OPC_LEN, 0, 0);   // 内置 len(数组)：实参已压栈
-            } else {
-                emit(c, OPC_CALL, bf_sym(c->fn, node->u.call.name), argc);
+            // 用户函数优先；否则内置函数（len/type/input/range/substr）
+            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr"};
+            int bid = -1;
+            if(!ir_func_table_lookup(node->u.call.name)) {
+                for(int k = 0; k < BUILTIN_COUNT; k++) {
+                    if(strcmp(node->u.call.name, bnames[k]) == 0) { bid = k; break; }
+                }
             }
+            if(bid >= 0) emit(c, OPC_BUILTIN, bid, argc);
+            else emit(c, OPC_CALL, bf_sym(c->fn, node->u.call.name), argc);
             break;
         }
         case AST_INDEX:

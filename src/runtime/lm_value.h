@@ -35,7 +35,14 @@ Value lumin_logic_not(Value v);
 // ===== 数组 =====
 Value lumin_array_get(Value arr, Value idx);
 Value lumin_array_set(Value arr, Value idx, Value val);
-Value lumin_array_len(Value arr);
+Value lumin_len(Value v);           // 数组/字符串长度
+Value lumin_index_get(Value c, Value idx);  // 数组元素 / 字符串字符
+
+// ===== 内置函数 =====
+Value lumin_type(Value v);          // type(x)：类型名字符串
+Value lumin_input(void);            // input()：读一行（去换行）
+Value lumin_range(Value n);         // range(n)：[0..n-1]
+Value lumin_substr(Value s, Value start, Value n);  // substr(s, i, n)
 
 // ===== 强转新API =====
 Value lumin_cast_int(Value v);

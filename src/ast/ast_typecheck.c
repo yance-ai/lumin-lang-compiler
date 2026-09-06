@@ -164,6 +164,14 @@ int ast_typecheck(AstNode* node)
     return typecheck_expr(node);
 }
 
+// 实参个数：AST_SEQ 二叉链递归计数
+static int count_args(AstNode* args)
+{
+    if(!args) return 0;
+    if(args->type != AST_SEQ) return 1;
+    return count_args(args->u.seq.first) + count_args(args->u.seq.second);
+}
+
 int typecheck_expr(AstNode* node)
 {
     if(!node) return 0;
@@ -189,7 +197,7 @@ int typecheck_expr(AstNode* node)
             if(static_sym_get(node->u.varname, &t)) {
                 node->val_type = t;
             } else {
-                fprintf(stderr,"语义错误：使用未定义变量 %s\n", node->u.varname);
+                fprintf(stderr,"语义错误(第%d行)：使用未定义变量 %s\n", node->line, node->u.varname);
                 node->val_type = VAL_NONE;
                 err = 1;
             }
@@ -286,8 +294,9 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.index.arr);
             err |= typecheck_expr(node->u.index.idx);
             if(node->u.index.arr->val_type != VAL_ARRAY &&
+               node->u.index.arr->val_type != VAL_STRING &&
                node->u.index.arr->val_type != VAL_NONE) {
-                fprintf(stderr,"语义错误：下标访问的对象不是数组\n");
+                fprintf(stderr,"语义错误(第%d行)：下标访问的对象不是数组或字符串\n", node->line);
                 err = 1;
             }
             node->val_type = VAL_NONE;   // 元素类型不可静态追踪
@@ -299,7 +308,7 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.index_assign.value);
             if(node->u.index_assign.arr->val_type != VAL_ARRAY &&
                node->u.index_assign.arr->val_type != VAL_NONE) {
-                fprintf(stderr,"语义错误：下标访问的对象不是数组\n");
+                fprintf(stderr,"语义错误(第%d行)：下标访问的对象不是数组\n", node->line);
                 err = 1;
             }
             node->val_type = node->u.index_assign.value->val_type;
@@ -395,27 +404,31 @@ int typecheck_expr(AstNode* node)
             // 实参逐个检查（含嵌套调用）
             err |= typecheck_call_args(node->u.call.args);
             // 函数名：已定义函数 或 赋过函数值的变量 均可（与解释器一致）；
-            // 内置函数白名单：len（数组长度）
+            // 内置函数白名单：len/type/input/range/substr（用户函数同名时用户优先）
             ValueType t;
             if(!static_sym_get(node->u.call.name, &t)) {
-                if(strcmp(node->u.call.name, "len") != 0) {
-                    fprintf(stderr,"语义错误：调用未定义函数 %s\n", node->u.call.name);
-                    err = 1;
-                } else {
-                    // len 必须 1 个实参
-                    int nargs = 0;
-                    AstNode* a = node->u.call.args;
-                    while(a) {
-                        nargs++;
-                        a = (a->type == AST_SEQ) ? a->u.seq.second : NULL;
-                    }
-                    if(nargs != 1) {
-                        fprintf(stderr,"语义错误：len() 需要 1 个实参\n");
-                        err = 1;
+                static const struct { const char* name; int argc; } builtins[] = {
+                    {"len", 1}, {"type", 1}, {"input", 0}, {"range", 1}, {"substr", 3},
+                };
+                int found = 0;
+                for(int k = 0; k < 5; k++) {
+                    if(strcmp(node->u.call.name, builtins[k].name) == 0) {
+                        found = 1;
+                        int nargs = count_args(node->u.call.args);
+                        if(nargs != builtins[k].argc) {
+                            fprintf(stderr,"语义错误(第%d行)：%s() 需要 %d 个实参（给了 %d 个）\n", node->line,
+                                    builtins[k].name, builtins[k].argc, nargs);
+                            err = 1;
+                        }
+                        break;
                     }
                 }
+                if(!found) {
+                    fprintf(stderr,"语义错误(第%d行)：调用未定义函数 %s\n", node->line, node->u.call.name);
+                    err = 1;
+                }
             } else if(t != VAL_NONE && t != VAL_FUNC) {
-                fprintf(stderr,"语义错误：%s 不是函数\n", node->u.call.name);
+                fprintf(stderr,"语义错误(第%d行)：%s 不是函数\n", node->line, node->u.call.name);
                 err = 1;
             }
             node->val_type = VAL_NONE;

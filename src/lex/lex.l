@@ -22,6 +22,8 @@ static int is_expr_end(int t)
 #define LEX_RET(t) do { prev_token = (t); return (t); } while(0)
 %}
 
+%option yylineno
+
 %%
 "func"          { fprintf(stderr,"[LEX] FUNC\n"); LEX_RET(FUNC); }
 
@@ -129,7 +131,7 @@ static int is_expr_end(int t)
 [ \t\r\n]       ;
 
 .               {
-    fprintf(stderr,"[LEX] 非法字符: %c (0x%02x)\n", *yytext, (unsigned char)*yytext);
+    fprintf(stderr,"[LEX] 第%d行 非法字符: %c (0x%02x)\n", yylineno, *yytext, (unsigned char)*yytext);
     LEX_RET(ERROR);
 }
 %%

@@ -210,6 +210,92 @@ Value lumin_array_get(Value arr, Value idx) {
     return arr.v.array.items[i];   // 返回数组持有值的引用（调用方如需长期持有需 clone）
 }
 
+// len(x)：数组长度 / 字符串字符数
+Value lumin_len(Value v) {
+    if(v.type == VAL_ARRAY) return lumin_make_int(v.v.array.len);
+    if(v.type == VAL_STRING) return lumin_make_int((long long)strlen(v.v.s));
+    runtime_error("len() 参数必须是数组或字符串");
+    return lumin_make_int(0);
+}
+
+// 下标读：数组元素 / 字符串字符（返回 char）
+Value lumin_index_get(Value c, Value idx) {
+    long long i = array_index_of(idx);
+    if(c.type == VAL_ARRAY) {
+        if(i < 0 || i >= c.v.array.len) {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "数组下标越界: %lld (长度 %d)", i, c.v.array.len);
+            runtime_error(buf);
+        }
+        return c.v.array.items[i];
+    }
+    if(c.type == VAL_STRING) {
+        long long n = (long long)strlen(c.v.s);
+        if(i < 0 || i >= n) {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "字符串下标越界: %lld (长度 %lld)", i, n);
+            runtime_error(buf);
+        }
+        return lumin_make_char(c.v.s[i]);
+    }
+    runtime_error("下标访问的对象不是数组或字符串");
+    return val_none();
+}
+
+// ---------------- 内置函数 ----------------
+
+Value lumin_type(Value v) {
+    switch(v.type) {
+        case VAL_NONE:   return lumin_make_string("none");
+        case VAL_INT:    return lumin_make_string("int");
+        case VAL_DOUBLE: return lumin_make_string("double");
+        case VAL_BOOL:   return lumin_make_string("bool");
+        case VAL_CHAR:   return lumin_make_string("char");
+        case VAL_STRING: return lumin_make_string("string");
+        case VAL_FUNC:   return lumin_make_string("func");
+        case VAL_ARRAY:  return lumin_make_string("array");
+    }
+    return lumin_make_string("unknown");
+}
+
+Value lumin_input(void) {
+    char buf[4096];
+    if(!fgets(buf, sizeof(buf), stdin)) return lumin_make_string("");
+    size_t n = strlen(buf);
+    while(n > 0 && (buf[n-1] == '\n' || buf[n-1] == '\r')) buf[--n] = '\0';
+    return lumin_make_string(buf);
+}
+
+Value lumin_range(Value n) {
+    if(n.type == VAL_DOUBLE) n = lumin_make_int((long long)n.v.d);
+    if(n.type != VAL_INT) runtime_error("range() 参数必须是整数");
+    if(n.v.i < 0) runtime_error("range() 参数不能为负数");
+    int len = (int)n.v.i;
+    Value arr = val_array(len);
+    for(int i = 0; i < len; i++) {
+        Value item = lumin_make_int(i);
+        arr.v.array.items[i] = val_clone(&item);
+    }
+    return arr;
+}
+
+Value lumin_substr(Value s, Value start, Value n) {
+    if(s.type != VAL_STRING) runtime_error("substr() 第一个参数必须是字符串");
+    long long slen = (long long)strlen(s.v.s);
+    long long i = array_index_of(start);
+    long long cnt = array_index_of(n);
+    if(i < 0 || i > slen) runtime_error("substr() 起始越界");
+    if(cnt < 0) runtime_error("substr() 长度不能为负数");
+    if(i + cnt > slen) cnt = slen - i;
+    char* out = (char*)malloc(cnt + 1);
+    if(!out) { perror("lumin_substr"); exit(EXIT_FAILURE); }
+    memcpy(out, s.v.s + i, cnt);
+    out[cnt] = '\0';
+    Value r = lumin_make_string(out);
+    free(out);
+    return r;
+}
+
 // 写回数组元素（深拷贝），返回 val 作为表达式值
 Value lumin_array_set(Value arr, Value idx, Value val) {
     if(arr.type != VAL_ARRAY) runtime_error("下标访问的对象不是数组");
@@ -223,11 +309,6 @@ Value lumin_array_set(Value arr, Value idx, Value val) {
     val_destroy(slot);
     *slot = val_clone(&val);
     return val;
-}
-
-Value lumin_array_len(Value arr) {
-    if(arr.type != VAL_ARRAY) runtime_error("len() 参数必须是数组");
-    return lumin_make_int(arr.v.array.len);
 }
 
 // > 弱类型：任意一方为字符串 → 字典序strcmp；否则数值比较

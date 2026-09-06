@@ -12,6 +12,7 @@ typedef struct AstNode AstNode;
 struct AstNode {
     AstType type;
     ValueType val_type;  // 该节点表达式的类型，语义分析后填充
+    int line;            // 源码行号（lexer yylineno，解析时填充；报错定位用）
     union {
         long long inum;           // AST_INT
         double num;               // AST_NUM

@@ -6,10 +6,14 @@
 #include "ast/ast.h"
 #include "ast/func_compile.h"
 #include <stdio.h>
+extern int yylineno;
 AstNode* new_cast_node(int cast_type, AstNode* child);
 void yyerror(const char* s);
 int yylex(void);
 AstNode* root;
+// AST 构造辅助：报错定位用（节点行号 = 当前 lookahead 行）
+static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; return __n; }
+#define L(n) l_set_line(n)
 %}
 
 %union {
@@ -208,8 +212,8 @@ primary
     | FALSE                   { $$ = ast_bool(0); }
     | STRING_LIT              { $$ = ast_string($1); free($1); }
     | char_lit                { $$ = ast_new_char($1); }
-    | ID                      { $$ = ast_var($1); }
-    | ID LPAREN arg_list RPAREN { $$ = ast_call($1, $3); }  /* 函数调用 foo(a,b,c) */
+    | ID                      { $$ = L(ast_var($1)); }
+    | ID LPAREN arg_list RPAREN { $$ = L(ast_call($1, $3)); }  /* 函数调用 foo(a,b,c) */
     | ARRAY_OPEN arg_list RBRACKET { $$ = ast_array_lit($2); }  /* 数组字面量 [1,2,3] / []（lexer 按上下文消歧） */
     | LPAREN expr RPAREN      { $$ = $2; }
     | LPAREN TOK_INT RPAREN primary        { $$ = new_cast_node(CAST_INT, $4); }
@@ -222,7 +226,7 @@ primary
 
 postfix_expr
     : primary
-    | postfix_expr LBRACKET expr RBRACKET  { $$ = ast_index($1, $3); }  /* 数组下标 a[i] */
+    | postfix_expr LBRACKET expr RBRACKET  { $$ = L(ast_index($1, $3)); }  /* 数组下标 a[i] */
     | postfix_expr PLUSPLUS   { $$ = ast_unary(OP_POST_INC, $1); }
     | postfix_expr MINUSMINUS { $$ = ast_unary(OP_POST_DEC, $1); }
     ;
@@ -300,5 +304,5 @@ expr
 %%
 
 void yyerror(const char* s){
-    fprintf(stderr,"语法错误: %s\n", s);
+    fprintf(stderr,"语法错误(第%d行): %s\n", yylineno, s);
 }

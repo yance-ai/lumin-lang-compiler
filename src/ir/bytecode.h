@@ -18,9 +18,9 @@ typedef enum {
     OPC_PRE_INC, OPC_POST_INC, OPC_PRE_DEC, OPC_POST_DEC,  // a=符号表下标
     OPC_CAST_INT, OPC_CAST_DOUBLE, OPC_CAST_CHAR, OPC_CAST_BOOL, OPC_CAST_STRING, OPC_CAST_ASCII,
     OPC_ARRAY_LIT,    // b=元素个数；弹 b 个元素压数组
-    OPC_INDEX_GET,    // 弹 arr,idx 压元素
+    OPC_INDEX_GET,    // 弹 arr,idx 压元素（数组元素 / 字符串字符）
     OPC_INDEX_SET,    // 弹 arr,idx,val 写回；压回 val（表达式值）
-    OPC_LEN,          // 弹1压1 数组长度
+    OPC_BUILTIN,      // a=内置函数 ID，b=实参个数（见 BuiltinId）
     OPC_PRINT,        // 打印栈顶，不弹出
     OPC_TO_BOOL,      // 弹1压1 bool
     OPC_DUP,          // 复制栈顶
@@ -39,6 +39,16 @@ typedef struct {
     int a;
     int b;
 } Instruction;
+
+// 内置函数（OPC_BUILTIN 的 a 字段）
+typedef enum {
+    BUILTIN_LEN = 0,      // len(x)：数组/字符串长度
+    BUILTIN_TYPE,         // type(x)：类型名
+    BUILTIN_INPUT,        // input()：读一行
+    BUILTIN_RANGE,        // range(n)：[0..n-1] 数组
+    BUILTIN_SUBSTR,       // substr(s, start, n)
+    BUILTIN_COUNT
+} BuiltinId;
 
 // 一个可执行单元：main 或一个 lum 函数
 typedef struct {

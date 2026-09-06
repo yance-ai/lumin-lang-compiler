@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// lexer 维护的当前行号（flex %option yylineno 生成）；解析动作执行时近似指向节点结束行
+extern int yylineno;
+
 
 
 AstNode* ast_int(long long v)
@@ -54,6 +57,7 @@ AstNode* ast_var(char* name)
     AstNode* p = malloc(sizeof(AstNode));
     p->type = AST_VAR;
     p->val_type = VAL_NONE;
+    p->line = yylineno;
     p->u.varname = strdup(name);
     return p;
 }
@@ -74,6 +78,7 @@ AstNode* ast_assign(char* name, AstNode* e)
     AstNode* p = malloc(sizeof(AstNode));
     p->type = AST_ASSIGN;
     p->val_type = VAL_NONE;
+    p->line = yylineno;
     p->u.assign.varname = strdup(name);
     p->u.assign.expr = e;
     return p;
@@ -153,6 +158,7 @@ AstNode* ast_new(AstType type)
     if (!n) abort();
     n->type = type;
     n->val_type = VAL_NONE;
+    n->line = yylineno;
     return n;
 }
 

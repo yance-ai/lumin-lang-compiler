@@ -203,13 +203,29 @@ static void emit_insns(BytecodeFunc* fn)
                 break;
             }
             case OPC_INDEX_GET:
-                fprintf(out, "    { Value __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_get(__arr, __idx); }\n");
+                fprintf(out, "    { Value __idx = __stk[--__sp], __c = __stk[--__sp]; __stk[__sp++] = lumin_index_get(__c, __idx); }\n");
                 break;
             case OPC_INDEX_SET:
                 fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_set(__arr, __idx, __val); }\n");
                 break;
-            case OPC_LEN:
-                fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_array_len(__v); }\n");
+            case OPC_BUILTIN:
+                switch(in.a) {
+                    case BUILTIN_LEN:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_len(__v); }\n");
+                        break;
+                    case BUILTIN_TYPE:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_type(__v); }\n");
+                        break;
+                    case BUILTIN_INPUT:
+                        fprintf(out, "    { __stk[__sp++] = lumin_input(); }\n");
+                        break;
+                    case BUILTIN_RANGE:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_range(__v); }\n");
+                        break;
+                    case BUILTIN_SUBSTR:
+                        fprintf(out, "    { Value __n = __stk[--__sp], __st = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_substr(__s, __st, __n); }\n");
+                        break;
+                }
                 break;
             case OPC_PRINT:
                 fprintf(out, "    lumin_print(__stk[__sp-1]);\n");

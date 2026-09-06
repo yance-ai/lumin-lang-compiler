@@ -135,8 +135,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             }
             case OPC_INDEX_GET: {
                 Value idx = stack[--sp];
-                Value arr = stack[--sp];
-                stack[sp++] = lumin_array_get(arr, idx);
+                Value c = stack[--sp];
+                stack[sp++] = lumin_index_get(c, idx);
                 break;
             }
             case OPC_INDEX_SET: {
@@ -146,7 +146,42 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp++] = lumin_array_set(arr, idx, val);
                 break;
             }
-            case OPC_LEN: { Value v = stack[--sp]; stack[sp++] = lumin_array_len(v); break; }
+            case OPC_BUILTIN: {
+                int argc = in.b;
+                switch(in.a) {
+                    case BUILTIN_LEN: {
+                        Value v = stack[--sp];
+                        stack[sp++] = lumin_len(v);
+                        break;
+                    }
+                    case BUILTIN_TYPE: {
+                        Value v = stack[--sp];
+                        stack[sp++] = lumin_type(v);
+                        break;
+                    }
+                    case BUILTIN_INPUT: {
+                        stack[sp++] = lumin_input();
+                        break;
+                    }
+                    case BUILTIN_RANGE: {
+                        Value v = stack[--sp];
+                        stack[sp++] = lumin_range(v);
+                        break;
+                    }
+                    case BUILTIN_SUBSTR: {
+                        Value n = stack[--sp];
+                        Value st = stack[--sp];
+                        Value s = stack[--sp];
+                        stack[sp++] = lumin_substr(s, st, n);
+                        break;
+                    }
+                    default:
+                        runtime_error("未知内置函数");
+                        break;
+                }
+                (void)argc;
+                break;
+            }
             case OPC_PRINT:
                 lumin_print(stack[sp - 1]);
                 break;
