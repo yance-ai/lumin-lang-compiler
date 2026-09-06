@@ -256,6 +256,65 @@ primary
     | LPAREN TOK_ASCII RPAREN postfix_expr  { $$ = new_cast_node(CAST_ASCII, $4); }
     | LPAREN TOK_CHAR RPAREN postfix_expr   { $$ = new_cast_node(CAST_CHAR, $4); }
     | LPAREN TOK_BYTE RPAREN postfix_expr   { $$ = new_cast_node(CAST_BYTE, $4); }
+    /* 泛型容器字面量：(byte)[1,2,3] 逐元素强转 / (byte){"a":1} 逐值强转
+       （lexer 上下文消歧后 cast 后接 LBRACKET/LBRACE，按容器字面量解释） */
+    | LPAREN TOK_INT RPAREN LBRACKET arg_list RBRACKET
+        { $$ = new_cast_node(CAST_INT, ast_array_lit($5)); }
+    | LPAREN TOK_INT RPAREN LBRACE map_items RBRACE
+        { $$ = new_cast_node(CAST_INT, ast_map_lit($5)); }
+    | LPAREN TOK_DOUBLE RPAREN LBRACKET arg_list RBRACKET
+        { $$ = new_cast_node(CAST_DOUBLE, ast_array_lit($5)); }
+    | LPAREN TOK_DOUBLE RPAREN LBRACE map_items RBRACE
+        { $$ = new_cast_node(CAST_DOUBLE, ast_map_lit($5)); }
+    | LPAREN TOK_STRING RPAREN LBRACKET arg_list RBRACKET
+        { $$ = new_cast_node(CAST_STRING, ast_array_lit($5)); }
+    | LPAREN TOK_STRING RPAREN LBRACE map_items RBRACE
+        { $$ = new_cast_node(CAST_STRING, ast_map_lit($5)); }
+    | LPAREN TOK_BOOL RPAREN LBRACKET arg_list RBRACKET
+        { $$ = new_cast_node(CAST_BOOL, ast_array_lit($5)); }
+    | LPAREN TOK_BOOL RPAREN LBRACE map_items RBRACE
+        { $$ = new_cast_node(CAST_BOOL, ast_map_lit($5)); }
+    | LPAREN TOK_ASCII RPAREN LBRACKET arg_list RBRACKET
+        { $$ = new_cast_node(CAST_ASCII, ast_array_lit($5)); }
+    | LPAREN TOK_ASCII RPAREN LBRACE map_items RBRACE
+        { $$ = new_cast_node(CAST_ASCII, ast_map_lit($5)); }
+    | LPAREN TOK_CHAR RPAREN LBRACKET arg_list RBRACKET
+        { $$ = new_cast_node(CAST_CHAR, ast_array_lit($5)); }
+    | LPAREN TOK_CHAR RPAREN LBRACE map_items RBRACE
+        { $$ = new_cast_node(CAST_CHAR, ast_map_lit($5)); }
+    | LPAREN TOK_BYTE RPAREN LBRACKET arg_list RBRACKET
+        { $$ = new_cast_node(CAST_BYTE, ast_array_lit($5)); }
+    | LPAREN TOK_BYTE RPAREN LBRACE map_items RBRACE
+        { $$ = new_cast_node(CAST_BYTE, ast_map_lit($5)); }
+    /* 泛型字面量：<T>[1,2,3] 数组逐元素强转 / <string,V>{k:v} map 值强转（键固定 string） */
+    | LT TOK_INT GT ARRAY_OPEN arg_list RBRACKET
+        { $$ = new_cast_node(CAST_INT, ast_array_lit($5)); }
+    | LT TOK_DOUBLE GT ARRAY_OPEN arg_list RBRACKET
+        { $$ = new_cast_node(CAST_DOUBLE, ast_array_lit($5)); }
+    | LT TOK_STRING GT ARRAY_OPEN arg_list RBRACKET
+        { $$ = new_cast_node(CAST_STRING, ast_array_lit($5)); }
+    | LT TOK_BOOL GT ARRAY_OPEN arg_list RBRACKET
+        { $$ = new_cast_node(CAST_BOOL, ast_array_lit($5)); }
+    | LT TOK_ASCII GT ARRAY_OPEN arg_list RBRACKET
+        { $$ = new_cast_node(CAST_ASCII, ast_array_lit($5)); }
+    | LT TOK_CHAR GT ARRAY_OPEN arg_list RBRACKET
+        { $$ = new_cast_node(CAST_CHAR, ast_array_lit($5)); }
+    | LT TOK_BYTE GT ARRAY_OPEN arg_list RBRACKET
+        { $$ = new_cast_node(CAST_BYTE, ast_array_lit($5)); }
+    | LT TOK_STRING COMMA TOK_INT GT MAP_OPEN map_items RBRACE
+        { $$ = new_cast_node(CAST_INT, ast_map_lit($7)); }
+    | LT TOK_STRING COMMA TOK_DOUBLE GT MAP_OPEN map_items RBRACE
+        { $$ = new_cast_node(CAST_DOUBLE, ast_map_lit($7)); }
+    | LT TOK_STRING COMMA TOK_STRING GT MAP_OPEN map_items RBRACE
+        { $$ = new_cast_node(CAST_STRING, ast_map_lit($7)); }
+    | LT TOK_STRING COMMA TOK_BOOL GT MAP_OPEN map_items RBRACE
+        { $$ = new_cast_node(CAST_BOOL, ast_map_lit($7)); }
+    | LT TOK_STRING COMMA TOK_ASCII GT MAP_OPEN map_items RBRACE
+        { $$ = new_cast_node(CAST_ASCII, ast_map_lit($7)); }
+    | LT TOK_STRING COMMA TOK_CHAR GT MAP_OPEN map_items RBRACE
+        { $$ = new_cast_node(CAST_CHAR, ast_map_lit($7)); }
+    | LT TOK_STRING COMMA TOK_BYTE GT MAP_OPEN map_items RBRACE
+        { $$ = new_cast_node(CAST_BYTE, ast_map_lit($7)); }
     | FUNC LPAREN param_list RPAREN block_stmt {
           /* 匿名函数表达式：生成内部名 _lambda_N，与具名同路注册（VM sym + IR 函数表） */
           char nm[64];

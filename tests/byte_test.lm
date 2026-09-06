@@ -63,3 +63,33 @@ print((byte)"300");       // 44（string 解析后截断）
 print((byte)128);         // 128
 print((byte)127);         // 127
 print((byte)"abc");       // atoll("abc") = 0 → 0
+
+print("== 泛型容器（尖括号类型标注）==");
+gb = <byte>[1, 2, 300];
+print(gb[0]);             // 1
+print(type(gb[0]));       // byte
+print(gb[2]);             // 44（300 截断）
+gs = <string>[1, 65, true];
+print(gs[1]);             // 65
+gi = <int>["42", "7"];
+print(gi[0] + gi[1]);     // 49
+gm = <string, byte>{"a": 1, "b": 300};
+print(gm["a"]);           // 1
+print(type(gm["a"]));     // byte
+print(gm["b"]);           // 44（截断）
+gmi = <string, int>{"x": "10", "y": "32"};
+print(gmi["x"] + gmi["y"]); // 42
+print(type(gm));          // map（容器泛型保持容器类型）
+
+print("== cast 容器形式（等价，补充语法）==");
+cb = (byte)[1, 2, 3];
+print(cb[2]);             // 3
+print(type(cb[1]));       // byte
+cm = (int){"a": "7", "b": "8"};
+print(cm["a"] + cm["b"]); // 15
+
+print("== 泛型容器做参数/返回 ==");
+func first(x) { return x[0]; }
+print(first(<int>["9", "8"]));   // 9
+func sumb(a) { return (int)a[0] + (int)a[1]; }
+print(sumb(<byte>[10, 32]));     // 42

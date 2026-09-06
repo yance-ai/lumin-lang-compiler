@@ -495,6 +495,18 @@ Value lumin_cast_char(Value v) {
                 cv = v.v.s[0];
             }
             break;
+case VAL_ARRAY: {
+    Value r = val_array(v.v.array.len);
+    for(int i = 0; i < v.v.array.len; i++)
+        r.v.array.items[i] = lumin_cast_char(v.v.array.items[i]);
+    return r;
+}
+case VAL_MAP: {
+    Value r = val_map();
+    for(int i = 0; i < v.v.map->len; i++)
+        lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_char(v.v.map->values[i]));
+    return r;
+}
         default:
             runtime_error("(char) cast: unsupported type");
     }
@@ -526,6 +538,18 @@ Value lumin_cast_byte(Value v) {
         case VAL_NONE:
             bv = 0;
             break;
+case VAL_ARRAY: {
+    Value r = val_array(v.v.array.len);
+    for(int i = 0; i < v.v.array.len; i++)
+        r.v.array.items[i] = lumin_cast_byte(v.v.array.items[i]);
+    return r;
+}
+case VAL_MAP: {
+    Value r = val_map();
+    for(int i = 0; i < v.v.map->len; i++)
+        lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_byte(v.v.map->values[i]));
+    return r;
+}
         default:
             runtime_error("(byte) cast: unsupported type");
             return val_none();
@@ -535,6 +559,18 @@ Value lumin_cast_byte(Value v) {
 
 // (ASCII)v：char ↔ int，0‑255范围校验
 Value lumin_cast_ascii(Value v) {
+    if(v.type == VAL_ARRAY) {
+        Value r = val_array(v.v.array.len);
+        for(int i = 0; i < v.v.array.len; i++)
+            r.v.array.items[i] = lumin_cast_ascii(v.v.array.items[i]);
+        return r;
+    }
+    if(v.type == VAL_MAP) {
+        Value r = val_map();
+        for(int i = 0; i < v.v.map->len; i++)
+            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_ascii(v.v.map->values[i]));
+        return r;
+    }
     if(v.type == VAL_CHAR)
     {
         // char → int编码
@@ -595,6 +631,18 @@ Value lumin_cast_int(Value v) {
             }
             break;
         }
+case VAL_ARRAY: {
+    Value r = val_array(v.v.array.len);
+    for(int i = 0; i < v.v.array.len; i++)
+        r.v.array.items[i] = lumin_cast_int(v.v.array.items[i]);
+    return r;
+}
+case VAL_MAP: {
+    Value r = val_map();
+    for(int i = 0; i < v.v.map->len; i++)
+        lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_int(v.v.map->values[i]));
+    return r;
+}
         default:
             runtime_error("(int) cast: unsupported type");
     }
@@ -632,6 +680,18 @@ Value lumin_cast_double(Value v) {
             dv = d;
             break;
         }
+case VAL_ARRAY: {
+    Value r = val_array(v.v.array.len);
+    for(int i = 0; i < v.v.array.len; i++)
+        r.v.array.items[i] = lumin_cast_double(v.v.array.items[i]);
+    return r;
+}
+case VAL_MAP: {
+    Value r = val_map();
+    for(int i = 0; i < v.v.map->len; i++)
+        lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_double(v.v.map->values[i]));
+    return r;
+}
         default:
             runtime_error("(double) cast: unsupported type");
     }
@@ -640,12 +700,36 @@ Value lumin_cast_double(Value v) {
 
 // (bool)v 强转
 Value lumin_cast_bool(Value v) {
+    if(v.type == VAL_ARRAY) {
+        Value r = val_array(v.v.array.len);
+        for(int i = 0; i < v.v.array.len; i++)
+            r.v.array.items[i] = lumin_cast_bool(v.v.array.items[i]);
+        return r;
+    }
+    if(v.type == VAL_MAP) {
+        Value r = val_map();
+        for(int i = 0; i < v.v.map->len; i++)
+            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_bool(v.v.map->values[i]));
+        return r;
+    }
     _Bool b = lumin_to_bool(v);
     return lumin_make_bool(b);
 }
 
 // (string)v 强转
 Value lumin_cast_string(Value v) {
+    if(v.type == VAL_ARRAY) {
+        Value r = val_array(v.v.array.len);
+        for(int i = 0; i < v.v.array.len; i++)
+            r.v.array.items[i] = lumin_cast_string(v.v.array.items[i]);
+        return r;
+    }
+    if(v.type == VAL_MAP) {
+        Value r = val_map();
+        for(int i = 0; i < v.v.map->len; i++)
+            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_string(v.v.map->values[i]));
+        return r;
+    }
     char *s = value_to_str(v);
     Value res;
     res.type = VAL_STRING;

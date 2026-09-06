@@ -346,8 +346,8 @@ int typecheck_expr(AstNode* node)
             int right_unknown = (tr == VAL_NONE);
             int left_is_str = (tl == VAL_STRING);
             int right_is_str = (tr == VAL_STRING);
-            int left_is_num = (tl == VAL_INT || tl == VAL_DOUBLE || tl == VAL_CHAR);
-            int right_is_num = (tr == VAL_INT || tr == VAL_DOUBLE || tr == VAL_CHAR);
+            int left_is_num = (tl == VAL_INT || tl == VAL_DOUBLE || tl == VAL_CHAR || tl == VAL_BYTE);
+            int right_is_num = (tr == VAL_INT || tr == VAL_DOUBLE || tr == VAL_CHAR || tr == VAL_BYTE);
             int left_is_bool = (tl == VAL_BOOL);
             int right_is_bool= (tr == VAL_BOOL);
             BinOp op = node->u.bin.op;
@@ -371,7 +371,9 @@ int typecheck_expr(AstNode* node)
                 } else {
                     int ok = 0;
                     if(tl == tr) { ok = 1; }
-                    if( (tl == VAL_CHAR && tr == VAL_INT) || (tl == VAL_INT && tr == VAL_CHAR) ) { ok = 1; }
+                    if( (tl == VAL_CHAR && tr == VAL_INT) || (tl == VAL_INT && tr == VAL_CHAR) ||
+                        (tl == VAL_BYTE && tr == VAL_INT) || (tl == VAL_INT && tr == VAL_BYTE) ||
+                        (tl == VAL_CHAR && tr == VAL_BYTE) || (tl == VAL_BYTE && tr == VAL_CHAR) ) { ok = 1; }
                     if(!ok) {
                         fprintf(stderr,"语义错误：==/!= 两侧类型不一致 %s vs %s\n", valtype_to_cstr(tl), valtype_to_cstr(tr));
                         err = 1;
@@ -531,6 +533,11 @@ int typecheck_expr(AstNode* node)
             break;
         case AST_CAST: {
             err |= typecheck_expr(node->u.cast.child);
+            /* 容器泛型：<T>[..] / (T)[..] / <string,V>{..} → 逐元素/逐值强转，仍是容器 */
+            if(node->u.cast.child->val_type == VAL_ARRAY || node->u.cast.child->val_type == VAL_MAP) {
+                node->val_type = node->u.cast.child->val_type;
+                break;
+            }
             switch(node->u.cast.cast_type) {
                 case CAST_INT:      node->val_type = VAL_INT; break;
                 case CAST_DOUBLE:   node->val_type = VAL_DOUBLE; break;
@@ -538,7 +545,8 @@ int typecheck_expr(AstNode* node)
                 case CAST_BOOL:     node->val_type = VAL_BOOL; break;
                 case CAST_STRING:   node->val_type = VAL_STRING; break;
                 case CAST_ASCII:    node->val_type = VAL_INT; break;
-                default: node->val_type = VAL_INT;
+                case CAST_BYTE:     node->val_type = VAL_BYTE; break;
+                default:            node->val_type = VAL_INT;
             }
             break;
         }
