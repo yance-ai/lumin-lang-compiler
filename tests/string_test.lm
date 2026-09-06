@@ -82,3 +82,14 @@ print(contains("hello world", "world"));  // true
 print(contains("hello", "xyz"));          // false
 print(contains([1, 2, 3], 2));            // true
 print(contains(["a", "b"], "c"));         // false
+
+// ---- repeat / replace / sum / avg ----
+print(repeat("ab", 3));          // ababab
+print(repeat("-", 10));          // ----------
+print(replace("hello world hello", "hello", "hi"));  // hi world hi
+print(replace("aaa", "a", "bb"));       // bbbbbb
+print(sum([1, 2, 3]));           // 6（全 int → int）
+print(sum([1.5, 2.5]));          // 4（全 double → double）
+print(sum([1, 2.5]));            // 3.5（混合 → double）
+print(avg([1, 2, 3, 4]));        // 2.5
+print(avg([2, 4]));              // 3

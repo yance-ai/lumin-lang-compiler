@@ -742,3 +742,88 @@ Value lumin_contains(Value hay, Value needle)
     runtime_error("contains() 第一个参数必须是字符串或数组");
     return val_none();
 }
+
+// repeat(s, n)：字符串重复 n 次
+Value lumin_repeat(Value s, Value n)
+{
+    if(s.type != VAL_STRING) runtime_error("repeat() 第一个参数必须是字符串");
+    if(n.type != VAL_INT) runtime_error("repeat() 次数必须是整数");
+    long long k = n.v.i;
+    if(k < 0) runtime_error("repeat() 次数不能为负数");
+    size_t len = strlen(s.v.s);
+    if(k > 0 && len > (size_t)((1ULL << 40) / k)) runtime_error("repeat() 结果过大");
+    size_t total = len * (size_t)k;
+    char* out = (char*)malloc(total + 1);
+    if(!out) { perror("repeat"); exit(EXIT_FAILURE); }
+    for(long long i = 0; i < k; i++) memcpy(out + len * (size_t)i, s.v.s, len);
+    out[total] = '\0';
+    Value r = lumin_make_string(out);
+    free(out);
+    return r;
+}
+
+// replace(s, from, to)：替换所有 from 为 to（from 空串报错）
+Value lumin_replace(Value s, Value from, Value to)
+{
+    if(s.type != VAL_STRING || from.type != VAL_STRING || to.type != VAL_STRING)
+        runtime_error("replace() 三个参数都必须是字符串");
+    if(from.v.s[0] == '\0') runtime_error("replace() 被替换串不能为空");
+    const char* p = s.v.s;
+    const char* f = from.v.s;
+    const char* t = to.v.s;
+    size_t flen = strlen(f), tlen = strlen(t), slen = strlen(p);
+    int count = 0;
+    for(const char* q = p; (q = strstr(q, f)) != NULL; q += flen) count++;
+    if(count == 0) return lumin_make_string(p);  // 无匹配，原样返回
+    size_t outlen = slen + (size_t)count * (tlen > flen ? tlen - flen : 0);
+    char* out = (char*)malloc(outlen + 1);
+    if(!out) { perror("replace"); exit(EXIT_FAILURE); }
+    char* w = out;
+    const char* start = p;
+    const char* hit = strstr(start, f);
+    while(hit) {
+        size_t pre = (size_t)(hit - start);
+        memcpy(w, start, pre); w += pre;
+        memcpy(w, t, tlen); w += tlen;
+        start = hit + flen;
+        hit = strstr(start, f);
+    }
+    size_t rest = strlen(start);
+    memcpy(w, start, rest); w += rest;
+    *w = '\0';
+    Value r = lumin_make_string(out);
+    free(out);
+    return r;
+}
+
+// sum/avg：数字数组聚合（只允许 int/double 元素）
+static double array_sum_d(Value arr, long long* isum, int* all_int)
+{
+    double dsum = 0;
+    *isum = 0; *all_int = 1;
+    for(int i = 0; i < arr.v.array.len; i++) {
+        Value v = arr.v.array.items[i];
+        if(v.type != VAL_INT && v.type != VAL_DOUBLE)
+            runtime_error("sum()/avg() 数组元素必须是数字");
+        if(v.type == VAL_DOUBLE) *all_int = 0;
+        dsum += value_as_number(v);
+        if(v.type == VAL_INT) *isum += v.v.i;
+    }
+    return dsum;
+}
+Value lumin_sum(Value arr)
+{
+    if(arr.type != VAL_ARRAY) runtime_error("sum() 参数必须是数组");
+    long long isum; int all_int;
+    double dsum = array_sum_d(arr, &isum, &all_int);
+    if(all_int) return lumin_make_int(isum);
+    return lumin_make_double(dsum);
+}
+Value lumin_avg(Value arr)
+{
+    if(arr.type != VAL_ARRAY) runtime_error("avg() 参数必须是数组");
+    if(arr.v.array.len == 0) runtime_error("avg() 不能对空数组求平均");
+    long long isum; int all_int;
+    double dsum = array_sum_d(arr, &isum, &all_int);
+    return lumin_make_double(dsum / arr.v.array.len);
+}

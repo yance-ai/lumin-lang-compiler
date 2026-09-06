@@ -415,9 +415,10 @@ int typecheck_expr(AstNode* node)
                     {"toupper", 1}, {"tolower", 1}, {"split", 2}, {"del", 2}, {"insert", 3},
                     {"floor", 1}, {"ceil", 1}, {"abs", 1}, {"sqrt", 1},
                     {"max", -1}, {"min", -1}, {"join", 2}, {"contains", 2},
+                    {"repeat", 2}, {"replace", 3}, {"sum", 1}, {"avg", 1},
                 };
                 int found = 0;
-                for(int k = 0; k < 18; k++) {
+                for(int k = 0; k < 22; k++) {
                     if(strcmp(node->u.call.name, builtins[k].name) == 0) {
                         found = 1;
                         int nargs = count_args(node->u.call.args);

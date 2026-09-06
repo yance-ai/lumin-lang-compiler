@@ -228,6 +228,21 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = lumin_contains(hay, needle);
                         break;
                     }
+                    case BUILTIN_REPEAT: {
+                        Value n = stack[--sp];
+                        Value s = stack[--sp];
+                        stack[sp++] = lumin_repeat(s, n);
+                        break;
+                    }
+                    case BUILTIN_REPLACE: {
+                        Value to = stack[--sp];
+                        Value from = stack[--sp];
+                        Value s = stack[--sp];
+                        stack[sp++] = lumin_replace(s, from, to);
+                        break;
+                    }
+                    case BUILTIN_SUM: { Value v = stack[--sp]; stack[sp++] = lumin_sum(v); break; }
+                    case BUILTIN_AVG: { Value v = stack[--sp]; stack[sp++] = lumin_avg(v); break; }
                     default:
                         runtime_error("未知内置函数");
                         break;

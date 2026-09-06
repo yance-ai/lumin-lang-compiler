@@ -56,6 +56,10 @@ Value lumin_max(Value* args, int n);  // max(a, b, ...)：变参最大值（≥1
 Value lumin_min(Value* args, int n);  // min(a, b, ...)：变参最小值（≥1）
 Value lumin_join(Value arr, Value sep);  // join(arr, sep)：字符串数组拼接（非字符串元素自动转字符串）
 Value lumin_contains(Value hay, Value needle);  // contains(s/arr, x)：字符串子串 / 数组元素包含
+Value lumin_repeat(Value s, Value n);  // repeat(s, n)：字符串重复 n 次
+Value lumin_replace(Value s, Value from, Value to);  // replace(s, from, to)：替换所有出现
+Value lumin_sum(Value arr);  // sum(arr)：数字数组求和（全 int 返回 int，否则 double）
+Value lumin_avg(Value arr);  // avg(arr)：数字数组平均值（double），空数组报错
 
 // ===== 强转新API =====
 Value lumin_cast_int(Value v);

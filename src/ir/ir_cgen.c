@@ -266,6 +266,18 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_CONTAINS:
                         fprintf(out, "    { Value __needle = __stk[--__sp], __hay = __stk[--__sp]; __stk[__sp++] = lumin_contains(__hay, __needle); }\n");
                         break;
+                    case BUILTIN_REPEAT:
+                        fprintf(out, "    { Value __n = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_repeat(__s, __n); }\n");
+                        break;
+                    case BUILTIN_REPLACE:
+                        fprintf(out, "    { Value __to = __stk[--__sp], __from = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_replace(__s, __from, __to); }\n");
+                        break;
+                    case BUILTIN_SUM:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_sum(__v); }\n");
+                        break;
+                    case BUILTIN_AVG:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_avg(__v); }\n");
+                        break;
                 }
                 break;
             case OPC_PRINT:

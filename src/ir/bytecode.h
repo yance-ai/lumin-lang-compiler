@@ -60,6 +60,10 @@ typedef enum {
     BUILTIN_MIN,          // min(a, b, ...) 变参
     BUILTIN_JOIN,         // join(arr, sep)
     BUILTIN_CONTAINS,     // contains(s/arr, x)
+    BUILTIN_REPEAT,       // repeat(s, n)
+    BUILTIN_REPLACE,      // replace(s, from, to)
+    BUILTIN_SUM,          // sum(arr)
+    BUILTIN_AVG,          // avg(arr)
     BUILTIN_COUNT
 } BuiltinId;
 
