@@ -78,6 +78,55 @@ Value lumin_insert(Value arr, Value idx, Value val)
     return r;
 }
 
+// indexOf(arr, x)：首个相等元素下标，-1 未找到（== 类型敏感语义）
+Value lumin_index_of(Value arr, Value x)
+{
+    if(arr.type != VAL_ARRAY) runtime_error("indexOf() 第一个参数必须是数组");
+    for(int i = 0; i < arr.v.array.len; i++) {
+        Value eq = lumin_eq(arr.v.array.items[i], x);
+        if(lumin_to_bool(eq)) return lumin_make_int(i);
+    }
+    return lumin_make_int(-1);
+}
+
+// arr_get(arr, i)：安全取（越界/非数组 → null，不抛错）
+Value lumin_array_get_safe(Value arr, Value idx)
+{
+    if(arr.type != VAL_ARRAY) return val_none();
+    if(idx.type != VAL_INT) return val_none();
+    long long i = idx.v.i;
+    if(i < 0 || i >= arr.v.array.len) return val_none();
+    return arr.v.array.items[i];
+}
+
+// set(arr, i, v)：原地改（与 a[i]=v 一致），返回数组本身支持链式
+Value lumin_array_set_method(Value arr, Value idx, Value val)
+{
+    if(arr.type != VAL_ARRAY) runtime_error("set() 第一个参数必须是数组");
+    if(idx.type != VAL_INT) runtime_error("set() 下标必须是整数");
+    long long i = idx.v.i;
+    if(i < 0 || i >= arr.v.array.len) {
+        char b[96]; snprintf(b, sizeof b, "set() 下标 %lld 越界（长度 %d）", i, arr.v.array.len);
+        runtime_error(b);
+    }
+    Value* slot = &arr.v.array.items[i];
+    val_destroy(slot);
+    *slot = val_clone(&val);
+    return arr;
+}
+
+// first(arr) / last(arr)：首/尾元素（空数组 → null）
+Value lumin_array_first(Value arr)
+{
+    if(arr.type != VAL_ARRAY || arr.v.array.len == 0) return val_none();
+    return arr.v.array.items[0];
+}
+Value lumin_array_last(Value arr)
+{
+    if(arr.type != VAL_ARRAY || arr.v.array.len == 0) return val_none();
+    return arr.v.array.items[arr.v.array.len - 1];
+}
+
 // floor/ceil：向下/向上取整，返回 int
 
 static double array_sum_d(Value arr, long long* isum, int* all_int)

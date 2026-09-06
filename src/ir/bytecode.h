@@ -119,6 +119,11 @@ typedef enum {
     BUILTIN_ARRAY_ADD,    // add(arr, x)：追加元素，返回新数组（arr.add(x) 方法链）
     BUILTIN_ARRAY_REMOVE, // remove(arr, i)：删下标 i，返回新数组（arr.remove(i)）
     BUILTIN_ARRAY_CLEAR,  // clear(arr)：清空，返回空数组（arr.clear()）
+    BUILTIN_ARRAY_INDEXOF,// indexOf(arr, x)：首个相等元素下标，-1 未找到
+    BUILTIN_ARRAY_GET,    // arr_get(arr, i)：安全取（越界/非数组 → null）
+    BUILTIN_ARRAY_SET,    // set(arr, i, v)：原地改，返回数组（arr.set(i,v) 链式）
+    BUILTIN_ARRAY_FIRST,  // first(arr)：首元素（空 → null）
+    BUILTIN_ARRAY_LAST,   // last(arr)：尾元素（空 → null）
     BUILTIN_COUNT
 } BuiltinId;
 

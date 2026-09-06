@@ -435,6 +435,21 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_ARRAY_REMOVE:
                         fprintf(out, "    { Value __idx = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
                         break;
+                    case BUILTIN_ARRAY_INDEXOF:
+                        fprintf(out, "    { Value __x = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_index_of(__arr, __x); }\n");
+                        break;
+                    case BUILTIN_ARRAY_GET:
+                        fprintf(out, "    { Value __i = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_get_safe(__arr, __i); }\n");
+                        break;
+                    case BUILTIN_ARRAY_SET:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __i = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_set_method(__arr, __i, __v); }\n");
+                        break;
+                    case BUILTIN_ARRAY_FIRST:
+                        fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_first(__arr); }\n");
+                        break;
+                    case BUILTIN_ARRAY_LAST:
+                        fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_last(__arr); }\n");
+                        break;
                     case BUILTIN_ARRAY_CLEAR:
                         fprintf(out, "    { __stk[--__sp]; __stk[__sp++] = val_array(0); }\n");
                         break;
@@ -456,6 +471,21 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_ARRAY_REMOVE:
                         fprintf(out, "    { Value __idx = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
+                        break;
+                    case BUILTIN_ARRAY_INDEXOF:
+                        fprintf(out, "    { Value __x = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_index_of(__arr, __x); }\n");
+                        break;
+                    case BUILTIN_ARRAY_GET:
+                        fprintf(out, "    { Value __i = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_get_safe(__arr, __i); }\n");
+                        break;
+                    case BUILTIN_ARRAY_SET:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __i = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_set_method(__arr, __i, __v); }\n");
+                        break;
+                    case BUILTIN_ARRAY_FIRST:
+                        fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_first(__arr); }\n");
+                        break;
+                    case BUILTIN_ARRAY_LAST:
+                        fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_last(__arr); }\n");
                         break;
                     case BUILTIN_ARRAY_CLEAR:
                         fprintf(out, "    { __stk[--__sp]; __stk[__sp++] = val_array(0); }\n");

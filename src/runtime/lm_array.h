@@ -15,3 +15,9 @@ Value lumin_reverse(Value arr);           // reverse(arr)：反转，返回新�
 #endif //LM_ARRAY_H
 
 Value lumin_array_add(Value arr, Value val);  // 追加元素，返回新数组
+
+Value lumin_index_of(Value arr, Value x);         // 首个相等下标，-1 未找到
+Value lumin_array_get_safe(Value arr, Value idx); // 安全取，越界 → null
+Value lumin_array_set_method(Value arr, Value idx, Value val); // 原地改，返回数组
+Value lumin_array_first(Value arr);               // 首元素，空 → null
+Value lumin_array_last(Value arr);                // 尾元素，空 → null

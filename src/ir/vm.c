@@ -535,6 +535,35 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = lumin_del(arr, idx);
                         break;
                     }
+                    case BUILTIN_ARRAY_INDEXOF: {
+                        Value x = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_index_of(arr, x);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_GET: {
+                        Value i = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_get_safe(arr, i);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_SET: {
+                        Value v = stack[--sp];
+                        Value i = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_set_method(arr, i, v);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_FIRST: {
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_first(arr);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_LAST: {
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_last(arr);
+                        break;
+                    }
                     case BUILTIN_ARRAY_CLEAR: {
                         stack[--sp];
                         stack[sp++] = val_array(0);
@@ -572,6 +601,35 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value idx = stack[--sp];
                         Value arr = stack[--sp];
                         stack[sp++] = lumin_del(arr, idx);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_INDEXOF: {
+                        Value x = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_index_of(arr, x);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_GET: {
+                        Value i = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_get_safe(arr, i);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_SET: {
+                        Value v = stack[--sp];
+                        Value i = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_set_method(arr, i, v);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_FIRST: {
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_first(arr);
+                        break;
+                    }
+                    case BUILTIN_ARRAY_LAST: {
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_array_last(arr);
                         break;
                     }
                     case BUILTIN_ARRAY_CLEAR: {

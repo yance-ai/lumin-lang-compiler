@@ -351,6 +351,9 @@ postfix_expr
              (strcmp($3, "get") == 0 || strcmp($3, "post") == 0 || strcmp($3, "put") == 0 ||
               strcmp($3, "delete") == 0 || strcmp($3, "head") == 0 || strcmp($3, "patch") == 0)) {
               $$ = L(ast_call($3, margs));
+          } else if(strcmp($3, "get") == 0) {
+              /* arr.get(i)：数组/容器安全取（内部名 arr_get，与 requests.get 区分） */
+              $$ = L(ast_call("arr_get", margs ? ast_seq_front(margs, recv) : recv));
           } else {
               $$ = L(ast_call($3, margs ? ast_seq_front(margs, recv) : recv));
           }
