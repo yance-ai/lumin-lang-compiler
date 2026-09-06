@@ -99,6 +99,12 @@ typedef enum {
     BUILTIN_TRYLOCK,      // trylock(id) → bool（非阻塞尝试）
     BUILTIN_RDLOCK,       // rdlock(id) → 读锁（读写锁）
     BUILTIN_WRLOCK,       // wrlock(id) → 写锁（读写锁）
+    BUILTIN_TRYRDLOCK,    // tryrdlock(id) → bool（读锁非阻塞尝试，仅读写锁）
+    BUILTIN_TRYWRLOCK,    // trywrlock(id) → bool（写锁非阻塞尝试，仅读写锁）
+    BUILTIN_CONDVAR,      // condvar() → 条件变量 id
+    BUILTIN_COND_WAIT,    // cond_wait(cond, lock) → 原子释放锁并等待
+    BUILTIN_COND_SIGNAL,  // cond_signal(cond) → 唤醒一个等待者
+    BUILTIN_COND_BROADCAST, // cond_broadcast(cond) → 唤醒全部等待者
     BUILTIN_COUNT
 } BuiltinId;
 

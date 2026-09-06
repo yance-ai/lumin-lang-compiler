@@ -468,6 +468,30 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_RDLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("rdlock() 参数必须是锁id（整数）"); lumin_rdlock((int)v.v.i); stack[sp++] = v; break; }
                     case BUILTIN_WRLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("wrlock() 参数必须是锁id（整数）"); lumin_wrlock((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_TRYRDLOCK: {
+                        Value v = stack[--sp];
+                        if(v.type != VAL_INT) runtime_error("tryrdlock() 参数必须是锁id（整数）");
+                        stack[sp++] = lumin_make_bool(lumin_tryrdlock((int)v.v.i));
+                        break;
+                    }
+                    case BUILTIN_TRYWRLOCK: {
+                        Value v = stack[--sp];
+                        if(v.type != VAL_INT) runtime_error("trywrlock() 参数必须是锁id（整数）");
+                        stack[sp++] = lumin_make_bool(lumin_trywrlock((int)v.v.i));
+                        break;
+                    }
+                    case BUILTIN_CONDVAR: { stack[sp++] = lumin_make_int(lumin_condvar_create()); break; }
+                    case BUILTIN_COND_WAIT: {
+                        Value lk = stack[--sp];
+                        Value cd = stack[--sp];
+                        if(lk.type != VAL_INT) runtime_error("cond_wait() 锁参数必须是锁id（整数）");
+                        if(cd.type != VAL_INT) runtime_error("cond_wait() 条件参数必须是条件id（整数）");
+                        lumin_cond_wait((int)cd.v.i, (int)lk.v.i);
+                        stack[sp++] = lk;    // 压回原值（表达式值）
+                        break;
+                    }
+                    case BUILTIN_COND_SIGNAL: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("cond_signal() 参数必须是条件id（整数）"); lumin_cond_signal((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_COND_BROADCAST: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("cond_broadcast() 参数必须是条件id（整数）"); lumin_cond_broadcast((int)v.v.i); stack[sp++] = v; break; }
                     case BUILTIN_MAP:
                     case BUILTIN_FILTER:
                     case BUILTIN_REDUCE: {

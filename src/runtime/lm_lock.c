@@ -45,9 +45,21 @@ typedef struct {
     LockObj* obj;   // 独立分配，扩容移动表不影响
 } LockSlot;
 
+// 条件变量：独立于锁表（pthread_cond_t 必须与 pthread_mutex 配合使用）
+typedef struct { pthread_cond_t cond; } CondObj;
+
+typedef struct {
+    int used;
+    CondObj* obj;   // 独立分配，扩容移动表不影响
+} CondSlot;
+
 static LockSlot* g_locks = NULL;
 static int g_lock_cap = 0;
 static pthread_mutex_t g_tbl_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static CondSlot* g_conds = NULL;
+static int g_cond_cap = 0;
+static pthread_mutex_t g_cond_tbl_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int lock_alloc(LockKind k)
 {
@@ -156,4 +168,93 @@ void lumin_wrlock(int id)
     if(!o) runtime_error("wrlock(): 无效的锁id（未创建或已销毁）");
     if(o->kind != LK_RW) runtime_error("wrlock(): 只适用于读写锁（rwlock() 创建）");
     pthread_rwlock_wrlock(&o->u.rw);
+}
+
+int lumin_tryrdlock(int id)
+{
+    LockObj* o = lock_get(id);
+    if(!o) runtime_error("tryrdlock(): 无效的锁id（未创建或已销毁）");
+    if(o->kind != LK_RW) runtime_error("tryrdlock(): 只适用于读写锁（rwlock() 创建）");
+    return pthread_rwlock_tryrdlock(&o->u.rw) == 0;
+}
+
+int lumin_trywrlock(int id)
+{
+    LockObj* o = lock_get(id);
+    if(!o) runtime_error("trywrlock(): 无效的锁id（未创建或已销毁）");
+    if(o->kind != LK_RW) runtime_error("trywrlock(): 只适用于读写锁（rwlock() 创建）");
+    return pthread_rwlock_trywrlock(&o->u.rw) == 0;
+}
+
+// ===================== 条件变量 =====================
+// 条件表：与锁表同构——CondObj 独立 malloc，表只存指针；realloc 扩容不影响已下发 id。
+// 条件变量与锁（mutex/rmutex）配合：cond_wait 原子释放锁并阻塞，唤醒后重新获取锁。
+
+static int cond_alloc(void)
+{
+    pthread_mutex_lock(&g_cond_tbl_lock);
+    if(!g_conds) {
+        g_conds = (CondSlot*)calloc(LOCK_INITIAL_CAP, sizeof(CondSlot));
+        if(!g_conds) { pthread_mutex_unlock(&g_cond_tbl_lock); runtime_error("condvar: 内存不足"); }
+        g_cond_cap = LOCK_INITIAL_CAP;
+    }
+    int slot = -1;
+    for(int i = 0; i < g_cond_cap; i++) {
+        if(!g_conds[i].used) { slot = i; break; }
+    }
+    if(slot < 0) {
+        int newcap = g_cond_cap * 2;
+        CondSlot* ns = (CondSlot*)realloc(g_conds, (size_t)newcap * sizeof(CondSlot));
+        if(!ns) { pthread_mutex_unlock(&g_cond_tbl_lock); runtime_error("condvar: 条件表扩容内存不足"); }
+        memset(ns + g_cond_cap, 0, (size_t)(newcap - g_cond_cap) * sizeof(CondSlot));
+        g_conds = ns;
+        slot = g_cond_cap;
+        g_cond_cap = newcap;
+    }
+    CondObj* o = (CondObj*)calloc(1, sizeof(CondObj));
+    if(!o) { pthread_mutex_unlock(&g_cond_tbl_lock); runtime_error("condvar: 内存不足"); }
+    pthread_cond_init(&o->cond, NULL);
+    g_conds[slot].used = 1;
+    g_conds[slot].obj = o;
+    pthread_mutex_unlock(&g_cond_tbl_lock);
+    return slot;   // 条件 id = 槽位下标
+}
+
+static CondObj* cond_get(int id)
+{
+    pthread_mutex_lock(&g_cond_tbl_lock);
+    CondObj* o = NULL;
+    if(id >= 0 && id < g_cond_cap && g_conds && g_conds[id].used)
+        o = g_conds[id].obj;
+    pthread_mutex_unlock(&g_cond_tbl_lock);
+    return o;
+}
+
+int lumin_condvar_create(void) { return cond_alloc(); }
+
+void lumin_cond_wait(int cond, int lock)
+{
+    CondObj* c = cond_get(cond);
+    if(!c) runtime_error("cond_wait(): 无效的条件id（未创建或已销毁）");
+    LockObj* o = lock_get(lock);
+    if(!o) runtime_error("cond_wait(): 无效的锁id（未创建或已销毁）");
+    if(o->kind == LK_RW)  runtime_error("cond_wait(): 读写锁不能配条件变量（无互斥阻塞语义），请用 mutex()/rmutex()");
+    if(o->kind == LK_SPIN) runtime_error("cond_wait(): 自旋锁不能配条件变量（忙等无阻塞释放），请用 mutex()/rmutex()");
+    // LK_MUTEX / LK_RMUTEX：pthread_cond_wait 原子释放一次锁并阻塞，唤醒后重新获取
+    // （递归锁释放一次、唤醒后重获一次，与 pthread 语义一致）
+    pthread_cond_wait(&c->cond, &o->u.mutex);
+}
+
+void lumin_cond_signal(int cond)
+{
+    CondObj* c = cond_get(cond);
+    if(!c) runtime_error("cond_signal(): 无效的条件id（未创建或已销毁）");
+    pthread_cond_signal(&c->cond);
+}
+
+void lumin_cond_broadcast(int cond)
+{
+    CondObj* c = cond_get(cond);
+    if(!c) runtime_error("cond_broadcast(): 无效的条件id（未创建或已销毁）");
+    pthread_cond_broadcast(&c->cond);
 }

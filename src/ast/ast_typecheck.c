@@ -577,6 +577,8 @@ int typecheck_expr(AstNode* node)
                     {"mutex", 0, 0}, {"rmutex", 0, 0}, {"rwlock", 0, 0}, {"spinlock", 0, 0},
                     {"lock", 1, 1}, {"unlock", 1, 1}, {"trylock", 1, 1},
                     {"rdlock", 1, 1}, {"wrlock", 1, 1},
+                    {"tryrdlock", 1, 1}, {"trywrlock", 1, 1},
+                    {"condvar", 0, 0}, {"cond_wait", 2, 2}, {"cond_signal", 1, 1}, {"cond_broadcast", 1, 1},
                 };
                 int found = 0;
                 int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));

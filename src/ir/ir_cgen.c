@@ -397,6 +397,24 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_WRLOCK:
                         fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"wrlock() 参数必须是锁id（整数）\"); lumin_wrlock((int)__v.v.i); __stk[__sp++] = __v; }\n");
                         break;
+                    case BUILTIN_TRYRDLOCK:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"tryrdlock() 参数必须是锁id（整数）\"); __stk[__sp++] = lumin_make_bool(lumin_tryrdlock((int)__v.v.i)); }\n");
+                        break;
+                    case BUILTIN_TRYWRLOCK:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"trywrlock() 参数必须是锁id（整数）\"); __stk[__sp++] = lumin_make_bool(lumin_trywrlock((int)__v.v.i)); }\n");
+                        break;
+                    case BUILTIN_CONDVAR:
+                        fprintf(out, "    __stk[__sp++] = lumin_make_int(lumin_condvar_create());\n");
+                        break;
+                    case BUILTIN_COND_WAIT:
+                        fprintf(out, "    { Value __lk = __stk[--__sp]; Value __cd = __stk[--__sp]; if(__lk.type != VAL_INT) runtime_error(\"cond_wait() 锁参数必须是锁id（整数）\"); if(__cd.type != VAL_INT) runtime_error(\"cond_wait() 条件参数必须是条件id（整数）\"); lumin_cond_wait((int)__cd.v.i, (int)__lk.v.i); __stk[__sp++] = __lk; }\n");
+                        break;
+                    case BUILTIN_COND_SIGNAL:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"cond_signal() 参数必须是条件id（整数）\"); lumin_cond_signal((int)__v.v.i); __stk[__sp++] = __v; }\n");
+                        break;
+                    case BUILTIN_COND_BROADCAST:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"cond_broadcast() 参数必须是条件id（整数）\"); lumin_cond_broadcast((int)__v.v.i); __stk[__sp++] = __v; }\n");
+                        break;
                     case BUILTIN_VALUES:
                         fprintf(out, "    { Value __r = lumin_map_values(__stk[__sp - %d]); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b);
                         break;
