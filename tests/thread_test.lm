@@ -2,8 +2,7 @@
 // 所有 print 均在 join 之后（主线程），输出确定性，双通道可逐行 diff
 counter = 0;
 func worker(n) {
-    counter = counter + n;
-    return n * 100;
+    return n * 100;   // 函数内赋值=局部（遮蔽全局），共享写改在 main 聚合
 }
 
 // 1. 基础：多线程 + 返回值
@@ -13,8 +12,9 @@ t3 = thread(worker, 3);
 r1 = thread_join(t1);
 r2 = thread_join(t2);
 r3 = thread_join(t3);
+counter = counter + r1 + r2 + r3;
 print("t1: r=" + r1 + " r2=" + r2 + " r3=" + r3 + " counter=" + counter);
-// r=100 r2=200 r3=300 counter=6
+// r=100 r2=200 r3=300 counter=600
 
 // 2. 无参线程
 func hi() { return 42; }
@@ -58,9 +58,8 @@ t9 = thread(outer, 10);
 print("t6: r9=" + thread_join(t9));
 // 22
 
-// 7. 循环批量线程（8 个线程并发求和）
+// 7. 循环批量线程（8 个线程并发求和，main 聚合）
 func bump(i) {
-    counter = counter + 1;
     return i * i;
 }
 sum7 = 0;
@@ -68,8 +67,8 @@ for (k = 0; k < 8; k = k + 1) {
     t = thread(bump, k);
     sum7 = sum7 + thread_join(t);
 }
-print("t7: sum7=" + sum7 + " counter=" + counter);
-// sum7=140 (0+1+4+9+16+25+36+49) counter=14
+print("t7: sum7=" + sum7);
+// sum7=140 (0+1+4+9+16+25+36+49)
 
 // 8. 字符串拼接在返回中（跨线程字符串）
 func greet(name) { return "hi " + name; }

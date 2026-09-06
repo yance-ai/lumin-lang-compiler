@@ -138,7 +138,10 @@ static void collect_func_locals(BytecodeFunc* fn)
     memset(&fn_locals, 0, sizeof(fn_locals));
     for(int i = 0; i < raw.count; i++) {
         const char* n = raw.names[i];
-        if(!fn_has_param(fn, n) && !ns_has(&g_globals, n)) ns_add(&fn_locals, n);
+        /* 词法遮蔽（对齐 VM）：函数内写过的名字（非参数）一律为局部变量，
+           即使与全局同名也遮蔽 —— 与 C 语言"函数内局部变量遮蔽全局"一致。
+           读全局（只读未写）仍走 lmvar_（cvar 回退），见 cvar() 的解析。 */
+        if(!fn_has_param(fn, n)) ns_add(&fn_locals, n);
     }
 }
 

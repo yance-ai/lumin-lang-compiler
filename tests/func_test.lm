@@ -28,15 +28,15 @@ func shadow(g) {
 print(shadow(5));          // 10
 print(g);                  // 100 （全局未被污染）
 
-// ---- 4. 函数内修改全局变量（set语义沿链更新父帧）----
+// ---- 4. 函数内赋值 = 局部变量（遮蔽全局同名，C 语义；读全局仍可达）----
 counter = 0;
 func inc() {
-    counter = counter + 1;
+    counter = counter + 1;   // 读全局 0 → 绑定本帧局部 counter=1
     return counter;
 }
 print(inc());              // 1
-print(inc());              // 2
-print(counter);            // 2
+print(inc());              // 1（每次调用独立局部，从全局 0 起步）
+print(counter);            // 0（全局未被函数修改）
 
 // ---- 5. 函数内新建局部变量（不在链上→新建在当前帧）----
 func local_var() {

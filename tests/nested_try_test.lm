@@ -34,12 +34,13 @@ print("n2: s=" + s2);   // (0+1000) + (100+1000) + (2+1000) + (3+1000) = 4105
 
 // ---- n3: for × try-finally（无 catch），函数内 throw 冒泡到循环外 catch ----
 s3 = 0;
+s3f = [0];          // finally 计数：函数内赋值=局部（遮蔽），共享计数改用数组元素
 func f3(i3) {
     try {
         if (i3 == 1) { throw "n3"; }
         return i3;
     } finally {
-        s3 = s3 + 1;
+        s3f[0] = s3f[0] + 1;
     }
 }
 for (i3 = 0; i3 < 3; i3++) {
@@ -49,7 +50,7 @@ for (i3 = 0; i3 < 3; i3++) {
         s3 = s3 + 100;
     }
 }
-print("n3: s=" + s3);   // 读取先于调用：0+0 +100 +101+2 = 103
+print("n3: s=" + s3 + " fin=" + s3f[0]);   // s=102（0+0+100+2），finally 执行 3 次
 
 // ---- n4: 双层 for + try-finally，内层 break 穿透 finally ----
 s4 = 0;
@@ -211,7 +212,7 @@ func n13_f(x) {
     } catch (e) {
         return -1;
     } finally {
-        n13_c = n13_c + 1;
+        n13_c[0] = n13_c[0] + 1;
     }
 }
 func n13_g(x) {
@@ -221,11 +222,11 @@ func n13_g(x) {
         return -100;
     }
 }
-n13_c = 0;
+n13_c = [0];
 n13_a = n13_f(1);   // throw → catch → -1
 n13_b = n13_f(0);   // 正常 → 0
 n13_d = n13_f(2);   // 正常 → 20
 n13_e = n13_f(1);   // 再 throw：trace 栈已平衡，连续调用不泄漏
 n13_g1 = n13_g(1);  // 内层 throw 穿透 n13_g catch → -100
 n13_g2 = n13_g(0);  // 正常 → 0
-print("n13: a=" + n13_a + " b=" + n13_b + " d=" + n13_d + " e=" + n13_e + " g1=" + n13_g1 + " g2=" + n13_g2 + " fin=" + n13_c);
+print("n13: a=" + n13_a + " b=" + n13_b + " d=" + n13_d + " e=" + n13_e + " g1=" + n13_g1 + " g2=" + n13_g2 + " fin=" + n13_c[0]);
