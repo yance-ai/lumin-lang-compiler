@@ -424,6 +424,47 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp++] = ret;
                 break;
             }
+            case OPC_CALLV: {
+                // 动态调用链 f(1)(2)：栈顶 b 个为实参，其下一位是函数值
+                int argc = in.b;
+                Value func_val = (sp - argc - 1 >= 0) ? stack[sp - argc - 1] : val_none();
+                if(func_val.type != VAL_FUNC) runtime_error("尝试调用非函数值");
+                RuntimeFunc* rf = func_val.v.func.func_obj;
+                Value* eval_args = (sp > 0) ? &stack[sp - argc] : NULL;
+                StackFrame* callee = stackframe_new(frame);
+                if(interp_func_is_payload(rf)) {
+                    int pcnt = interp_func_param_cnt(rf);
+                    int i = 0;
+                    for(; i < pcnt; i++) {
+                        const char* pname = interp_func_param_name(rf, i);
+                        Value bound = (i < argc) ? val_clone(&eval_args[i]) : val_none();
+                        stackframe_bind(callee, pname, bound);
+                    }
+                    if(interp_func_has_variadic(rf)) {
+                        const char* vname = interp_func_param_name(rf, pcnt);
+                        int rest = argc - i;
+                        if(rest < 0) rest = 0;
+                        Value arr = val_array(rest);
+                        for(int k = 0; k < rest; k++) {
+                            arr.v.array.items[k] = val_clone(&eval_args[i + k]);
+                        }
+                        stackframe_bind(callee, vname, arr);
+                    }
+                }
+                RuntimeFunc* prev_rf = interp_set_current_rf(rf);
+                int saved_break = ctx->hit_break;
+                int saved_cont = ctx->hit_continue;
+                ctx->hit_break = 0;
+                ctx->hit_continue = 0;
+                Value ret = rf->entry(argc, eval_args, ctx, callee);
+                ctx->hit_break = saved_break;
+                ctx->hit_continue = saved_cont;
+                interp_set_current_rf(prev_rf);
+                stackframe_destroy(callee);
+                sp -= argc + 1;   // 弹实参 + 函数值
+                stack[sp++] = ret;
+                break;
+            }
             case OPC_RETURN: {
                 Value v = stack[--sp];
                 free(stack);

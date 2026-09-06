@@ -43,6 +43,8 @@ AstNode* ast_param_append(AstNode* list, AstNode* p);
 
 // 函数调用
 AstNode* ast_call(char* func_name, AstNode* arg_list);
+AstNode* ast_dyn_call(AstNode* callee, AstNode* arg_list);
+AstNode* ast_seq_front(AstNode* chain, AstNode* recv);  // 实参链头部插入接收者（方法链 a.b(x)→b(a,x)）
 AstNode* ast_arg_append(AstNode* list, AstNode* arg);
 
 // 数组

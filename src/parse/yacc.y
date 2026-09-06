@@ -44,6 +44,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token PLUSEQ MINUSEQ MULEQ DIVEQ
 %token LBRACKET RBRACKET
 %token ARRAY_OPEN
+%token DOT
 %token ERROR
 
 %right PLUSPLUS MINUSMINUS   /*后置自增，最高优先级*/
@@ -243,6 +244,16 @@ postfix_expr
     | postfix_expr LBRACKET expr RBRACKET  { $$ = L(ast_index($1, $3)); }  /* 数组下标 a[i] */
     | postfix_expr PLUSPLUS   { $$ = ast_unary(OP_POST_INC, $1); }
     | postfix_expr MINUSMINUS { $$ = ast_unary(OP_POST_DEC, $1); }
+    /* 调用链 f(1)(2)：callee 为表达式（函数值），动态调用 */
+    | postfix_expr LPAREN arg_list RPAREN { $$ = L(ast_dyn_call($1, $3)); }
+    /* 方法链 a.b(x,y) → b(a,x,y)（语法糖，接收者作为首参） */
+    | postfix_expr DOT ID LPAREN arg_list RPAREN {
+          AstNode* recv = $1;
+          AstNode* margs = $5;
+          $$ = L(ast_call($3, margs ? ast_seq_front(margs, recv) : recv));
+      }
+    /* 无参方法 a.b → b(a) */
+    | postfix_expr DOT ID { $$ = L(ast_call($3, $1)); }
     ;
 
 unary_expr

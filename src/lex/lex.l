@@ -66,6 +66,11 @@ static int is_expr_end(int t)
     LEX_RET(TOK_CHAR_LIT);
 }
 
+"."                     {
+    fprintf(stderr,"[LEX] DOT\n");
+    LEX_RET(DOT);
+}
+
 [a-zA-Z_][a-zA-Z0-9_]*  {
     fprintf(stderr,"[LEX] ID %s\n",yytext);
     yylval.s = strdup(yytext);

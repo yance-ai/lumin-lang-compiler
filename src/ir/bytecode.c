@@ -140,6 +140,8 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
             return -1;                       // 弹条件
         case OPC_CALL:
             return -in.b + 1;                // 弹 argc 实参，压 1 返回值
+        case OPC_CALLV:
+            return -in.b;                    // 弹 argc 实参 + 函数值，压 1 返回值
         case OPC_RETURN:
             return -1;                       // 弹返回值
     }
@@ -249,6 +251,7 @@ static const char* opc_name(OpCode op)
         case OPC_JMP_IF_FALSE: return "JMP_IF_FALSE";
         case OPC_JMP_IF_TRUE: return "JMP_IF_TRUE";
         case OPC_CALL: return "CALL";
+        case OPC_CALLV: return "CALLV";
         case OPC_RETURN: return "RETURN";
         case OPC_RETURN_NIL: return "RETURN_NIL";
         case OPC_HALT: return "HALT";
@@ -307,6 +310,9 @@ void bc_disasm(FILE* out, BytecodeFunc* fn)
             case OPC_CALL:
                 snprintf(txt, sizeof(txt), "CALL %s argc=%d",
                          (in.a >= 0 && in.a < fn->sym_cnt) ? fn->syms[in.a] : "?", in.b);
+                break;
+            case OPC_CALLV:
+                snprintf(txt, sizeof(txt), "CALLV argc=%d", in.b);
                 break;
             case OPC_ARRAY_LIT:
                 snprintf(txt, sizeof(txt), "ARRAY_LIT n=%d", in.b);

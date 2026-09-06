@@ -358,6 +358,13 @@ static void c_expr(Ctx* c, AstNode* node)
             else emit(c, OPC_CALL, bf_sym(c->fn, node->u.call.name), argc);
             break;
         }
+        case AST_DYN_CALL: {
+            int argc = 0;
+            c_expr(c, node->u.dyn_call.callee);   // 压函数值
+            c_args(c, node->u.dyn_call.args, &argc);
+            emit(c, OPC_CALLV, 0, argc);
+            break;
+        }
         case AST_INDEX:
             c_expr(c, node->u.index.arr);
             c_expr(c, node->u.index.idx);
@@ -422,6 +429,7 @@ static void c_stmt(Ctx* c, AstNode* node)
         case AST_CAST:
         case AST_TERNARY:
         case AST_CALL:
+        case AST_DYN_CALL:
         case AST_VAR:
         case AST_INT:
         case AST_NUM:

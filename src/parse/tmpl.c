@@ -24,7 +24,7 @@ extern int yylineno;
 typedef enum {
     TT_EOF, TT_ID, TT_INT, TT_FNUM, TT_STR, TT_CHAR,
     TT_TRUE, TT_FALSE, TT_NULL,
-    TT_LPAREN, TT_RPAREN, TT_LBRACKET, TT_RBRACKET, TT_COMMA,
+    TT_LPAREN, TT_RPAREN, TT_LBRACKET, TT_RBRACKET, TT_COMMA, TT_DOT,
     TT_QMARK, TT_COLON,
     TT_PLUS, TT_MINUS, TT_STAR, TT_SLASH, TT_PERCENT,
     TT_EQ, TT_NE, TT_LT, TT_GT, TT_LE, TT_GE,
@@ -145,6 +145,7 @@ static void tp_next_tok(TpParser* tp, TpTok* t)
     switch(c) {
         case '(': t->type = TT_LPAREN; return;
         case ')': t->type = TT_RPAREN; return;
+        case '.': t->type = TT_DOT; return;
         case '[': t->type = TT_LBRACKET; return;
         case ']': t->type = TT_RBRACKET; return;
         case ',': t->type = TT_COMMA; return;
@@ -340,6 +341,25 @@ static AstNode* tp_postfix(TpParser* tp)
             }
             tp_expect(tp, TT_RPAREN, "缺少 ')'");
             e = ast_call(nm, args);
+        } else if(t.type == TT_DOT) {
+            // 方法链 a.b(x) → b(a, x)（与主语法一致）
+            tp_take(tp);
+            TpTok m = tp_take(tp);
+            if(m.type != TT_ID) tp_err("方法名必须是标识符");
+            char* nm = strdup(m.text);
+            AstNode* margs = NULL;
+            if(tp_peek(tp).type == TT_LPAREN) {
+                tp_take(tp);
+                if(tp_peek(tp).type != TT_RPAREN) {
+                    margs = tp_expr(tp);
+                    while(tp_peek(tp).type == TT_COMMA) {
+                        tp_take(tp);
+                        margs = ast_seq(margs, tp_expr(tp));
+                    }
+                }
+                tp_expect(tp, TT_RPAREN, "缺少 ')'");
+            }
+            e = ast_call(nm, margs ? ast_seq_front(margs, e) : e);
         } else break;
     }
     return e;

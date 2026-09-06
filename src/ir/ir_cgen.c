@@ -427,6 +427,20 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    }\n");
                 break;
             }
+            case OPC_CALLV: {
+                // 动态调用链 f(1)(2)：栈上函数值调用（wrap 指针签名 Value(*)(Value*, int)）
+                int argc = in.b;
+                fprintf(out, "    {\n");
+                fprintf(out, "        Value __f = __stk[__sp - %d - 1];\n", argc);
+                fprintf(out, "        if(__f.type != VAL_FUNC) runtime_error(\"尝试调用非函数值\");\n");
+                fprintf(out, "        int __argc = %d;\n", argc);
+                fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
+                fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - %d + __k];\n", argc);
+                fprintf(out, "        __sp -= %d + 1;\n", argc);
+                fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))__f.v.func.func_obj)(__args, __argc);\n");
+                fprintf(out, "    }\n");
+                break;
+            }
             case OPC_RETURN:
                 if(g_cur_fn)
                     fprintf(out, "    { Value __v = __stk[--__sp]; return val_clone(&__v); }\n");

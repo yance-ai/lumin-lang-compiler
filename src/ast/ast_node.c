@@ -341,6 +341,23 @@ AstNode* ast_call(char* func_name, AstNode* args) {
     return n;
 }
 
+AstNode* ast_dyn_call(AstNode* callee, AstNode* args) {
+    AstNode* n = ast_new(AST_DYN_CALL);
+    n->u.dyn_call.callee = callee;
+    n->u.dyn_call.args = args;
+    return n;
+}
+
+/* 实参链（左嵌套 AST_SEQ）头部插入 recv：方法链 a.b(x,y) → b(a,x,y) */
+AstNode* ast_seq_front(AstNode* chain, AstNode* recv) {
+    if(!chain) return recv;
+    if(chain->type == AST_SEQ) {
+        chain->u.seq.first = ast_seq_front(chain->u.seq.first, recv);
+        return chain;
+    }
+    return ast_seq(recv, chain);
+}
+
 AstNode* ast_index(AstNode* arr, AstNode* idx) {
     AstNode* n = ast_new(AST_INDEX);
     n->u.index.arr = arr;
@@ -489,6 +506,12 @@ void ast_free(AstNode* node) {
             free(node->u.call.name);
             // ast_arg_append 使用 AST_SEQ 链表，直接递归free
             ast_free(node->u.call.args);
+            break;
+        }
+        case AST_DYN_CALL:
+        {
+            ast_free(node->u.dyn_call.callee);
+            ast_free(node->u.dyn_call.args);
             break;
         }
         case AST_INDEX:

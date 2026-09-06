@@ -36,6 +36,7 @@ typedef enum {
     AST_FUNC_DEF,      // 函数定义 func f(a,...args){}
     AST_PARAM,         // 形参节点（普通 / ...可变）
     AST_CALL,          // 函数调用 f(1,2,3)
+    AST_DYN_CALL,      // 动态调用链 f(1)(2)：callee 是表达式（函数值）
     AST_INDEX,         // 数组下标读 a[i]
     AST_INDEX_ASSIGN,  // 数组下标写 a[i] = v
     AST_ARRAY_LIT,     // 数组字面量 [1,2,3]

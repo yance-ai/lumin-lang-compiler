@@ -111,6 +111,11 @@ struct AstNode {
         } call;
 
         struct {
+            AstNode* callee; // 被调用的表达式（函数值，如 f(1) 的结果）
+            AstNode* args;   // 实参链表
+        } dyn_call;
+
+        struct {
             AstNode* arr;    // 数组表达式
             AstNode* idx;    // 下标表达式
         } index;

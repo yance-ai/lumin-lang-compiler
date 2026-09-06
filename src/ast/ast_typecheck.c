@@ -495,6 +495,13 @@ int typecheck_expr(AstNode* node)
             node->val_type = VAL_NONE;
             break;
         }
+        case AST_DYN_CALL: {
+            // 调用链 f(1)(2)：callee 是任意表达式（函数值），动态语言不做静态函数性校验
+            err |= typecheck_expr(node->u.dyn_call.callee);
+            err |= typecheck_call_args(node->u.dyn_call.args);
+            node->val_type = VAL_NONE;
+            break;
+        }
         case AST_RETURN: {
             if(node->u.ret.ret_val) {
                 err |= typecheck_expr(node->u.ret.ret_val);
