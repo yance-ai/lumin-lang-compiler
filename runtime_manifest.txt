@@ -10,6 +10,7 @@ runtime/lm_thread.h
 runtime/lm_lock.h
 runtime/lm_tls.h
 runtime/lm_http.h
+runtime/lm_json.h
 
 
 # source list
@@ -24,3 +25,4 @@ runtime/lm_thread.c
 runtime/lm_lock.c
 runtime/lm_tls.c
 runtime/lm_http.c
+runtime/lm_json.c

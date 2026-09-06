@@ -1,0 +1,63 @@
+// json(s) / stringify(v) 内置函数测试
+// 双通道一致：VM 与 C 编译通道输出逐行相同
+
+q = (char)34;  // 双引号字符（构造 JSON 字符串字面量，规避模板内插）
+bs = (char)92; // 反斜杠字符
+
+print("== 标量解析 ==");
+print(json("42"));            // 42（整数 → int）
+print(json("-7.25"));         // -7.25（小数 → double）
+print(json("true"));          // true
+print(json("false") == false);// true
+print(json("null") == null);  // true
+print(json(q + "hi" + q));    // hi（字符串）
+
+print("== 数组解析 ==");
+print(json("[1, 2, 3]")[1]);       // 2
+print(json("[1, [2, [3]]]")[1][1][0]); // 3 嵌套
+print(json("[]") == []);           // true 空数组
+print(type(json("[1, 2]")));       // array
+
+print("== round-trip（map → stringify → json）==");
+m2 = {"a": 1, "b": [1, 2], "c": {"x": "y"}, "d": null, "e": true, "f": 3.5, "g": "s"};
+js = stringify(m2);
+print(js);                        // {"a":1,"b":[1,2],"c":{"x":"y"},"d":null,"e":true,"f":3.5,"g":"s"}
+m = json(js);
+print(m["a"]);                    // 1
+print(m["b"][1]);                 // 2
+print(m["c"]["x"]);               // y
+print(m["d"] == null);            // true
+print(m["e"]);                    // true
+print(m["f"]);                    // 3.5
+print(m["g"]);                    // s
+print(stringify(m) == js);        // true 序列化幂等
+
+print("== 数组 round-trip ==");
+a2 = [1, "two", false, null, 2.5];
+aj = stringify(a2);
+print(aj);                        // [1,"two",false,null,2.5]
+a3 = json(aj);
+print(a3[0]);                     // 1
+print(a3[1]);                     // two
+print(a3[2] == false);            // true
+print(a3[3] == null);             // true
+print(a3[4]);                     // 2.5
+
+print("== stringify 转义 ==");
+print(stringify(q));              // "\""
+print(stringify(bs));             // "\\"
+s = q + "a" + bs + "b" + q;       // 内容: "a\b
+print(stringify(s));              // "\"a\\b\""
+print(json(stringify(s)) == s);   // true 转义 round-trip
+print(stringify('A'));            // "A"（char → 字符串）
+print(stringify((byte)65));       // 65（byte → 数字）
+print(stringify(1.0));            // 1（%g 去尾零）
+print(stringify(3.5));            // 3.5
+
+print("== unicode ==");
+print(json(q + "\u4f60\u597d" + q));   // 你好（\u 转义）
+print(json(q + "\ud83d\ude00" + q));   // 😀（代理对合并）
+
+print("== 错误处理 ==");
+try { json("not json"); print("no"); } catch (e) { print("caught"); }
+try { json("12x"); print("no"); } catch (e) { print("caught2"); }

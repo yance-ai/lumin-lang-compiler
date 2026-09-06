@@ -10,6 +10,7 @@
 #include "runtime/lm_lock.h"
 #include "runtime/lm_tls.h"
 #include "runtime/lm_http.h"
+#include "runtime/lm_json.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -522,6 +523,19 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_HTTP_GET:
                     case BUILTIN_HTTP_POST:
                     case BUILTIN_HTTP_PUT:
+                    case BUILTIN_JSON: {
+                        Value v = stack[--sp];
+                        stack[sp++] = lumin_json_parse(v.v.s);
+                        break;
+                    }
+                    case BUILTIN_STRINGIFY: {
+                        Value v = stack[--sp];
+                        char* js = lumin_json_stringify(v);
+                        Value r = lumin_make_string(js);
+                        free(js);
+                        stack[sp++] = r;
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -531,7 +545,20 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         switch(in.a) {
                             case BUILTIN_HTTP_POST:   m = "POST"; break;
                             case BUILTIN_HTTP_PUT:    m = "PUT"; break;
-                            case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
+                            case BUILTIN_JSON: {
+                        Value v = stack[--sp];
+                        stack[sp++] = lumin_json_parse(v.v.s);
+                        break;
+                    }
+                    case BUILTIN_STRINGIFY: {
+                        Value v = stack[--sp];
+                        char* js = lumin_json_stringify(v);
+                        Value r = lumin_make_string(js);
+                        free(js);
+                        stack[sp++] = r;
+                        break;
+                    }
+                    case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
                             case BUILTIN_HTTP_HEAD:   m = "HEAD"; break;
                             case BUILTIN_HTTP_PATCH:  m = "PATCH"; break;
                             default: break;

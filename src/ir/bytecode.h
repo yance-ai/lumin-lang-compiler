@@ -114,6 +114,8 @@ typedef enum {
     BUILTIN_HTTP_DELETE,  // requests.delete(url, params?, config?)
     BUILTIN_HTTP_HEAD,    // requests.head(url, params?, config?)
     BUILTIN_HTTP_PATCH,   // requests.patch(url, params?, config?)
+    BUILTIN_JSON,         // json(s)：解析 JSON 文本 → 值
+    BUILTIN_STRINGIFY,    // stringify(v)：值 → JSON 文本
     BUILTIN_COUNT
 } BuiltinId;
 

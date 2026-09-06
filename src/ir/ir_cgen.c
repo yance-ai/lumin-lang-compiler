@@ -429,6 +429,12 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_HTTP_GET:
                     case BUILTIN_HTTP_POST:
                     case BUILTIN_HTTP_PUT:
+                    case BUILTIN_JSON:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse(__v.v.s); }\n");
+                        break;
+                    case BUILTIN_STRINGIFY:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __js = lumin_json_stringify(__v); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
+                        break;
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -436,7 +442,13 @@ static void emit_insns(BytecodeFunc* fn)
                         switch(in.a) {
                             case BUILTIN_HTTP_POST:   m = "POST"; break;
                             case BUILTIN_HTTP_PUT:    m = "PUT"; break;
-                            case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
+                            case BUILTIN_JSON:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse(__v.v.s); }\n");
+                        break;
+                    case BUILTIN_STRINGIFY:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __js = lumin_json_stringify(__v); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
+                        break;
+                    case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
                             case BUILTIN_HTTP_HEAD:   m = "HEAD"; break;
                             case BUILTIN_HTTP_PATCH:  m = "PATCH"; break;
                             default: break;

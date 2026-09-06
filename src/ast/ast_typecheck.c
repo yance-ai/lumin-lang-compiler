@@ -589,6 +589,7 @@ int typecheck_expr(AstNode* node)
                     {"condvar", 0, 0}, {"cond_wait", 2, 2}, {"cond_wait_timeout", 3, 3}, {"cond_signal", 1, 1}, {"cond_broadcast", 1, 1},
                     {"threadlocal_get", 1, 1}, {"threadlocal_set", 2, 2},
                     {"get", 1, 3}, {"post", 1, 3}, {"put", 1, 3}, {"delete", 1, 3}, {"head", 1, 3}, {"patch", 1, 3},
+                    {"json", 1, 1}, {"stringify", 1, 1},
                 };
                 int found = 0;
                 int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));
