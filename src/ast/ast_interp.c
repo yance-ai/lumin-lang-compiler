@@ -59,6 +59,7 @@ Value ast_eval(AstNode* node)
 {
     EvalCtx local_ctx = {0};
     StackFrame* top = stackframe_new(NULL);
+    stackframe_set_shared(top);
     Value ret = ast_eval_ctx(node, &local_ctx, top);
     stackframe_destroy(top);
     return ret;
@@ -83,9 +84,10 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
 
         // ---- 变量读：栈帧链查找 ----
         case AST_VAR: {
-            Value* vp = stackframe_get(frame, node->u.varname);
-            if(!vp) runtime_undefined("变量", node->u.varname);
-            return *vp;
+            _Bool fnd = 0;
+            Value vv = stackframe_get(frame, node->u.varname, &fnd);
+            if(!fnd) runtime_undefined("变量", node->u.varname);
+            return vv;
         }
 
         case AST_BREAK:
@@ -118,14 +120,15 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
                 case OP_PRE_DEC:
                 {
                     const char* vname = kid->u.varname;
-                    Value* vp = stackframe_get(frame, vname);
-                    if(!vp) runtime_undefined("变量", vname);
+                    _Bool fnd = 0;
+                    Value __old = stackframe_get(frame, vname, &fnd);
+                    if(!fnd) runtime_undefined("变量", vname);
                     switch(op)
                     {
-                        case OP_POST_INC: return lumin_post_inc(vp);
-                        case OP_PRE_INC:  return lumin_pre_inc(vp);
-                        case OP_POST_DEC: return lumin_post_dec(vp);
-                        case OP_PRE_DEC:  return lumin_pre_dec(vp);
+                        case OP_POST_INC: { Value __v = lumin_post_inc(&__old); stackframe_bind(frame, vname, __old); return __v; }
+                        case OP_PRE_INC:  { Value __v = lumin_pre_inc(&__old);  stackframe_bind(frame, vname, __old); return __v; }
+                        case OP_POST_DEC: { Value __v = lumin_post_dec(&__old); stackframe_bind(frame, vname, __old); return __v; }
+                        case OP_PRE_DEC:  { Value __v = lumin_pre_dec(&__old);  stackframe_bind(frame, vname, __old); return __v; }
                         default: return make_int(0);
                     }
                 }
@@ -499,9 +502,10 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
 
             // 1. 查函数：先查栈帧链（求值时注册的），再查全局符号表（parse期yacc注册的）
             Value func_val;
-            Value* fv = stackframe_get(frame, fname);
-            if(fv && fv->type == VAL_FUNC) {
-                func_val = *fv;
+            _Bool fnd = 0;
+            Value gv = stackframe_get(frame, fname, &fnd);
+            if(fnd && gv.type == VAL_FUNC) {
+                func_val = gv;
             } else if(sym_has(fname)) {
                 func_val = sym_get(fname);
             } else {

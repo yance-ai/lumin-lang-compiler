@@ -31,63 +31,66 @@ int main(void)
     stackframe_set(f, "c", val_char('x'));
     CHECK(f->cnt == 4, "4个变量入帧");
 
-    Value* vi = stackframe_get(f, "i");
-    CHECK(vi && vi->type == VAL_INT && vi->v.i == 42, "get int");
-    Value* vd = stackframe_get(f, "d");
-    CHECK(vd && vd->type == VAL_DOUBLE && vd->v.d == 3.14, "get double");
-    Value* vb = stackframe_get(f, "b");
-    CHECK(vb && vb->type == VAL_BOOL && vb->v.b == 1, "get bool");
-    Value* vc = stackframe_get(f, "c");
-    CHECK(vc && vc->type == VAL_CHAR && vc->v.c == 'x', "get char");
+    _Bool fnd = 0;
+    Value vi = stackframe_get(f, "i", &fnd);
+    CHECK(fnd && vi.type == VAL_INT && vi.v.i == 42, "get int");
+    Value vd = stackframe_get(f, "d", &fnd);
+    CHECK(fnd && vd.type == VAL_DOUBLE && vd.v.d == 3.14, "get double");
+    Value vb = stackframe_get(f, "b", &fnd);
+    CHECK(fnd && vb.type == VAL_BOOL && vb.v.b == 1, "get bool");
+    Value vc = stackframe_get(f, "c", &fnd);
+    CHECK(fnd && vc.type == VAL_CHAR && vc.v.c == 'x', "get char");
 
     // ---- 3. get 不存在的变量 ----
-    CHECK(stackframe_get(f, "nope") == NULL, "get missing -> NULL");
+    fnd = 1;
+    stackframe_get(f, "nope", &fnd);
+    CHECK(!fnd, "get missing -> found=0");
 
     // ---- 4. 字符串 set/get + 覆盖（旧字符串释放，槽位不增）----
     stackframe_set(f, "s", val_string("hello"));
-    Value* vs = stackframe_get(f, "s");
-    CHECK(vs && vs->type == VAL_STRING && strcmp(vs->v.s, "hello") == 0, "set/get string");
+    Value vs = stackframe_get(f, "s", &fnd);
+    CHECK(fnd && vs.type == VAL_STRING && strcmp(vs.v.s, "hello") == 0, "set/get string");
     stackframe_set(f, "s", val_string("world"));
-    vs = stackframe_get(f, "s");
-    CHECK(vs && strcmp(vs->v.s, "world") == 0, "覆盖字符串生效");
+    vs = stackframe_get(f, "s", &fnd);
+    CHECK(fnd && strcmp(vs.v.s, "world") == 0, "覆盖字符串生效");
     CHECK(f->cnt == 5, "覆盖不新增槽位");
 
     // ---- 5. 父链：子帧可读父帧变量 ----
     StackFrame* child = stackframe_new(f);
-    Value* vp = stackframe_get(child, "i");
-    CHECK(vp && vp->v.i == 42, "子帧读父帧变量");
+    Value vp = stackframe_get(child, "i", &fnd);
+    CHECK(fnd && vp.v.i == 42, "子帧读父帧变量");
 
     // ---- 6. set 语义：子帧赋值同名变量 → 沿链更新父帧，不产生本地槽位 ----
     stackframe_set(child, "i", val_int(7));
     CHECK(f->cnt == 5 && child->cnt == 0, "子帧set更新父帧，无本地槽位");
-    vp = stackframe_get(f, "i");
-    CHECK(vp && vp->v.i == 7, "父帧值被更新");
+    vp = stackframe_get(f, "i", &fnd);
+    CHECK(fnd && vp.v.i == 7, "父帧值被更新");
 
     // ---- 7. bind 语义：子帧绑定同名变量 → 本地新建，遮蔽父帧 ----
     stackframe_bind(child, "i", val_int(99));
     CHECK(child->cnt == 1, "bind在子帧新建槽位");
-    vp = stackframe_get(child, "i");
-    CHECK(vp && vp->v.i == 99, "子帧读到本地绑定(遮蔽)");
-    vp = stackframe_get(f, "i");
-    CHECK(vp && vp->v.i == 7, "bind不影响父帧");
+    vp = stackframe_get(child, "i", &fnd);
+    CHECK(fnd && vp.v.i == 99, "子帧读到本地绑定(遮蔽)");
+    vp = stackframe_get(f, "i", &fnd);
+    CHECK(fnd && vp.v.i == 7, "bind不影响父帧");
     // 同帧重复bind → 覆盖不增槽位
     stackframe_bind(child, "i", val_int(100));
     CHECK(child->cnt == 1, "同帧重复bind覆盖");
-    vp = stackframe_get(child, "i");
-    CHECK(vp && vp->v.i == 100, "重复bind值生效");
+    vp = stackframe_get(child, "i", &fnd);
+    CHECK(fnd && vp.v.i == 100, "重复bind值生效");
 
     // ---- 8. 销毁子帧不影响父帧 ----
     stackframe_destroy(child);
-    vp = stackframe_get(f, "s");
-    CHECK(vp && strcmp(vp->v.s, "world") == 0, "销毁子帧后父帧完好");
+    vp = stackframe_get(f, "s", &fnd);
+    CHECK(fnd && strcmp(vp.v.s, "world") == 0, "销毁子帧后父帧完好");
 
     // ---- 9. 深链查找（孙帧读祖帧） ----
     StackFrame* g = stackframe_new(f);
     stackframe_set(g, "local_g", val_int(1));
-    vp = stackframe_get(g, "s");
-    CHECK(vp && strcmp(vp->v.s, "world") == 0, "孙帧找到祖帧变量");
-    vp = stackframe_get(g, "local_g");
-    CHECK(vp && vp->v.i == 1, "孙帧本地变量");
+    vp = stackframe_get(g, "s", &fnd);
+    CHECK(fnd && strcmp(vp.v.s, "world") == 0, "孙帧找到祖帧变量");
+    vp = stackframe_get(g, "local_g", &fnd);
+    CHECK(fnd && vp.v.i == 1, "孙帧本地变量");
     stackframe_destroy(g);
     stackframe_destroy(f);
 
@@ -110,6 +113,16 @@ int main(void)
         stackframe_set(ff, "fn", fv);
         stackframe_destroy(ff);
         CHECK(1, "帧销毁不销毁VAL_FUNC对象");
+    }
+
+    // ---- 12. 共享帧标记 + 加锁 get/set 不崩溃（模拟多线程访问路径） ----
+    {
+        StackFrame* sh = stackframe_new(NULL);
+        stackframe_set_shared(sh);
+        stackframe_set(sh, "x", val_int(5));
+        Value vx = stackframe_get(sh, "x", &fnd);
+        CHECK(fnd && vx.v.i == 5, "共享帧 set/get 正常");
+        stackframe_destroy(sh);
     }
 
     printf("\nstackframe_test: %d passed, %d failed\n", passed, failed);

@@ -162,6 +162,7 @@ Value vm_run_main(BytecodeFunc* main_fn)
 {
     EvalCtx local_ctx = {0};
     StackFrame* top = stackframe_new(NULL);
+    stackframe_set_shared(top);              // 全局共享帧：多线程沿 parent 链访问需加锁
     StackFrame* saved_global = s_global_frame;
     s_global_frame = top;
     Value ret = vm_run(main_fn, top, &local_ctx);
@@ -227,9 +228,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             }
             case OPC_LOAD_VAR: {
                 const char* name = bf->syms[in.a];
-                Value* vp = stackframe_get(frame, name);
-                if(!vp) runtime_undefined("变量", name);
-                stack[sp++] = *vp;
+                _Bool fnd = 0;
+                Value vv = stackframe_get(frame, name, &fnd);
+                if(!fnd) runtime_undefined("变量", name);
+                stack[sp++] = vv;
                 break;
             }
             case OPC_STORE_VAR: {
@@ -254,24 +256,28 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_NE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_ne(l, r); break; }
             case OPC_NEG: { Value v = stack[--sp]; stack[sp++] = lumin_unary_minus(v); break; }
             case OPC_POS: { Value v = stack[--sp]; stack[sp++] = lumin_unary_plus(v); break; }
-            case OPC_PRE_INC:  { const char* n = bf->syms[in.a]; Value* vp = stackframe_get(frame, n);
-                                 if(!vp) runtime_undefined("变量", n);
-                                 Value __old = *vp; Value __nv = lumin_pre_inc(&__old);
+            case OPC_PRE_INC:  { const char* n = bf->syms[in.a]; _Bool fnd = 0;
+                                 Value __old = stackframe_get(frame, n, &fnd);
+                                 if(!fnd) runtime_undefined("变量", n);
+                                 Value __nv = lumin_pre_inc(&__old);
                                  stackframe_bind(frame, n, __nv);          // 词法遮蔽：写当前帧
                                  stack[sp++] = __nv; break; }
-            case OPC_POST_INC: { const char* n = bf->syms[in.a]; Value* vp = stackframe_get(frame, n);
-                                 if(!vp) runtime_undefined("变量", n);
-                                 Value __old = *vp; Value __nv = lumin_post_inc(&__old);
+            case OPC_POST_INC: { const char* n = bf->syms[in.a]; _Bool fnd = 0;
+                                 Value __old = stackframe_get(frame, n, &fnd);
+                                 if(!fnd) runtime_undefined("变量", n);
+                                 Value __nv = lumin_post_inc(&__old);
                                  stackframe_bind(frame, n, __old);          // 参数已被改为新值
                                  stack[sp++] = __nv; break; }               // 返回值 = 旧值
-            case OPC_PRE_DEC:  { const char* n = bf->syms[in.a]; Value* vp = stackframe_get(frame, n);
-                                 if(!vp) runtime_undefined("变量", n);
-                                 Value __old = *vp; Value __nv = lumin_pre_dec(&__old);
+            case OPC_PRE_DEC:  { const char* n = bf->syms[in.a]; _Bool fnd = 0;
+                                 Value __old = stackframe_get(frame, n, &fnd);
+                                 if(!fnd) runtime_undefined("变量", n);
+                                 Value __nv = lumin_pre_dec(&__old);
                                  stackframe_bind(frame, n, __nv);          // 词法遮蔽：写当前帧
                                  stack[sp++] = __nv; break; }
-            case OPC_POST_DEC: { const char* n = bf->syms[in.a]; Value* vp = stackframe_get(frame, n);
-                                 if(!vp) runtime_undefined("变量", n);
-                                 Value __old = *vp; Value __nv = lumin_post_dec(&__old);
+            case OPC_POST_DEC: { const char* n = bf->syms[in.a]; _Bool fnd = 0;
+                                 Value __old = stackframe_get(frame, n, &fnd);
+                                 if(!fnd) runtime_undefined("变量", n);
+                                 Value __nv = lumin_post_dec(&__old);
                                  stackframe_bind(frame, n, __old);          // 参数已被改为新值
                                  stack[sp++] = __nv; break; }               // 返回值 = 旧值
             case OPC_CAST_INT:    { Value v = stack[--sp]; stack[sp++] = lumin_cast_int(v); break; }
@@ -637,8 +643,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 int argc = in.b;
                 // 1. 查函数：帧链 VAL_FUNC → 全局函数表
                 Value func_val;
-                Value* fv = stackframe_get(frame, fname);
-                if(fv && fv->type == VAL_FUNC) func_val = *fv;
+                _Bool fnd = 0;
+                Value gv = stackframe_get(frame, fname, &fnd);
+                if(fnd && gv.type == VAL_FUNC) func_val = gv;
                 else if(sym_has(fname)) func_val = sym_get(fname);
                 else runtime_undefined("函数", fname);
                 if(func_val.type != VAL_FUNC) {

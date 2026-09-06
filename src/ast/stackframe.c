@@ -28,10 +28,17 @@ StackFrame* stackframe_new(StackFrame* parent)
     f->names = NULL;
     f->vals = NULL;
     f->parent = parent;
+    f->shared = 0;
+    pthread_rwlock_init(&f->rw, NULL);
     return f;
 }
 
-/* 帧内变量槽扩容：翻倍，无硬上限 */
+void stackframe_set_shared(StackFrame* f)
+{
+    if(f) f->shared = 1;
+}
+
+/* 帧内变量槽扩容：翻倍，无硬上限。调用方必须已持有该帧的写锁（若 shared） */
 static void frame_ensure(StackFrame* f, int need)
 {
     if(need <= f->cap) return;
@@ -55,24 +62,11 @@ void stackframe_destroy(StackFrame* f)
     }
     free(f->names);
     free(f->vals);
+    pthread_rwlock_destroy(&f->rw);
     free(f);
 }
 
-// 沿 parent 链查找，返回所在帧与槽位下标；找不到返回 -1
-static int find_in_chain(StackFrame* f, const char* name, StackFrame** owner)
-{
-    for(StackFrame* p = f; p; p = p->parent) {
-        for(int i = 0; i < p->cnt; i++) {
-            if(strcmp(p->names[i], name) == 0) {
-                if(owner) *owner = p;
-                return i;
-            }
-        }
-    }
-    return -1;
-}
-
-// 只查当前帧
+// 只查当前帧（调用方必须已持有该帧锁，若 shared）
 static int find_in_frame(StackFrame* f, const char* name)
 {
     for(int i = 0; i < f->cnt; i++) {
@@ -81,39 +75,63 @@ static int find_in_frame(StackFrame* f, const char* name)
     return -1;
 }
 
-Value* stackframe_get(StackFrame* f, const char* name)
+Value stackframe_get(StackFrame* f, const char* name, _Bool* found)
 {
-    if(!f || !name) return NULL;
-    StackFrame* owner = NULL;
-    int idx = find_in_chain(f, name, &owner);
-    if(idx < 0) return NULL;
-    return &owner->vals[idx];
-}
-
-Value* stackframe_set(StackFrame* f, const char* name, Value v)
-{
-    if(!f || !name) return NULL;
-    StackFrame* owner = NULL;
-    int idx = find_in_chain(f, name, &owner);
-    if(idx >= 0) {
-        slot_release(&owner->vals[idx]);
-        owner->vals[idx] = v;
-        return &owner->vals[idx];
+    Value zero;
+    memset(&zero, 0, sizeof(zero));
+    if(found) *found = 0;
+    if(!f || !name) return zero;
+    for(StackFrame* p = f; p; p = p->parent) {
+        int hl = p->shared ? (pthread_rwlock_rdlock(&p->rw), 1) : 0;
+        for(int i = 0; i < p->cnt; i++) {
+            if(strcmp(p->names[i], name) == 0) {
+                Value v = p->vals[i];   // 锁内拷贝（浅拷贝，语义与旧实现一致）
+                if(hl) pthread_rwlock_unlock(&p->rw);
+                if(found) *found = 1;
+                return v;
+            }
+        }
+        if(hl) pthread_rwlock_unlock(&p->rw);
     }
-    return stackframe_bind(f, name, v);
+    return zero;
 }
 
-Value* stackframe_bind(StackFrame* f, const char* name, Value v)
+void stackframe_set(StackFrame* f, const char* name, Value v)
 {
-    if(!f || !name) return NULL;
+    if(!f || !name) return;
+    StackFrame* owner = NULL;
+    for(StackFrame* p = f; p; p = p->parent) {
+        int hl = p->shared ? (pthread_rwlock_rdlock(&p->rw), 1) : 0;
+        if(find_in_frame(p, name) >= 0) { owner = p; }
+        if(hl) pthread_rwlock_unlock(&p->rw);
+        if(owner) break;
+    }
+    if(owner) {
+        int hl = owner->shared ? (pthread_rwlock_wrlock(&owner->rw), 1) : 0;
+        int idx = find_in_frame(owner, name);   // 锁内重查（扩容只搬移数组，槽位内容保留）
+        if(idx >= 0) {
+            slot_release(&owner->vals[idx]);
+            owner->vals[idx] = v;
+        }
+        if(hl) pthread_rwlock_unlock(&owner->rw);
+        return;
+    }
+    stackframe_bind(f, name, v);
+}
+
+void stackframe_bind(StackFrame* f, const char* name, Value v)
+{
+    if(!f || !name) return;
+    int hl = f->shared ? (pthread_rwlock_wrlock(&f->rw), 1) : 0;
     int idx = find_in_frame(f, name);
     if(idx >= 0) {
         slot_release(&f->vals[idx]);
         f->vals[idx] = v;
-        return &f->vals[idx];
+    } else {
+        frame_ensure(f, f->cnt + 1);
+        f->names[f->cnt] = strdup(name);
+        f->vals[f->cnt] = v;
+        f->cnt++;
     }
-    frame_ensure(f, f->cnt + 1);
-    f->names[f->cnt] = strdup(name);
-    f->vals[f->cnt] = v;
-    return &f->vals[f->cnt++];
+    if(hl) pthread_rwlock_unlock(&f->rw);
 }

@@ -1,6 +1,8 @@
 #ifndef LUMIN_VALUE_TYPE_H
 #define LUMIN_VALUE_TYPE_H
 
+#include <pthread.h>
+
 typedef struct Value Value;
 typedef struct EvalCtx EvalCtx;
 // ✅ 新增前置声明：FuncEntry 参数需要 StackFrame*，此时还没完整定义 StackFrame
@@ -94,12 +96,16 @@ struct EvalCtx {
 };
 
 // 新增，不修改原有EvalCtx，栈帧独立
+// 多线程安全：main/全局帧 shared=1，get/set/bind 走 rwlock（主线程扩容 realloc 不移动共享帧内存
+// 时，其他线程读取同帧会 use-after-free，故共享帧所有访问加锁）；函数帧为线程私有 shared=0 不加锁。
 typedef struct StackFrame {
     char** names;    // 动态：按需扩容，无硬上限
     Value* vals;
     int cnt;
     int cap;
     struct StackFrame* parent;
+    pthread_rwlock_t rw;   // 共享帧（全局帧）读写锁；私有帧不使用
+    _Bool shared;          // 1 = 全局共享帧（main 顶层帧），多线程可见
 } StackFrame;
 
 #endif //LUMIN_VALUE_TYPE_H
