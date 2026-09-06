@@ -7,6 +7,7 @@
 #include "runtime/lm_value.h"
 #include "runtime/lm_runtime.h"
 #include "runtime/lm_thread.h"
+#include "runtime/lm_lock.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -447,6 +448,20 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = lumin_thread_join((int)idv.v.i);
                         break;
                     }
+                    case BUILTIN_MUTEX:    { stack[sp++] = lumin_make_int(lumin_mutex_create()); break; }
+                    case BUILTIN_RMUTEX:   { stack[sp++] = lumin_make_int(lumin_rmutex_create()); break; }
+                    case BUILTIN_RWLOCK:   { stack[sp++] = lumin_make_int(lumin_rwlock_create()); break; }
+                    case BUILTIN_SPINLOCK: { stack[sp++] = lumin_make_int(lumin_spinlock_create()); break; }
+                    case BUILTIN_LOCK:   { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("lock() 参数必须是锁id（整数）"); lumin_lock((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_UNLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("unlock() 参数必须是锁id（整数）"); lumin_unlock((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_TRYLOCK: {
+                        Value v = stack[--sp];
+                        if(v.type != VAL_INT) runtime_error("trylock() 参数必须是锁id（整数）");
+                        stack[sp++] = lumin_make_bool(lumin_trylock((int)v.v.i));
+                        break;
+                    }
+                    case BUILTIN_RDLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("rdlock() 参数必须是锁id（整数）"); lumin_rdlock((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_WRLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("wrlock() 参数必须是锁id（整数）"); lumin_wrlock((int)v.v.i); stack[sp++] = v; break; }
                     case BUILTIN_MAP:
                     case BUILTIN_FILTER:
                     case BUILTIN_REDUCE: {

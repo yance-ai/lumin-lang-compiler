@@ -7,6 +7,7 @@ runtime/lm_io.h
 runtime/lm_map.h
 runtime/lm_value.h
 runtime/lm_thread.h
+runtime/lm_lock.h
 
 
 # source list
@@ -18,3 +19,4 @@ runtime/lm_io.c
 runtime/lm_map.c
 runtime/lm_value.c
 runtime/lm_thread.c
+runtime/lm_lock.c

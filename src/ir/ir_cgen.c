@@ -378,6 +378,25 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __idv = __stk[--__sp]; if(__idv.type != VAL_INT) runtime_error(\"thread_join() 参数必须是线程id（整数）\"); __stk[__sp++] = lumin_thread_join((int)__idv.v.i); }\n");
                         break;
                     }
+                    case BUILTIN_MUTEX:    fprintf(out, "    __stk[__sp++] = lumin_make_int(lumin_mutex_create());\n"); break;
+                    case BUILTIN_RMUTEX:   fprintf(out, "    __stk[__sp++] = lumin_make_int(lumin_rmutex_create());\n"); break;
+                    case BUILTIN_RWLOCK:   fprintf(out, "    __stk[__sp++] = lumin_make_int(lumin_rwlock_create());\n"); break;
+                    case BUILTIN_SPINLOCK: fprintf(out, "    __stk[__sp++] = lumin_make_int(lumin_spinlock_create());\n"); break;
+                    case BUILTIN_LOCK:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"lock() 参数必须是锁id（整数）\"); lumin_lock((int)__v.v.i); __stk[__sp++] = __v; }\n");
+                        break;
+                    case BUILTIN_UNLOCK:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"unlock() 参数必须是锁id（整数）\"); lumin_unlock((int)__v.v.i); __stk[__sp++] = __v; }\n");
+                        break;
+                    case BUILTIN_TRYLOCK:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"trylock() 参数必须是锁id（整数）\"); __stk[__sp++] = lumin_make_bool(lumin_trylock((int)__v.v.i)); }\n");
+                        break;
+                    case BUILTIN_RDLOCK:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"rdlock() 参数必须是锁id（整数）\"); lumin_rdlock((int)__v.v.i); __stk[__sp++] = __v; }\n");
+                        break;
+                    case BUILTIN_WRLOCK:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type != VAL_INT) runtime_error(\"wrlock() 参数必须是锁id（整数）\"); lumin_wrlock((int)__v.v.i); __stk[__sp++] = __v; }\n");
+                        break;
                     case BUILTIN_VALUES:
                         fprintf(out, "    { Value __r = lumin_map_values(__stk[__sp - %d]); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b);
                         break;

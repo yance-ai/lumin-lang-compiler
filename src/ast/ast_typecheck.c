@@ -574,9 +574,13 @@ int typecheck_expr(AstNode* node)
                     {"read_file", 1, 1}, {"write_file", 2, 2}, {"file_exists", 1, 1},
                     {"keys", 1, 1}, {"values", 1, 1},
                     {"thread", 1, -1}, {"thread_join", 1, 1},
+                    {"mutex", 0, 0}, {"rmutex", 0, 0}, {"rwlock", 0, 0}, {"spinlock", 0, 0},
+                    {"lock", 1, 1}, {"unlock", 1, 1}, {"trylock", 1, 1},
+                    {"rdlock", 1, 1}, {"wrlock", 1, 1},
                 };
                 int found = 0;
-                for(int k = 0; k < 38; k++) {
+                int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));
+                for(int k = 0; k < nbuiltins; k++) {
                     if(strcmp(node->u.call.name, builtins[k].name) == 0) {
                         found = 1;
                         int nargs = count_args(node->u.call.args);

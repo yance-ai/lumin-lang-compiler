@@ -90,6 +90,15 @@ typedef enum {
     BUILTIN_VALUES,       // values(d) → 值数组
     BUILTIN_THREAD,       // thread(f, args...) → 线程id（多线程）
     BUILTIN_THREAD_JOIN,  // thread_join(tid) → 等待线程并取返回值（join 已被字符串拼接占用）
+    BUILTIN_MUTEX,        // mutex() → 互斥锁 id
+    BUILTIN_RMUTEX,       // rmutex() → 递归互斥锁 id
+    BUILTIN_RWLOCK,       // rwlock() → 读写锁 id
+    BUILTIN_SPINLOCK,     // spinlock() → 自旋锁 id
+    BUILTIN_LOCK,         // lock(id) → 阻塞加锁
+    BUILTIN_UNLOCK,       // unlock(id) → 解锁
+    BUILTIN_TRYLOCK,      // trylock(id) → bool（非阻塞尝试）
+    BUILTIN_RDLOCK,       // rdlock(id) → 读锁（读写锁）
+    BUILTIN_WRLOCK,       // wrlock(id) → 写锁（读写锁）
     BUILTIN_COUNT
 } BuiltinId;
 
