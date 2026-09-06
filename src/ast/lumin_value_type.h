@@ -39,7 +39,8 @@ typedef enum {
     VAL_STRING,
     VAL_FUNC,
     VAL_ARRAY,
-    VAL_MAP
+    VAL_MAP,
+    VAL_ERROR      // 错误对象：type/message/stack（throw 与运行时错误统一）
 } ValueType;
 
 // 数组运行时对象，VAL_ARRAY 使用
@@ -55,6 +56,13 @@ typedef struct {
     int len;         // 当前键数
     int cap;         // 容量
 } ValueMap;
+
+// 错误对象，VAL_ERROR 使用（type 为错误类别，message 为消息，stack 为调用栈回溯）
+typedef struct {
+    char* type;      // 错误类型名（"RuntimeError" / throw 自定义）
+    char* message;   // 错误消息
+    char* stack;     // 调用栈回溯文本（可空）
+} ValueError;
 
 // VAL_FUNC：直接持有独立运行时函数堆对象
 typedef struct {
@@ -73,6 +81,7 @@ struct Value {
         ValueFunc func;        // VAL_FUNC
         ValueArray array;      // VAL_ARRAY
         ValueMap* map;         // VAL_MAP：堆上共享对象（原地改语义与数组 items 一致）
+        ValueError err;        // VAL_ERROR：错误对象（type/message/stack，堆上字符串）
     } v;
 };
 

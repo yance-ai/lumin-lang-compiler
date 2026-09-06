@@ -48,8 +48,10 @@ static void ir_func_table_add(BytecodeFunc* fn)
 
 typedef struct {
     int kind;              // 0=循环 1=switch
-    int* brk; int brk_cnt, brk_cap;    // 未定 break 跳转位置
-    int* cont; int cont_cnt, cont_cap; // 未定 continue 跳转位置（循环）
+    int* brk; int brk_cnt, brk_cap;    // 未定 break 跳转位置（JMP.a）
+    int* cont; int cont_cnt, cont_cap; // 未定 continue 跳转位置（循环，JMP.a）
+    int* brk_fin; int brk_fin_cnt, brk_fin_cap;   // try-finally 内 break 的 FIN_PUSH 位置（patch b）
+    int* cont_fin; int cont_fin_cnt, cont_fin_cap; // try-finally 内 continue 的 FIN_PUSH 位置（patch b）
     int cont_target;       // 已知 continue 目标（while 的 cond 开头）或 -1
 } Layer;
 
@@ -57,6 +59,13 @@ typedef struct {
     BytecodeFunc* fn;
     Layer layers[32];
     int layer_depth;
+    /* finally 上下文：fin_depth>0 表示当前编译位置在 try-finally 内；
+       fin_pend[depth][*] = body/catch 中 PEND_RETURN(b=0) 的位置，fstart 确定后统一 patch b */
+    int fin_pend[32][64];
+    int fin_pend_n[32];
+    int fin_jmp[32][64];          // try-finally 内 break/continue 的 JMP 位置（patch a=fstart）
+    int fin_jmp_n[32];
+    int fin_depth;
 } Ctx;
 
 static int here(Ctx* c) { return c->fn->code_len; }
@@ -83,6 +92,24 @@ static Layer layer_pop(Ctx* c)
     return c->layers[--c->layer_depth];
 }
 
+static void layer_brk_fin_add(Ctx* c, int pos)
+{
+    Layer* l = &c->layers[c->layer_depth - 1];
+    if(l->brk_fin_cnt >= l->brk_fin_cap) {
+        l->brk_fin_cap = l->brk_fin_cap ? l->brk_fin_cap * 2 : 4;
+        l->brk_fin = (int*)realloc(l->brk_fin, sizeof(int) * l->brk_fin_cap);
+    }
+    l->brk_fin[l->brk_fin_cnt++] = pos;
+}
+static void layer_cont_fin_add(Ctx* c, int pos)
+{
+    Layer* l = &c->layers[c->layer_depth - 1];
+    if(l->cont_fin_cnt >= l->cont_fin_cap) {
+        l->cont_fin_cap = l->cont_fin_cap ? l->cont_fin_cap * 2 : 4;
+        l->cont_fin = (int*)realloc(l->cont_fin, sizeof(int) * l->cont_fin_cap);
+    }
+    l->cont_fin[l->cont_fin_cnt++] = pos;
+}
 static void layer_brk_add(Ctx* c, int pos)
 {
     Layer* l = &c->layers[c->layer_depth - 1];
@@ -509,24 +536,83 @@ static void c_stmt(Ctx* c, AstNode* node)
             break;
         }
         case AST_TRY: {
-            /* try { body } catch (e) { handler }
-               布局：TRY → body → ENDTRY → JMP skip → catch: GET_ERR, e=..., handler */
+            /* try { body } [catch (e) { handler }] [finally { fbody }]
+               布局（有 finally）：
+                 TRY cstart fstart → body → FIN_PUSH(1, end) → JMP fstart
+                 cstart: [GET_ERR STORE e handler] → FIN_PUSH(catch?1:2) → JMP fstart
+                 fstart: fbody → FINISH → end
+               （无 finally）旧布局：TRY → body → ENDTRY → JMP skip → GET_ERR... */
+            int has_fin = (node->u.trynode.finally_body != NULL);
+            int has_catch = (node->u.trynode.catch_var != NULL);
             int jtry = here(c);
+            int jf2_patch = -1;
             emit(c, OPC_TRY, 0, 0);
+            if(has_fin) { c->fin_depth++; c->fin_pend_n[c->fin_depth] = 0; }
             c_stmt(c, node->u.trynode.body);
-            int jend = here(c);
-            emit(c, OPC_ENDTRY, 0, 0);
-            int jskip = here(c);
-            emit(c, OPC_JMP, 0, 0);
-            int cstart = here(c);
-            bf_patch(c->fn, jtry, cstart);   // 错误恢复 → catch
-            bf_patch(c->fn, jend, cstart);   // ENDTRY 的 a（C 端 else 分支 goto）
-            emit(c, OPC_GET_ERR, 0, 0);
-            emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.trynode.catch_var), 0);
-            c_stmt(c, node->u.trynode.catch_body);
-            patch_to(c, jskip);
+            if(has_fin) {
+                int jnp = here(c);
+                emit(c, OPC_FIN_PUSH, 1, 0);       // 正常完成 → JMP end
+                int jf1 = here(c);
+                emit(c, OPC_JMP, 0, 0);
+                int cstart = here(c);
+                bf_patch(c->fn, jtry, cstart);     // 错误恢复 → catch
+                if(has_catch) {
+                    emit(c, OPC_GET_ERR, 0, 0);
+                    emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.trynode.catch_var), 0);
+                    emit(c, OPC_POP, 0, 0);        // 丢弃表达式值
+                    c_stmt(c, node->u.trynode.catch_body);
+                    int jnp2 = here(c);
+                    emit(c, OPC_FIN_PUSH, 1, 0);   // catch 处理完 → JMP end
+                    jf2_patch = jnp2;
+                } else {
+                    emit(c, OPC_FIN_PUSH, 2, 0);   // 无 catch → RETHROW
+                }
+                int jf2 = here(c);
+                emit(c, OPC_JMP, 0, 0);
+                int fstart = here(c);
+                bf_patch(c->fn, jf1, fstart);
+                bf_patch(c->fn, jf2, fstart);
+                bf_patch_b(c->fn, jtry, fstart);   // TRY.b = finally 起始
+                /* body/catch 内 return 挂起的 PEND_RETURN.b = fstart；
+                   break/continue 的 JMP.a = fstart */
+                for(int pi = 0; pi < c->fin_pend_n[c->fin_depth]; pi++)
+                    bf_patch_b(c->fn, c->fin_pend[c->fin_depth][pi], fstart);
+                for(int ji = 0; ji < c->fin_jmp_n[c->fin_depth]; ji++)
+                    bf_patch(c->fn, c->fin_jmp[c->fin_depth][ji], fstart);
+                c->fin_pend_n[c->fin_depth] = 0;
+                c->fin_jmp_n[c->fin_depth] = 0;
+                /* 已消费，fbody 内 return/break 不再挂起（finally 体直接用完成动作）
+                /* finally 体：内部 return 直接返回（不挂起，避免自跳） */
+                c->fin_depth--;
+                c_stmt(c, node->u.trynode.finally_body);
+                c->fin_depth++;
+                int end = here(c);
+                emit(c, OPC_FINISH, 0, 0);
+                end = here(c);                      // end = FINISH 之后（FINISH 弹出动作后跳此处）
+                bf_patch_b(c->fn, jnp, end);        // FIN_PUSH(1).b = end（a=1 保持）
+                if(jf2_patch >= 0) bf_patch_b(c->fn, jf2_patch, end);  // catch 的 FIN_PUSH(1).b = end
+                if(c->fin_depth > 0) c->fin_depth--;
+            } else {
+                int jend = here(c);
+                emit(c, OPC_ENDTRY, 0, 0);
+                int jskip = here(c);
+                emit(c, OPC_JMP, 0, 0);
+                int cstart = here(c);
+                bf_patch(c->fn, jtry, cstart);     // 错误恢复 → catch
+                bf_patch(c->fn, jend, cstart);     // ENDTRY 的 a（C 端 else 分支 goto）
+                emit(c, OPC_GET_ERR, 0, 0);
+                emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.trynode.catch_var), 0);
+                emit(c, OPC_POP, 0, 0);            // 丢弃 STORE 压回的表达式值，catch 尾 sp 平衡
+                c_stmt(c, node->u.trynode.catch_body);
+                patch_to(c, jskip);
+            }
             break;
         }
+        case AST_THROW:
+            /* throw expr：求值 → 弹栈顶包装成错误对象抛出 */
+            c_expr(c, node->u.thrownode.expr);
+            emit(c, OPC_THROW, 0, 0);
+            break;
         case AST_ELIF:
             // 仅由 IF_CHAIN 直接遍历，不独立出现
             break;
@@ -541,6 +627,8 @@ static void c_stmt(Ctx* c, AstNode* node)
             int l_end = here(c);
             bf_patch(c->fn, jf, l_end);
             for(int i = 0; i < l.brk_cnt; i++) bf_patch(c->fn, l.brk[i], l_end);
+            for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
+            for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
             free(l.brk); free(l.cont);
             break;
         }
@@ -557,11 +645,14 @@ static void c_stmt(Ctx* c, AstNode* node)
             Layer l = layer_pop(c);
             int l_cont = here(c);              // continue 跳到这里（update 前）
             for(int i = 0; i < l.cont_cnt; i++) bf_patch(c->fn, l.cont[i], l_cont);
+            for(int i = 0; i < l.cont_fin_cnt; i++) bf_patch_b(c->fn, l.cont_fin[i], l_cont);
             if(node->u.for_node.update) c_stmt(c, node->u.for_node.update);
             emit(c, OPC_JMP, l_cond, 0);
             int l_end = here(c);
             if(jf >= 0) bf_patch(c->fn, jf, l_end);
             for(int i = 0; i < l.brk_cnt; i++) bf_patch(c->fn, l.brk[i], l_end);
+            for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
+            for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
             free(l.brk); free(l.cont);
             break;
         }
@@ -601,6 +692,8 @@ static void c_stmt(Ctx* c, AstNode* node)
             int l_end = here(c);
             for(int i = 0; i < jump_cnt; i++) bf_patch(c->fn, end_jumps[i], l_end);
             for(int i = 0; i < l.brk_cnt; i++) bf_patch(c->fn, l.brk[i], l_end);
+            for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
+            for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
             free(l.brk); free(l.cont);
             break;
         }
@@ -612,16 +705,42 @@ static void c_stmt(Ctx* c, AstNode* node)
                 fprintf(stderr, "IR: break 不在循环/switch 内\n");
                 exit(EXIT_FAILURE);
             }
+            if(c->fin_depth > 0) {
+                /* try-finally 内 break：压 BREAK 完成动作（b=循环出口，循环层 patch），
+                   再直接 JMP 到 finally（fstart，fin 层 patch），避免正常路径的 FIN_PUSH(1) 覆盖 */
+                int pos = emit_here(c, OPC_FIN_PUSH, 3, 0);
+                layer_brk_fin_add(c, pos);
+                int jp = emit_here(c, OPC_JMP, 0, 0);
+                c->fin_jmp[c->fin_depth][c->fin_jmp_n[c->fin_depth]++] = jp;
+                break;
+            }
             int pos = emit_here(c, OPC_JMP, 0, 0);
             layer_brk_add(c, pos);
             break;
         }
         case AST_CONTINUE: {
+            if(c->fin_depth > 0) {
+                /* try-finally 内 continue：压 CONT 完成动作（b=continue 目标，循环层 patch） */
+                int pos = emit_here(c, OPC_FIN_PUSH, 4, 0);
+                layer_cont_fin_add(c, pos);
+                int jp = emit_here(c, OPC_JMP, 0, 0);
+                c->fin_jmp[c->fin_depth][c->fin_jmp_n[c->fin_depth]++] = jp;
+                break;
+            }
             int pos = emit_here(c, OPC_JMP, 0, 0);
             layer_cont_add(c, pos);
             break;
         }
         case AST_RETURN:
+            if(c->fin_depth > 0) {
+                /* try-finally 内 return：挂起返回值，先跑 finally */
+                if(node->u.ret.ret_val) c_expr(c, node->u.ret.ret_val);
+                else emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
+                int ppos = here(c);
+                emit(c, OPC_PEND_RETURN, 0, 0);   // b 由 AST_TRY 结束处 patch 为 fstart
+                c->fin_pend[c->fin_depth][c->fin_pend_n[c->fin_depth]++] = ppos;
+                break;
+            }
             if(node->u.ret.ret_val) {
                 c_expr(c, node->u.ret.ret_val);
                 emit(c, OPC_RETURN, 0, 0);

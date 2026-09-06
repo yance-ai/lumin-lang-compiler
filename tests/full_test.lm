@@ -327,3 +327,92 @@ print("s=" + s);              // s=4
 // try 块内 return 正常执行
 func f() { try { return 42; } catch (e) { print("no"); } return 0; }
 print("f=" + f());            // f=42
+
+// ================= 第 14 节：throw / 错误对象 / finally =================
+// throw 字符串 → catch 错误对象
+try {
+    throw "err14";
+} catch (e) {
+    print("d1: " + e);              // d1: err14
+    print("d2: " + type(e));        // d2: error
+    print("d3: " + e["type"]);      // d3: Error
+    print("d4: " + e["message"]);   // d4: err14
+}
+// 错误对象与字符串比较（向后兼容）
+try {
+    throw "oops";
+} catch (e) {
+    print("d5: " + (e == "oops"));  // d5: true
+}
+// throw map {type,message} → 提取字段
+try {
+    throw {"type":"MyError","message":"custom"};
+} catch (e) {
+    print("d6: " + e["type"]);      // d6: MyError
+    print("d7: " + e["message"]);   // d7: custom
+}
+// try-catch-finally 正常路径
+try {
+    print("d8: body");
+} catch (e) {
+    print("d8: catch");
+} finally {
+    print("d8: finally");
+}
+print("d8: after");
+// try-catch-finally 异常路径
+try {
+    throw "e9";
+} catch (e) {
+    print("d9: catch " + e);
+} finally {
+    print("d9: finally");
+}
+// try-finally（无 catch）异常冒泡到外层 catch
+func f14() {
+    try {
+        print("d10: inner");
+        throw "e10";
+    } finally {
+        print("d10: fin");
+    }
+}
+try { f14(); } catch (e) { print("d10: outer " + e); }
+// return 穿透 finally
+func f14b() {
+    try {
+        return 14;
+    } finally {
+        print("d11: fin");
+    }
+}
+print("d11: ret=" + f14b());
+// break/continue 穿透 finally
+s14 = 0;
+for (i = 0; i < 4; i++) {
+    try {
+        if (i == 1) { continue; }
+        if (i == 3) { break; }
+        s14 = s14 + i;
+    } finally {
+        s14 = s14 + 10;
+    }
+}
+print("d12: s=" + s14);   // d12: s=42
+// 栈回溯跨函数
+func g14() { return h14(); }
+func h14() { throw "deep14"; }
+try { g14(); } catch (e) {
+    print("d13: has g: " + contains(e["stack"], "g14"));
+    print("d13: has h: " + contains(e["stack"], "h14"));
+}
+// 嵌套 try-finally：内层 finally 先跑，异常冒泡外层 catch
+try {
+    try {
+        throw "nest";
+    } finally {
+        print("d14: inner fin");
+    }
+} catch (e) {
+    print("d14: outer " + e);
+}

@@ -16,6 +16,12 @@ static jmp_buf* vm_prev[64];
 static int vm_depth = 0;
 static int vm_sp[64];
 static int vm_target[64];   /* 每层的 catch 目标（longjmp 后自动变量不可靠） */
+static int vm_tn[64];       /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
+static int vm_fn[64];       /* 每层 TRY 时的 finally 完成栈深度 */
+static int vm_fin_act[64];  /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
+static int vm_fin_tgt[64];
+static int vm_fin_n = 0;
+static Value vm_pend_val;   /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
 
 #define VM_STACK_MAX 256
 
@@ -57,7 +63,9 @@ static Value vm_call_rf(RuntimeFunc* rf, Value* args, int argc, StackFrame* pare
     int saved_cont = ctx->hit_continue;
     ctx->hit_break = 0;
     ctx->hit_continue = 0;
+    if(g_trace_n < 64) g_trace[g_trace_n++] = "<anonymous>";
     Value ret = rf->entry(argc, args, ctx, callee);
+    if(g_trace_n > 0) g_trace_n--;
     ctx->hit_break = saved_break;
     ctx->hit_continue = saved_cont;
     interp_set_current_rf(prev_rf);
@@ -107,6 +115,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     /* 函数边界隔离 try 状态：进入保存，所有退出点恢复（try 内 return 不能泄漏） */
     int saved_depth = vm_depth;
     jmp_buf* saved_gj = g_err_jmp;
+    int saved_fin = vm_fin_n;
 
     if(getenv("LUMIN_BC_DUMP")) {
         fprintf(stderr, "== bc dump: %s (code_len=%d, max_stack=%d) ==\n",
@@ -390,6 +399,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 vm_target[d] = in.a;
                 vm_sp[d] = sp;
                 vm_prev[d] = g_err_jmp;
+                vm_tn[d] = g_trace_n;
+                vm_fn[d] = vm_fin_n;
                 g_err_jmp = &vm_jbs[d];
                 if(setjmp(vm_jbs[d]) == 0) {
                     vm_depth = d + 1;
@@ -399,6 +410,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     sp = vm_sp[d2];
                     vm_depth = d2;
                     g_err_jmp = vm_prev[d2];
+                    /* trace/fin 栈不在此截断：GET_ERR 用完整残留生成回溯后再截断 */
                     pc = vm_target[d2];
                 }
                 break;
@@ -406,9 +418,79 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_ENDTRY:
                 if(vm_depth > 0) { vm_depth--; g_err_jmp = vm_prev[vm_depth]; }
                 break;
-            case OPC_GET_ERR:
-                stack[sp++] = lumin_make_string(g_err_msg);
+            case OPC_GET_ERR: {
+                /* 错误对象化：type/message + 调用栈回溯；然后截断残留到 TRY 层 */
+                char* st = lumin_build_stack_trace();
+                stack[sp++] = lumin_make_error(g_err_type, g_err_msg, st);
+                free(st);
+                if(vm_depth > 0) {
+                    g_trace_n = vm_tn[vm_depth - 1];
+                    vm_fin_n = vm_fn[vm_depth - 1];
+                }
                 break;
+            }
+            case OPC_THROW: {
+                /* 弹1：包装成错误对象抛出（字符串→type Error；错误对象→原样；map→type/message 字段） */
+                Value v = stack[--sp];
+                const char* type = "Error";
+                char* msg = NULL;
+                if(v.type == VAL_ERROR) {
+                    type = v.v.err.type ? v.v.err.type : "Error";
+                    msg = strdup(v.v.err.message ? v.v.err.message : "");
+                } else if(v.type == VAL_MAP) {
+                    if(lumin_map_has(v, "type")) {
+                        Value tv = lumin_map_get(v, lumin_make_string("type"));
+                        if(tv.type == VAL_STRING) type = tv.v.s;
+                    }
+                    if(lumin_map_has(v, "message")) {
+                        Value mv = lumin_map_get(v, lumin_make_string("message"));
+                        if(mv.type == VAL_STRING) msg = strdup(mv.v.s);
+                    }
+                }
+                if(!msg) msg = value_to_str(v);
+                snprintf(g_err_type, sizeof(g_err_type), "%s", type);
+                snprintf(g_err_msg, sizeof(g_err_msg), "%s", msg);
+                free(msg);
+                if(g_err_jmp) longjmp(*g_err_jmp, 1);
+                fprintf(stderr, "Runtime Error: %s\n", g_err_msg);
+                exit(EXIT_FAILURE);
+            }
+            case OPC_FIN_PUSH:
+                vm_fin_act[vm_fin_n] = in.a;
+                vm_fin_tgt[vm_fin_n] = in.b;
+                vm_fin_n++;
+                break;
+            case OPC_FINISH: {
+                if(vm_fin_n <= 0) runtime_error("finally 完成栈为空");
+                int act = vm_fin_act[--vm_fin_n];
+                if(act == 1 || act == 3 || act == 4) {
+                    pc = vm_fin_tgt[vm_fin_n];
+                } else if(act == 2) {
+                    /* RETHROW：错误消息/类型仍在 g_err_msg/g_err_type，向上一层冒泡 */
+                    if(g_err_jmp) longjmp(*g_err_jmp, 1);
+                    fprintf(stderr, "Runtime Error: %s\n", g_err_msg);
+                    exit(EXIT_FAILURE);
+                } else if(act == 5) {
+                    /* RETURN：恢复函数返回 */
+                    Value v = vm_pend_val;
+                    vm_depth = saved_depth;
+                    g_err_jmp = saved_gj;
+                    free(stack);
+                    return val_clone(&v);
+                } else {
+                    runtime_error("finally 完成动作未知");
+                }
+                break;
+            }
+            case OPC_PEND_RETURN: {
+                /* 弹1（返回值）→ 压 RETURN 动作 → 跳 finally（b=0 则直接返回） */
+                vm_pend_val = stack[--sp];
+                vm_fin_act[vm_fin_n] = 5;
+                vm_fin_tgt[vm_fin_n] = 0;
+                vm_fin_n++;
+                if(in.b) pc = in.b;
+                break;
+            }
             case OPC_JMP:
                 pc = in.a;
                 break;
@@ -462,7 +544,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 int saved_cont = ctx->hit_continue;
                 ctx->hit_break = 0;
                 ctx->hit_continue = 0;
+                /* 调用栈回溯：入栈函数名（longjmp 跳过 pop 由 GET_ERR 截断） */
+                if(g_trace_n < 64) g_trace[g_trace_n++] = fname;
                 Value ret = rf->entry(argc, eval_args, ctx, callee);
+                if(g_trace_n > 0) g_trace_n--;
                 ctx->hit_break = saved_break;
                 ctx->hit_continue = saved_cont;
                 interp_set_current_rf(prev_rf);
@@ -517,17 +602,20 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 Value v = stack[--sp];
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
+                vm_fin_n = saved_fin;
                 free(stack);
                 return val_clone(&v);
             }
             case OPC_RETURN_NIL:
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
+                vm_fin_n = saved_fin;
                 free(stack);
                 return val_none();
             case OPC_HALT:
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
+                vm_fin_n = saved_fin;
                 free(stack);
                 return val_none();
             default:

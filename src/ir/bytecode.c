@@ -96,6 +96,15 @@ void bf_patch(BytecodeFunc* fn, int pos, int target)
     fn->code[pos].a = target;
 }
 
+void bf_patch_b(BytecodeFunc* fn, int pos, int target)
+{
+    if(pos < 0 || pos >= fn->code_len) {
+        fprintf(stderr, "bf_patch_b: 越界 pos=%d len=%d\n", pos, fn->code_len);
+        exit(EXIT_FAILURE);
+    }
+    fn->code[pos].b = target;
+}
+
 // ---------------- 静态栈深度分析 ----------------
 
 // 指令对栈的净变化（执行一条指令前后 sp 差）
@@ -109,6 +118,8 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
         case OPC_DUP:
             return +1;
         case OPC_POP:
+        case OPC_PEND_RETURN:
+        case OPC_THROW:
             return -1;
         case OPC_ADD: case OPC_SUB: case OPC_MUL: case OPC_DIV: case OPC_MOD:
         case OPC_GT: case OPC_LT: case OPC_GE: case OPC_LE: case OPC_EQ: case OPC_NE:
@@ -120,6 +131,8 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
             return 0;                        // 弹1压1
         case OPC_TRY:
         case OPC_ENDTRY:
+        case OPC_FIN_PUSH:
+        case OPC_FINISH:
             return 0;                        // 栈不变
         case OPC_GET_ERR:
             return 1;                        // 压 1 错误消息
@@ -194,6 +207,17 @@ int bc_analyze_stack(BytecodeFunc* fn, int* depth_out, int depth_cap)
             if(in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE) {
                 if(in.a >= 0 && in.a < n && d[in.a] < nd) { d[in.a] = nd; changed = 1; }
             }
+            /* try/catch/finally 的非跳转式目标：TRY.a=catch 入口（异常路径 sp 恢复后）、
+               TRY.b/FIN_PUSH.b/PEND_RETURN.b=finally 或完成动作目标。
+               a/b 用 0 作"无目标"哨兵，必须 >0 才算后继，否则会把 pc=0 当成目标
+               形成 d[0]→...→TRY→d[0] 的正反馈环导致分析不收敛 */
+            if(in.op == OPC_TRY) {
+                if(in.a > 0 && in.a < n && d[in.a] < nd) { d[in.a] = nd; changed = 1; }
+                if(in.b > 0 && in.b < n && d[in.b] < nd) { d[in.b] = nd; changed = 1; }
+            }
+            if(in.op == OPC_FIN_PUSH || in.op == OPC_PEND_RETURN) {
+                if(in.b > 0 && in.b < n && d[in.b] < nd) { d[in.b] = nd; changed = 1; }
+            }
             if(in.op != OPC_RETURN && in.op != OPC_RETURN_NIL && in.op != OPC_HALT &&
                in.op != OPC_JMP) {
                 if(i + 1 < n && d[i + 1] < nd) { d[i + 1] = nd; changed = 1; }
@@ -258,6 +282,10 @@ static const char* opc_name(OpCode op)
         case OPC_TRY: return "TRY";
         case OPC_ENDTRY: return "ENDTRY";
         case OPC_GET_ERR: return "GET_ERR";
+        case OPC_THROW: return "THROW";
+        case OPC_FIN_PUSH: return "FIN_PUSH";
+        case OPC_FINISH: return "FINISH";
+        case OPC_PEND_RETURN: return "PEND_RETURN";
         case OPC_JMP: return "JMP";
         case OPC_JMP_IF_FALSE: return "JMP_IF_FALSE";
         case OPC_JMP_IF_TRUE: return "JMP_IF_TRUE";

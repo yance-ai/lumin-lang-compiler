@@ -136,6 +136,19 @@ static void collect_func_locals(BytecodeFunc* fn)
 
 // ---------------- 指令翻译 ----------------
 
+/* finally 完成跳转表：FIN_PUSH 的目标 pc → label 编号（生成函数头 static void* 数组） */
+static int fin_lab_cnt = 0;
+static int fin_lab_pcs[256];
+
+static int fin_lab_idx_of(int pc)
+{
+    for(int i = 0; i < fin_lab_cnt; i++)
+        if(fin_lab_pcs[i] == pc) return i;
+    if(fin_lab_cnt < 256) { fin_lab_pcs[fin_lab_cnt] = pc; return fin_lab_cnt++; }
+    fprintf(stderr, "fin_lab 表溢出\n");
+    exit(EXIT_FAILURE);
+}
+
 // 判断指令 idx 是否为跳转目标
 static int is_jump_target(BytecodeFunc* fn, int idx)
 {
@@ -143,6 +156,8 @@ static int is_jump_target(BytecodeFunc* fn, int idx)
         Instruction in = fn->code[i];
         if((in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE
             || in.op == OPC_TRY || in.op == OPC_ENDTRY) && in.a == idx)
+            return 1;
+        if((in.op == OPC_TRY || in.op == OPC_FIN_PUSH || in.op == OPC_PEND_RETURN) && in.b == idx)
             return 1;
     }
     return 0;
@@ -388,22 +403,72 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    __sp--;\n");
                 break;
             case OPC_TRY:
-                /* C 级错误处理：全局 jmp_buf 栈（longjmp 后自动变量不可靠，索引从 __g_depth 反推） */
+                /* C 级错误处理：全局 jmp_buf 栈（longjmp 后自动变量不可靠，索引从 __g_depth 反推）
+                   自闭合结构：setjmp 成功 → goto L(body)；失败 → 恢复本层并 goto L(catch) */
                 fprintf(out, "    { int __d = __g_depth; __g_tgt[__d] = %d; __g_sp0[__d] = __sp; __g_prev[__d] = g_err_jmp;\n", in.a);
+                fprintf(out, "      __g_tn[__d] = g_trace_n; __g_fn[__d] = __g_fin_n;\n");
                 fprintf(out, "      g_err_jmp = &__g_jbs[__d];\n");
-                fprintf(out, "      if(setjmp(__g_jbs[__d]) == 0) { __g_depth = __d + 1;\n");
+                fprintf(out, "      if(setjmp(__g_jbs[__d]) == 0) { __g_depth = __d + 1; goto L%d; }\n", i + 1);
+                fprintf(out, "      int __d2 = __g_depth - 1;\n");
+                fprintf(out, "      __sp = __g_sp0[__d2]; __g_depth = __d2; g_err_jmp = __g_prev[__d2];\n");
+                fprintf(out, "      goto L%d;\n", in.a);
+                fprintf(out, "    }\n");
+                fprintf(out, "    L%d:;\n", i + 1);
                 break;
             case OPC_ENDTRY:
-                fprintf(out, "        __g_depth = __d; g_err_jmp = __g_prev[__d];\n");
-                fprintf(out, "      } else {\n");
-                fprintf(out, "        int __d2 = __g_depth - 1;\n");
-                fprintf(out, "        __sp = __g_sp0[__d2]; __g_depth = __d2; g_err_jmp = __g_prev[__d2];\n");
-                fprintf(out, "        goto L%d;\n", in.a);
-                fprintf(out, "      }\n");
+                /* 无 finally 布局：正常路径恢复外层处理器（setjmp 结构已在 TRY 处闭合） */
+                fprintf(out, "    if(__g_depth > 0) { __g_depth--; g_err_jmp = __g_prev[__g_depth]; }\n");
+                break;
+            case OPC_GET_ERR: {
+                /* 错误对象：type/message + 调用栈回溯；随后截断残留到本 TRY 层 */
+                fprintf(out, "    { char* __st = lumin_build_stack_trace();\n");
+                fprintf(out, "      __stk[__sp++] = lumin_make_error(g_err_type, g_err_msg, __st);\n");
+                fprintf(out, "      free(__st);\n");
+                fprintf(out, "      if(__g_depth > 0) { g_trace_n = __g_tn[__g_depth - 1]; __g_fin_n = __g_fn[__g_depth - 1]; }\n");
                 fprintf(out, "    }\n");
                 break;
-            case OPC_GET_ERR:
-                fprintf(out, "    __stk[__sp++] = lumin_make_string(g_err_msg);\n");
+            }
+            case OPC_THROW:
+                /* throw：包装成错误对象抛出（字符串→type Error；错误对象→原样；map→type/message） */
+                fprintf(out, "    { Value __v = __stk[--__sp];\n");
+                fprintf(out, "      const char* __tp = \"Error\"; char* __msg = NULL;\n");
+                fprintf(out, "      if(__v.type == VAL_ERROR) { __tp = __v.v.err.type ? __v.v.err.type : \"Error\"; __msg = strdup(__v.v.err.message ? __v.v.err.message : \"\"); }\n");
+                fprintf(out, "      else if(__v.type == VAL_MAP) {\n");
+                fprintf(out, "        if(lumin_map_has(__v, \"type\")) { Value __tv = lumin_map_get(__v, lumin_make_string(\"type\")); if(__tv.type == VAL_STRING) __tp = __tv.v.s; }\n");
+                fprintf(out, "        if(lumin_map_has(__v, \"message\")) { Value __mv = lumin_map_get(__v, lumin_make_string(\"message\")); if(__mv.type == VAL_STRING) __msg = strdup(__mv.v.s); }\n");
+                fprintf(out, "      }\n");
+                fprintf(out, "      if(!__msg) __msg = value_to_str(__v);\n");
+                fprintf(out, "      snprintf(g_err_type, sizeof(g_err_type), \"%%s\", __tp);\n");
+                fprintf(out, "      snprintf(g_err_msg, sizeof(g_err_msg), \"%%s\", __msg);\n");
+                fprintf(out, "      free(__msg);\n");
+                fprintf(out, "      if(g_err_jmp) longjmp(*g_err_jmp, 1);\n");
+                fprintf(out, "      fprintf(stderr, \"Runtime Error: %%s\\n\", g_err_msg); exit(EXIT_FAILURE);\n");
+                fprintf(out, "    }\n");
+                break;
+            case OPC_FIN_PUSH: {
+                /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN（b=目标 pc→label 编号） */
+                int fidx = in.b ? fin_lab_idx_of(in.b) : 0;
+                fprintf(out, "    __g_fin_act[__g_fin_n] = %d; __g_fin_tgt[__g_fin_n] = %d; __g_fin_n++;\n", in.a, fidx);
+                break;
+            }
+            case OPC_FINISH:
+                /* 完成动作的目标在运行时才知道（__g_fin_tgt 存的是 label 编号），用跳转表 */
+                fprintf(out, "    if(__g_fin_n <= 0) runtime_error(\"finally 完成栈为空\");\n");
+                fprintf(out, "    { int __fa = __g_fin_act[--__g_fin_n];\n");
+                fprintf(out, "      if(__fa == 1 || __fa == 3 || __fa == 4) goto *__g_fin_labs[__g_fin_tgt[__g_fin_n]];\n");
+                fprintf(out, "      else if(__fa == 2) { if(g_err_jmp) longjmp(*g_err_jmp, 1); fprintf(stderr, \"Runtime Error: %%s\\n\", g_err_msg); exit(EXIT_FAILURE); }\n");
+                if(!g_cur_fn)
+                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; return 0; }\n");
+                else
+                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; { Value __v = __g_pend_val; return val_clone(&__v); } }\n");
+                fprintf(out, "      else runtime_error(\"finally 完成动作未知\");\n");
+                fprintf(out, "    }\n");
+                break;
+            case OPC_PEND_RETURN:
+                /* 挂起返回：弹1存 __g_pend_val → 压 RETURN 动作 → 跳 finally */
+                fprintf(out, "    __g_pend_val = __stk[--__sp];\n");
+                fprintf(out, "    __g_fin_act[__g_fin_n] = 5; __g_fin_tgt[__g_fin_n] = 0; __g_fin_n++;\n");
+                if(in.b) fprintf(out, "    goto L%d;\n", in.b);
                 break;
             case OPC_JMP:
                 fprintf(out, "    goto L%d;\n", in.a);
@@ -487,14 +552,16 @@ static void emit_insns(BytecodeFunc* fn)
             }
             case OPC_RETURN:
                 if(g_cur_fn) {
-                    fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0;\n");
+                    fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0;\n");
+                    fprintf(out, "    if(g_trace_n > 0) g_trace_n--;\n");
                     fprintf(out, "    { Value __v = __stk[--__sp]; return val_clone(&__v); }\n");
                 } else
                     fprintf(out, "    return 0;\n");
                 break;
             case OPC_RETURN_NIL:
                 if(g_cur_fn) {
-                    fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0;\n");
+                    fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0;\n");
+                    fprintf(out, "    if(g_trace_n > 0) g_trace_n--;\n");
                     fprintf(out, "    return val_none();\n");
                 } else
                     fprintf(out, "    return 0;\n");
@@ -524,6 +591,12 @@ static void emit_func_proto(BytecodeFunc* fn)
 static void emit_func_def(BytecodeFunc* fn)
 {
     collect_func_locals(fn);
+    /* 收集本函数内 FIN_PUSH 的目标（finally/循环结束 label） */
+    fin_lab_cnt = 0;
+    for(int i = 0; i < fn->code_len; i++) {
+        Instruction in = fn->code[i];
+        if(in.op == OPC_FIN_PUSH && in.b) fin_lab_idx_of(in.b);
+    }
     fprintf(out, "static Value lumin_func_%s(", fn->name);
     int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
     for(int i = 0; i < total; i++) {
@@ -534,7 +607,14 @@ static void emit_func_def(BytecodeFunc* fn)
     fprintf(out, ")\n{\n");
     fprintf(out, "    Value __stk[%d];\n", maxd + 2);
     fprintf(out, "    int __sp = 0;\n");
-    fprintf(out, "    int __g_d0 = __g_depth; jmp_buf* __g_gj0 = g_err_jmp;\n");
+    if(fin_lab_cnt > 0) {
+        fprintf(out, "    static void* __g_fin_labs[%d] = { ", fin_lab_cnt);
+        for(int k = 0; k < fin_lab_cnt; k++)
+            fprintf(out, "&&L%d%s", fin_lab_pcs[k], (k + 1 < fin_lab_cnt) ? ", " : "");
+        fprintf(out, " };\n");
+    }
+    fprintf(out, "    int __g_d0 = __g_depth; jmp_buf* __g_gj0 = g_err_jmp; int __g_fin0 = __g_fin_n;\n");
+    fprintf(out, "    g_trace[g_trace_n++] = \"%s\";\n", fn->name);
     for(int i = 0; i < fn_locals.count; i++) {
         fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
     }
@@ -608,6 +688,20 @@ static void emit_main(BytecodeFunc* main_fn)
     fprintf(out, "int main(void){\n");
     fprintf(out, "    Value __stk[%d];\n", maxd + 2);
     fprintf(out, "    int __sp = 0;\n");
+    /* 函数边界保存（RETURN/FINISH act=5 恢复用），与 emit_func_def 一致 */
+    fprintf(out, "    int __g_d0 = __g_depth; jmp_buf* __g_gj0 = g_err_jmp; int __g_fin0 = __g_fin_n;\n");
+    /* main 内 finally 完成动作目标收集（与 emit_func_def 一致，否则 FINISH 引用未定义的 __g_fin_labs） */
+    fin_lab_cnt = 0;
+    for(int i = 0; i < main_fn->code_len; i++) {
+        Instruction in = main_fn->code[i];
+        if(in.op == OPC_FIN_PUSH && in.b) fin_lab_idx_of(in.b);
+    }
+    if(fin_lab_cnt > 0) {
+        fprintf(out, "    static void* __g_fin_labs[%d] = { ", fin_lab_cnt);
+        for(int k = 0; k < fin_lab_cnt; k++)
+            fprintf(out, "&&L%d%s", fin_lab_pcs[k], (k + 1 < fin_lab_cnt) ? ", " : "");
+        fprintf(out, " };\n");
+    }
     g_cur_fn = NULL;
     emit_insns(main_fn);
     fprintf(out, "}\n\n");

@@ -138,9 +138,13 @@ struct AstNode {
         } map_entry;
         struct {
             AstNode* body;       // try 块
-            char* catch_var;     // catch (e) 的变量名
-            AstNode* catch_body; // catch 块
+            char* catch_var;     // catch (e) 的变量名（可为 NULL：try-finally 无 catch）
+            AstNode* catch_body; // catch 块（可为 NULL）
+            AstNode* finally_body; // finally 块（可为 NULL）
         } trynode;
+        struct {
+            AstNode* expr;       // throw 的值表达式
+        } thrownode;
     } u;
 };
 

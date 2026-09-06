@@ -27,9 +27,13 @@ typedef enum {
     OPC_TO_BOOL,      // 弹1压1 bool
     OPC_DUP,          // 复制栈顶
     OPC_POP,          // 丢弃栈顶
-    OPC_TRY,          // a=catch 起始pc；setjmp 注册错误处理器
-    OPC_ENDTRY,       // a=catch 起始pc；正常路径恢复外层处理器
-    OPC_GET_ERR,      // 压入最近捕获的错误消息字符串（catch 绑定用）
+    OPC_TRY,          // a=catch 起始pc(0=无catch)，b=finally 起始pc(0=无finally)；setjmp 注册错误处理器
+    OPC_ENDTRY,       // a=跳转目标pc；正常路径恢复外层处理器（无 finally 的旧布局用）
+    OPC_GET_ERR,      // 压入最近捕获的错误对象（type/message/stack）
+    OPC_THROW,        // 弹1；包装成错误对象并抛出（无处理器则打印退出）
+    OPC_FIN_PUSH,     // a=完成动作(1=JMP 2=RETHROW 3=BREAK 4=CONT)，b=目标pc；压入 finally 完成动作
+    OPC_FINISH,       // 弹 finally 完成动作并执行（JMP/RETHROW/RETURN 恢复）
+    OPC_PEND_RETURN,  // 弹1（返回值）→ 挂起返回动作，跳 b（finally 起始；0=直接返回）
     OPC_JMP,          // a=目标pc
     OPC_JMP_IF_FALSE, // a=目标pc；弹条件，假则跳
     OPC_JMP_IF_TRUE,  // a=目标pc；弹条件，真则跳
@@ -109,6 +113,7 @@ int bf_const(BytecodeFunc* fn, Value v);
 void bf_emit(BytecodeFunc* fn, OpCode op, int a, int b);
 int bf_emit_here(BytecodeFunc* fn, OpCode op, int a, int b);
 void bf_patch(BytecodeFunc* fn, int pos, int target);
+void bf_patch_b(BytecodeFunc* fn, int pos, int target);
 
 // 静态栈深度分析：计算每条指令执行前的栈深（写入 depth_out，可 NULL），
 // 返回整个函数的最大栈深。IR 生成正确时每点栈深确定；不可达指令深度记 0。

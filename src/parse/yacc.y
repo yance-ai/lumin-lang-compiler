@@ -37,7 +37,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
-%token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH
+%token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
 %token CONTINUE
 %token FUNC ELLIPSIS
 %token READ WRITE
@@ -99,6 +99,10 @@ closed_stmt
           $$ = L(ast_call(strdup("write_file"), ast_seq(p, $3)));
       }
     | try_stmt { $$ = $1; }
+    | THROW expr SEMI {
+          /* throw expr：显式抛错；值在运行时包装成错误对象 */
+          $$ = L(ast_throw($2));
+      }
     ;
 
 func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
@@ -139,10 +143,16 @@ open_stmt
     : IF LPAREN expr RPAREN closed_stmt elif_clause_list else_part         { $$ = ast_if_chain($3, $5, $6, $7); }
     ;
 
-/* try { body } catch (e) { handler } */
+/* try { body } catch (e) { handler } [finally { body }]；catch/finally 至少其一 */
 try_stmt
     : TRY block_stmt CATCH LPAREN ID RPAREN block_stmt {
-          $$ = ast_try($2, strdup($5), $7);
+          $$ = ast_try($2, strdup($5), $7, NULL);
+      }
+    | TRY block_stmt CATCH LPAREN ID RPAREN block_stmt FINALLY block_stmt {
+          $$ = ast_try($2, strdup($5), $7, $9);
+      }
+    | TRY block_stmt FINALLY block_stmt {
+          $$ = ast_try($2, NULL, NULL, $4);
       }
     ;
 

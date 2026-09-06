@@ -94,6 +94,10 @@ static void collect_top_level(AstNode* node) {
         case AST_TRY:
             collect_top_level(node->u.trynode.body);
             collect_top_level(node->u.trynode.catch_body);
+            collect_top_level(node->u.trynode.finally_body);
+            break;
+        case AST_THROW:
+            collect_top_level(node->u.thrownode.expr);
             break;
         case AST_MAP_ENTRY:
             collect_top_level(node->u.map_entry.key);
@@ -388,8 +392,15 @@ int typecheck_expr(AstNode* node)
         case AST_TRY:
             err |= typecheck_expr(node->u.trynode.body);
             /* catch 变量先注册（作用域：catch 块内）再检查 catch 块 */
-            static_sym_put(node->u.trynode.catch_var, VAL_NONE);
-            err |= typecheck_expr(node->u.trynode.catch_body);
+            if(node->u.trynode.catch_var) {
+                static_sym_put(node->u.trynode.catch_var, VAL_NONE);
+                err |= typecheck_expr(node->u.trynode.catch_body);
+            }
+            err |= typecheck_expr(node->u.trynode.finally_body);
+            node->val_type = VAL_NONE;
+            break;
+        case AST_THROW:
+            err |= typecheck_expr(node->u.thrownode.expr);
             node->val_type = VAL_NONE;
             break;
         case AST_PRINT:

@@ -18,6 +18,7 @@ static int is_expr_end(int t)
         case ELSE: case ELSEIF:
         case CASE_COLON:          /* case 10: { → 块 */
         case TRY:                 /* try { → 块 */
+        case FINALLY:             /* finally { → 块 */
             return 1;
         default:
             return 0;
@@ -46,7 +47,9 @@ static int is_expr_end(int t)
 "case"          { in_case_expr = 1; fprintf(stderr,"[LEX] CASE\n");    LEX_RET(CASE); }
 "default"       { in_case_expr = 1; fprintf(stderr,"[LEX] DEFAULT\n"); LEX_RET(DEFAULT); }
 "try"           { fprintf(stderr,"[LEX] TRY\n");    LEX_RET(TRY); }
+"throw"         { fprintf(stderr,"[LEX] THROW\n");  LEX_RET(THROW); }
 "catch"         { fprintf(stderr,"[LEX] CATCH\n");  LEX_RET(CATCH); }
+"finally"       { fprintf(stderr,"[LEX] FINALLY\n"); LEX_RET(FINALLY); }
 "break"         { fprintf(stderr,"[LEX] BREAK\n");   LEX_RET(BREAK); }
 "continue"      { fprintf(stderr,"[LEX] CONTINUE\n"); LEX_RET(CONTINUE); }
 "return"        { fprintf(stderr,"[LEX] RETURN\n");  LEX_RET(RETURN); }

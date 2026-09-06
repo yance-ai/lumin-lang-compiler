@@ -385,11 +385,18 @@ AstNode* ast_map_lit(AstNode* entries) {
     return n;
 }
 
-AstNode* ast_try(AstNode* body, char* catch_var, AstNode* catch_body) {
+AstNode* ast_try(AstNode* body, char* catch_var, AstNode* catch_body, AstNode* finally_body) {
     AstNode* n = ast_new(AST_TRY);
     n->u.trynode.body = body;
     n->u.trynode.catch_var = catch_var;
     n->u.trynode.catch_body = catch_body;
+    n->u.trynode.finally_body = finally_body;
+    return n;
+}
+
+AstNode* ast_throw(AstNode* expr) {
+    AstNode* n = ast_new(AST_THROW);
+    n->u.thrownode.expr = expr;
     return n;
 }
 

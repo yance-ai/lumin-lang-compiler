@@ -3,21 +3,58 @@
 
 jmp_buf* g_err_jmp = NULL;
 char g_err_msg[1024] = {0};
+char g_err_type[64] = "RuntimeError";   // 最近一次错误/throw 的类型名（GET_ERR 构造错误对象用）
+/* 调用栈回溯记录（VM 的 OPC_CALL / C 生成函数入口 push，返回 pop；longjmp 后由 TRY 层截断） */
+const char* g_trace[64];
+int g_trace_n = 0;
 /* C 生成通道的 try/catch 处理器栈（VM 通道用 vm.c 的 vm_jbs，互不干扰） */
 jmp_buf __g_jbs[64];
 jmp_buf* __g_prev[64];
 int __g_depth = 0;
 int __g_sp0[64];
 int __g_tgt[64];
+int __g_tn[64];        /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
+int __g_fn[64];        /* 每层 TRY 时的 finally 完成栈深度 */
+int __g_fin_act[64];   /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
+int __g_fin_tgt[64];
+int __g_fin_n = 0;
+Value __g_pend_val;    /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
 
 // 运行时错误：有 try 处理器则恢复（longjmp），否则打印并退出
 void runtime_error(const char* msg) {
     if(g_err_jmp) {
+        snprintf(g_err_type, sizeof(g_err_type), "%s", "RuntimeError");
         snprintf(g_err_msg, sizeof(g_err_msg), "%s", msg);
         longjmp(*g_err_jmp, 1);
     }
     fprintf(stderr, "Runtime Error: %s\n", msg);
     exit(EXIT_FAILURE);
+}
+
+// 错误对象构造：type/message/stack（stack 可为空，内部复制）
+Value lumin_make_error(const char* type, const char* msg, const char* stack) {
+    Value v;
+    v.type = VAL_ERROR;
+    v.v.err.type = strdup(type ? type : "Error");
+    v.v.err.message = strdup(msg ? msg : "");
+    v.v.err.stack = strdup(stack ? stack : "");
+    return v;
+}
+
+// 当前调用栈回溯文本（malloc，调用方 free）：at func 逐行
+char* lumin_build_stack_trace(void) {
+    if(g_trace_n <= 0) { char* e = (char*)malloc(1); e[0] = '\0'; return e; }
+    size_t cap = 256;
+    for(int i = 0; i < g_trace_n; i++) cap += strlen(g_trace[i]) + 16;
+    char* out = (char*)malloc(cap);
+    size_t w = 0;
+    for(int i = g_trace_n - 1; i >= 0; i--) {
+        if(w) out[w++] = '\n';
+        const char* nm = g_trace[i] ? g_trace[i] : "<anonymous>";
+        w += (size_t)snprintf(out + w, cap - w, "at %s", nm);
+    }
+    out[w] = '\0';
+    return out;
 }
 
 // -------- 值构造 --------
@@ -164,6 +201,12 @@ Value val_clone(const Value* src) {
         }
         break;
     }
+    case VAL_ERROR:
+        dst.v.err.type = strdup(src->v.err.type ? src->v.err.type : "");
+        dst.v.err.message = strdup(src->v.err.message ? src->v.err.message : "");
+        dst.v.err.stack = strdup(src->v.err.stack ? src->v.err.stack : "");
+        break;
+
     case VAL_MAP: {
         ValueMap* srcm = src->v.map;
         dst = val_map();
@@ -201,6 +244,7 @@ const char* val_typename(ValueType t) {
     case VAL_FUNC: return "func";
     case VAL_ARRAY: return "array";
     case VAL_MAP: return "map";
+    case VAL_ERROR: return "error";
     default: return "unknown";
     }
 }
@@ -213,6 +257,7 @@ void val_print(const Value* v) {
     case VAL_BOOL: printf("%s", v->v.b ? "true" : "false"); break;
     case VAL_CHAR: printf("'%c'", v->v.c); break;
     case VAL_STRING: printf("\"%s\"", v->v.s); break;
+    case VAL_ERROR: printf("[error:%s] %s", v->v.err.type ? v->v.err.type : "", v->v.err.message ? v->v.err.message : ""); break;
     case VAL_FUNC: printf("<func>"); break;
     case VAL_ARRAY: {
         printf("[");

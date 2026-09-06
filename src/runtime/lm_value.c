@@ -88,6 +88,8 @@ char* value_to_str(Value v) {
             memcpy(p, v.v.s, l+1);
             return p;
         }
+        case VAL_ERROR:
+            return strdup(v.v.err.message ? v.v.err.message : "");
         case VAL_CHAR:
         {
             char buf2[2];
@@ -232,6 +234,14 @@ Value lumin_index_get(Value c, Value idx) {
         if(idx.type != VAL_STRING) runtime_error("字典下标必须是字符串键");
         return lumin_map_get(c, idx);
     }
+    if(c.type == VAL_ERROR) {
+        if(idx.type != VAL_STRING) runtime_error("错误对象下标必须是字符串键");
+        if(strcmp(idx.v.s, "type") == 0) return lumin_make_string(c.v.err.type ? c.v.err.type : "");
+        if(strcmp(idx.v.s, "message") == 0) return lumin_make_string(c.v.err.message ? c.v.err.message : "");
+        if(strcmp(idx.v.s, "stack") == 0) return lumin_make_string(c.v.err.stack ? c.v.err.stack : "");
+        runtime_error("错误对象只有 type/message/stack 三个字段");
+        return val_none();
+    }
     long long i = array_index_of(idx);
     if(c.type == VAL_ARRAY) {
         if(i < 0 || i >= c.v.array.len) {
@@ -267,6 +277,7 @@ Value lumin_type(Value v) {
         case VAL_FUNC:   return lumin_make_string("func");
         case VAL_ARRAY:  return lumin_make_string("array");
         case VAL_MAP:    return lumin_make_string("map");
+        case VAL_ERROR:  return lumin_make_string("error");
     }
     return lumin_make_string("unknown");
 }
@@ -373,6 +384,30 @@ Value lumin_eq(Value a, Value b) {
         free(sa);
         free(sb);
         return lumin_make_bool(eq);
+    }
+    if(a.type == VAL_ERROR || b.type == VAL_ERROR) {
+        if(a.type == VAL_ERROR && b.type == VAL_ERROR) {
+            int tm = strcmp(a.v.err.type ? a.v.err.type : "", b.v.err.type ? b.v.err.type : "");
+            int mm = strcmp(a.v.err.message ? a.v.err.message : "", b.v.err.message ? b.v.err.message : "");
+            return lumin_make_bool(tm == 0 && mm == 0);
+        }
+        const char* am = (a.type == VAL_ERROR) ? a.v.err.message : (a.type == VAL_STRING ? a.v.s : NULL);
+        const char* bm = (b.type == VAL_ERROR) ? b.v.err.message : (b.type == VAL_STRING ? b.v.s : NULL);
+        if(a.type == VAL_ERROR && b.type == VAL_MAP && lumin_map_has(b, "message")) {
+            Value mv = lumin_map_get(b, lumin_make_string("message"));
+            if(mv.type != VAL_STRING) return lumin_make_bool(0);
+            const char* tm = NULL;
+            if(a.v.err.type) {
+                if(lumin_map_has(b, "type")) {
+                    Value tv = lumin_map_get(b, lumin_make_string("type"));
+                    if(tv.type == VAL_STRING) tm = tv.v.s;
+                }
+                if(tm && strcmp(tm, a.v.err.type) != 0) return lumin_make_bool(0);
+            }
+            return lumin_make_bool(strcmp(a.v.err.message, mv.v.s) == 0);
+        }
+        if(!am || !bm) return lumin_make_bool(0);
+        return lumin_make_bool(strcmp(am, bm) == 0);
     }
     if(a.type == VAL_MAP || b.type == VAL_MAP) {
         if(a.type != VAL_MAP || b.type != VAL_MAP) return lumin_make_bool(0);
