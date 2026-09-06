@@ -6,8 +6,44 @@
 #define YYERROR_VERBOSE
 #include "ast/ast.h"
 #include "ast/func_compile.h"
+#include "ast/ast_types.h"
 #include <stdio.h>
 #include <string.h>
+
+/* type 声明属性收集器（yacc 动作顺序填充，声明语句动作消费后清空） */
+static char** g_prop_names = NULL;
+static ValueType* g_prop_types = NULL;
+static int g_prop_n = 0, g_prop_cap = 0;
+static void type_prop_push(char* name, ValueType vt)
+{
+    if(g_prop_n >= g_prop_cap) {
+        int nc = g_prop_cap > 0 ? g_prop_cap * 2 : 8;
+        g_prop_names = (char**)realloc(g_prop_names, (size_t)nc * sizeof(char*));
+        g_prop_types = (ValueType*)realloc(g_prop_types, (size_t)nc * sizeof(ValueType));
+        g_prop_cap = nc;
+    }
+    g_prop_names[g_prop_n] = name;
+    g_prop_types[g_prop_n] = vt;
+    g_prop_n++;
+}
+static void type_prop_clear(void)
+{
+    for(int i = 0; i < g_prop_n; i++) free(g_prop_names[i]);
+    free(g_prop_names); free(g_prop_types);
+    g_prop_names = NULL; g_prop_types = NULL;
+    g_prop_n = 0; g_prop_cap = 0;
+}
+/* 泛型 <Person>[e1,e2] → 每个元素包 Person(e) 构造调用（遍历 ast_seq 链） */
+static AstNode* wrap_type_list(const char* tname, AstNode* chain)
+{
+    if(!chain) return NULL;
+    if(chain->type == AST_SEQ) {
+        chain->u.seq.first = wrap_type_list(tname, chain->u.seq.first);
+        chain->u.seq.second = wrap_type_list(tname, chain->u.seq.second);
+        return chain;
+    }
+    return ast_call(strdup(tname), chain);
+}
 extern int yylineno;
 AstNode* new_cast_node(int cast_type, AstNode* child);
 AstNode* maybe_template(const char* s);      // 字符串模板拆解（parse/tmpl.c）
@@ -36,6 +72,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token WHILE FOR
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
+%token TOK_TYPE TOK_ENUM
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
@@ -64,7 +101,8 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> elif_clause_list elif_clause else_part
 %type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
-%type<node> func_def param_list param arg_list arg
+%type<node> func_def param_list param arg_list arg type_prop_list type_prop enum_members enum_member
+%type<ll> type_name
 %type <ch> char_lit
 %type<ll> INTEGER
 %type<d> NUMBER
@@ -103,6 +141,17 @@ closed_stmt
     | THROW expr SEMI {
           /* throw expr：显式抛错；值在运行时包装成错误对象 */
           $$ = L(ast_throw($2));
+      }
+    | TOK_TYPE ID LBRACE type_prop_list RBRACE {
+          /* type Person { name: string, age: int }：编译期注册形状（属性清单） */
+          type_register($2, g_prop_names, g_prop_types, g_prop_n);
+          type_prop_clear();
+          free($2);
+          $$ = L(ast_none());
+      }
+    | TOK_ENUM ID LBRACE enum_members RBRACE {
+          /* enum Color { RED, GREEN } → Color = {"RED":"RED","GREEN":"GREEN"} */
+          $$ = L(ast_assign($2, ast_map_lit($4)));
       }
     ;
 
@@ -315,6 +364,19 @@ primary
         { $$ = new_cast_node(CAST_CHAR, ast_map_lit($7)); }
     | LT TOK_STRING COMMA TOK_BYTE GT MAP_OPEN map_items RBRACE
         { $$ = new_cast_node(CAST_BYTE, ast_map_lit($7)); }
+    | LT ID GT ARRAY_OPEN arg_list RBRACKET {
+          /* 泛型自定义类型：<Person>[e1,e2] → [Person(e1), Person(e2)]（形状构造） */
+          if(type_lookup($2) >= 0) {
+              $$ = L(ast_array_lit(wrap_type_list($2, $5)));
+              free($2);
+          } else {
+              yyerror("未定义类型");
+          }
+      }
+    | TOK_TYPE LPAREN expr RPAREN {
+          /* type 关键字兼作内置函数：type(x) → 类型名字符串 */
+          $$ = L(ast_call(strdup("type"), $3));
+      }
     | FUNC LPAREN param_list RPAREN block_stmt {
           /* 匿名函数表达式：生成内部名 _lambda_N，与具名同路注册（VM sym + IR 函数表） */
           char nm[64];
@@ -378,6 +440,36 @@ map_item
     | ID COLON expr {
           $$ = ast_map_entry(ast_string(strdup($1)), $3);
       }
+    ;
+
+/* type 声明属性清单 */
+type_prop_list
+    : %empty                     { $$ = NULL; }
+    | type_prop                  { $$ = $1; }
+    | type_prop_list COMMA type_prop { $$ = ast_seq($1, $3); }
+    ;
+type_prop
+    : ID COLON type_name         { type_prop_push($1, $3); $$ = ast_none(); }
+    ;
+type_name
+    : TOK_STRING                 { $$ = VAL_STRING; }
+    | TOK_INT                    { $$ = VAL_INT; }
+    | TOK_DOUBLE                 { $$ = VAL_DOUBLE; }
+    | TOK_BOOL                   { $$ = VAL_BOOL; }
+    | TOK_CHAR                   { $$ = VAL_CHAR; }
+    | TOK_ASCII                  { $$ = VAL_INT; }
+    | TOK_BYTE                   { $$ = VAL_BYTE; }
+    | ID                         { $$ = type_name_to_valtype($1); }
+    ;
+
+/* 枚举成员：值 = 成员名字符串 */
+enum_members
+    : %empty                     { $$ = NULL; }
+    | enum_member                { $$ = $1; }
+    | enum_members COMMA enum_member { $$ = ast_seq($1, $3); }
+    ;
+enum_member
+    : ID                         { $$ = ast_map_entry(ast_string(strdup($1)), ast_string(strdup($1))); free($1); }
     ;
 
 unary_expr

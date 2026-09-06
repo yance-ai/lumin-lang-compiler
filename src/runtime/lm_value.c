@@ -1,4 +1,5 @@
 #include "lm_value.h"
+#include "lm_json.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -775,6 +776,12 @@ void lumin_print(Value v) {
         case VAL_ARRAY:
             printf("<array>\n");
             break;
+        case VAL_MAP: {
+            char* js = lumin_json_stringify(v);   /* 字典按 JSON 序列化打印 */
+            printf("%s\n", js);
+            free(js);
+            break;
+        }
         default:
             printf("<unknown>\n");
             break;

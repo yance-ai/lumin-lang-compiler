@@ -32,6 +32,8 @@ static int is_expr_end(int t)
 %option yylineno
 
 %%
+"type"          { fprintf(stderr,"[LEX] TYPE\n"); LEX_RET(TOK_TYPE); }
+"enum"          { fprintf(stderr,"[LEX] ENUM\n"); LEX_RET(TOK_ENUM); }
 "func"          { fprintf(stderr,"[LEX] FUNC\n"); LEX_RET(FUNC); }
 
 "print"         { fprintf(stderr,"[LEX] PRINT\n"); LEX_RET(PRINT); }

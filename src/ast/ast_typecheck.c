@@ -6,6 +6,7 @@
 #include <string.h>
 #include "ast_symtab.h"
 #include "func_compile.h"
+#include "ast_types.h"
 
 
 // ---------------- 作用域快照 ----------------
@@ -224,6 +225,12 @@ static void collect_top_level(AstNode* node) {
 }
 
 // 实参链表是左嵌套 AST_SEQ 链，递归展开逐个检查
+static int typecheck_arg_count(AstNode* chain)
+{
+    if(!chain) return 0;
+    if(chain->type == AST_SEQ) return typecheck_arg_count(chain->u.seq.first) + typecheck_arg_count(chain->u.seq.second);
+    return 1;
+}
 static int typecheck_call_args(AstNode* args) {
     if (!args) return 0;
     if (args->type != AST_SEQ) {
@@ -569,7 +576,15 @@ int typecheck_expr(AstNode* node)
             // 函数名：已定义函数 或 赋过函数值的变量 均可（与解释器一致）；
             // 内置函数白名单：len/type/input/range/substr（用户函数同名时用户优先）
             ValueType t;
-            if(!static_sym_get(node->u.call.name, &t)) {
+            if(type_lookup(node->u.call.name) >= 0) {
+                /* type 构造调用：参数个数 == 属性数（或单 map 原样） */
+                int nargs = typecheck_arg_count(node->u.call.args);
+                int nprops = type_get(type_lookup(node->u.call.name))->nprops;
+                if(!(nargs == nprops || nargs == 1)) {
+                    fprintf(stderr, "语义错误(第%d行)：类型构造参数个数错误：需要 %d 个（或单个 map），实际 %d 个\n",
+                            node->line, nprops, nargs);
+                }
+            } else if(!static_sym_get(node->u.call.name, &t)) {
                 static const struct { const char* name; int min; int max; } builtins[] = {
                     {"len", 1, 1}, {"type", 1, 1}, {"input", 0, 0}, {"range", 1, 3}, {"substr", 3, 3},
                     {"toupper", 1, 1}, {"tolower", 1, 1}, {"split", 2, 2}, {"del", 2, 2}, {"insert", 3, 3},

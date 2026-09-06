@@ -1,0 +1,67 @@
+// type_enum_test.lm —— type 声明 / 枚举声明 / 泛型自定义类型
+// 双通道（VM 与 -c C 编译）逐行一致验证
+
+print("== type 声明 ==");
+type Person {
+    name: string,
+    age: int
+}
+p = Person("张三", 18);
+print(p.name);            // 张三
+print(p.age);             // 18
+print(p["age"]);          // 18（构造产物是普通 map）
+p2 = Person("18", "25");  // 属性强转：age → int
+print(p2.age);            // 25
+print(type(p2.age));      // int
+p3 = Person(30, "40");    // 数字/字符串混合
+print(p3.name);           // 30（int → string 强转）
+print(p3.age);            // 40
+
+print("== 空 type ==");
+type Empty { }
+e = Empty(1);             // 无属性：构造为空 map
+print(type(e));           // map
+print(len(e.keys()));     // 0
+
+print("== type 构造 + 方法链 ==");
+type Tag { name: string }
+t = Tag("vip").add("level", 3);   // 构造后当 map 用
+print(t.name);            // vip
+print(t.level);           // 3
+
+print("== 枚举 ==");
+enum Color { RED, GREEN, BLUE }
+print(Color.RED);         // RED（值 = 成员名）
+print(Color.GREEN);       // GREEN
+c = Color.BLUE;
+print(c == "BLUE");       // true
+enum Level { LOW, MID, HIGH }
+lv = Level.MID;
+if (lv == Level.LOW) { print("low"); }
+elseif (lv == Level.MID) { print("mid"); }
+else { print("high"); }   // mid
+print(Color.RED == "RED");  // true（不同枚举可同时存在）
+
+print("== 泛型 type ==");
+arr = <Person>[Person("a", 1), {"name": "b", "age": 2}];
+print(len(arr));          // 2
+print(arr[0].name);       // a
+print(arr[1].age);        // 2
+tags = <Tag>[Tag("a"), Tag("b")].add(Tag("c"));  // 泛型 + 方法链
+print(len(tags));         // 3
+print(tags[2].name);      // c
+
+print("== 嵌套构造 ==");
+type User { name: string, tag: Tag }
+u = User("u1", Tag("vip"));
+print(u.name);            // u1
+print(u.tag.name);        // vip
+print(u.tag.add("id", 7).id);  // 7（链式深入）
+
+print("== 类型构造参数错误（语义检查） ==");
+// Person("only one")  单参非 map → 位置构造（name=only one，age 缺省 null）
+p4 = Person("only one");
+print(p4.name);           // only one
+print(p4.age == null);    // true（缺省属性 null）
+// 下面这行会被 typecheck 拦截（需 2 个或单 map，实际 3 个）：
+// Person("a", 1, 2);

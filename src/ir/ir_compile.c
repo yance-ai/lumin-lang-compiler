@@ -4,6 +4,7 @@
 // 遍历结构与 ast_typecheck.c / codegen.c 对齐（用户建议复用其递归结构）。
 #include "ir_compile.h"
 #include "ast/lumin_types.h"
+#include "ast/ast_types.h"
 #include "runtime/lm_value.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -220,6 +221,70 @@ static void layer_cont_add(Ctx* c, int pos)
 
 static void c_stmt(Ctx* c, AstNode* node);
 static void c_expr(Ctx* c, AstNode* node);
+
+/* ===== type 构造（type Person { name, age } → Person("张三", 18) 编译为 map 字面量） ===== */
+static int type_arg_count(AstNode* chain)
+{
+    if(!chain) return 0;
+    if(chain->type == AST_SEQ) return type_arg_count(chain->u.seq.first) + type_arg_count(chain->u.seq.second);
+    return 1;
+}
+static AstNode* type_arg_nth(AstNode* chain, int n, int* cur)
+{
+    if(!chain) return NULL;
+    if(chain->type == AST_SEQ) {
+        AstNode* r = type_arg_nth(chain->u.seq.first, n, cur);
+        if(r) return r;
+        return type_arg_nth(chain->u.seq.second, n, cur);
+    }
+    if((*cur)++ == n) return chain;
+    return NULL;
+}
+static AstNode* type_wrap_cast(AstNode* e, ValueType vt)
+{
+    int kind;
+    switch(vt) {
+        case VAL_INT:    kind = CAST_INT;    break;
+        case VAL_DOUBLE: kind = CAST_DOUBLE; break;
+        case VAL_STRING: kind = CAST_STRING; break;
+        case VAL_BOOL:   kind = CAST_BOOL;   break;
+        case VAL_CHAR:   kind = CAST_CHAR;   break;
+        case VAL_BYTE:   kind = CAST_BYTE;   break;
+        default:         return e;  /* 未标注/自定义：不强转 */
+    }
+    return new_cast_node(kind, e);
+}
+/* 单参是否字面量（字符串/数字等）：字面量走位置构造（Tag("a") → {"name":"a"}），
+   非字面量（map 字面量/变量/调用结果）走原样返回（Person(m) 标注场景） */
+static int type_arg_is_literal(AstNode* m)
+{
+    if(!m) return 1;
+    return m->type == AST_INT || m->type == AST_NUM || m->type == AST_STRING ||
+           m->type == AST_BOOL || m->type == AST_CHAR || m->type == AST_ARRAY_LIT;
+}
+/* Person(a, b) → {"name": cast(a), "age": cast(b)}；
+   Person(m) → m（单 map 参数原样，动态语言宽松语义） */
+static AstNode* build_type_ctor(AstNode* call, TypeDef* t)
+{
+    AstNode* args = call->u.call.args;
+    int argc = type_arg_count(args);
+    AstNode* items = NULL;
+    if(argc == 1 && t->nprops >= 1 && !type_arg_is_literal(type_arg_nth(args, 0, &(int){0}))) {
+        /* 单参数非字面量：原样返回（map 泛型元素标注场景） */
+        AstNode* m = type_arg_nth(args, 0, &(int){0});
+        call->u.call.args = NULL;
+        return m;
+    }
+    int n = argc < t->nprops ? argc : t->nprops;
+    for(int k = 0; k < n; k++) {
+        int cur = 0;
+        AstNode* a = type_arg_nth(args, k, &cur);
+        AstNode* key = ast_string(strdup(t->props[k]));
+        items = ast_seq(items, ast_map_entry(key, type_wrap_cast(a, t->ptypes[k])));
+    }
+    call->u.call.args = NULL;  /* 参数节点已移入 items 树，摘空原链防双 free */
+    return ast_map_lit(items);
+}
 
 static void c_args(Ctx* c, AstNode* args, int* argc)
 {
@@ -461,6 +526,14 @@ static void c_expr(Ctx* c, AstNode* node)
             break;
         }
         case AST_CALL: {
+            int ti = type_lookup(node->u.call.name);
+            if(ti >= 0) {
+                /* 类型构造调用：Person(a, b) → map 字面量（属性按序强转） */
+                AstNode* ml = build_type_ctor(node, type_get(ti));
+                c_expr(c, ml);
+                ast_free(ml);
+                break;
+            }
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
