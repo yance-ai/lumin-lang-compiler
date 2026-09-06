@@ -44,6 +44,7 @@ static int g_recompile_cnt = 0;
 static int g_recompile_cap = 0;
 
 static int func_depth = 0;
+static int g_collect_err = 0;   // 顶层收集阶段错误（函数重复定义等）
 // 匿名函数捕获限制：lambda 只能访问 参数 + 全局变量 + 自身局部（C 代码生成不支持闭包捕获）
 static int in_lambda = 0;
 static AstNode* g_lambda_params = NULL;
@@ -88,10 +89,21 @@ static void collect_top_level(AstNode* node) {
             }
             g_global_vars[g_global_vars_cnt++] = strdup(node->u.assign.varname);
             break;
-        case AST_FUNC_DEF:
+        case AST_FUNC_DEF: {
+            // 函数重复定义：与 C 语义一致，编译期报错（双通道一致；
+            // 避免 VM 静默覆盖与 C 生成端重复 static 定义导致 gcc 失败的分歧）
+            if(strncmp(node->u.func_def.name, "_lambda_", 8) != 0) {
+                ValueType ty;
+                if(static_sym_get(node->u.func_def.name, &ty) && ty == VAL_FUNC) {
+                    fprintf(stderr, "语义错误(第%d行)：函数 \"%s\" 重复定义\n",
+                            node->line, node->u.func_def.name);
+                    g_collect_err = 1;
+                }
+            }
             // 登记函数名（支持前向引用）；不深入函数体
             static_sym_put(node->u.func_def.name, VAL_FUNC);
             break;
+        }
         case AST_BINOP:
             collect_top_level(node->u.bin.left);
             collect_top_level(node->u.bin.right);
@@ -224,11 +236,12 @@ int ast_typecheck(AstNode* node)
 {
     static_sym_reset();
     func_depth = 0;
+    g_collect_err = 0;
     if(!node) return 0;
     // 阶段1：顶层收集（函数名 + 全局变量），支持前向引用/函数体读全局
     collect_top_level(node);
     // 阶段2：全面检查（含函数体递归）
-    int err = typecheck_expr(node);
+    int err = g_collect_err | typecheck_expr(node);
     // 阶段3：函数体内函数名引用被转成 AST_FUNCREF 的函数，重编译字节码
     if(!err) {
         for(int i = 0; i < g_recompile_cnt; i++)
