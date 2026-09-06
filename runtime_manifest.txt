@@ -4,6 +4,7 @@ runtime/lm_string.h
 runtime/lm_array.h
 runtime/lm_math.h
 runtime/lm_io.h
+runtime/lm_map.h
 runtime/lm_value.h
 
 
@@ -13,4 +14,5 @@ runtime/lm_string.c
 runtime/lm_array.c
 runtime/lm_math.c
 runtime/lm_io.c
+runtime/lm_map.c
 runtime/lm_value.c
