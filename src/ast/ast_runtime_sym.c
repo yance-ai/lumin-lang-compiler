@@ -3,9 +3,25 @@
 #include <stdlib.h>
 #include <string.h>
 
-char* sym_names[SYM_MAX];
-Value sym_vals[SYM_MAX];
+char** sym_names = NULL;
+Value* sym_vals = NULL;
 int sym_cnt = 0;
+int sym_cap = 0;
+
+/* 容量不足时翻倍扩容（realloc；表项只被下标访问，无外部持有指针） */
+void sym_ensure(int need)
+{
+    if(need <= sym_cap) return;
+    int newcap = sym_cap > 0 ? sym_cap : SYM_INITIAL_CAP;
+    while(newcap < need) newcap *= 2;
+    char** nn = (char**)realloc(sym_names, (size_t)newcap * sizeof(char*));
+    if(!nn) { fprintf(stderr, "变量数量超限（内存不足）\n"); exit(EXIT_FAILURE); }
+    sym_names = nn;
+    Value* nv = (Value*)realloc(sym_vals, (size_t)newcap * sizeof(Value));
+    if(!nv) { fprintf(stderr, "变量数量超限（内存不足）\n"); exit(EXIT_FAILURE); }
+    sym_vals = nv;
+    sym_cap = newcap;
+}
 
 
 static int sym_lookup(const char* n) {
@@ -25,10 +41,7 @@ void sym_set(const char* n, Value v) {
         sym_vals[idx] = v;
         return;
     }
-    if(sym_cnt >= SYM_MAX) {
-        fprintf(stderr,"变量数量超限\n");
-        exit(EXIT_FAILURE);
-    }
+    sym_ensure(sym_cnt + 1);
     sym_names[sym_cnt] = strdup(n);
     sym_vals[sym_cnt] = v;
     sym_cnt++;

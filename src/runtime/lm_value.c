@@ -283,11 +283,27 @@ Value lumin_type(Value v) {
 }
 
 Value lumin_input(void) {
-    char buf[4096];
-    if(!fgets(buf, sizeof(buf), stdin)) return lumin_make_string("");
-    size_t n = strlen(buf);
+    /* 动态读取整行：初始 64 字节，按需翻倍，无长度上限 */
+    size_t cap = 64, n = 0;
+    char* buf = (char*)malloc(cap);
+    if(!buf) { fprintf(stderr, "input: 内存不足\n"); exit(EXIT_FAILURE); }
+    for(;;) {
+        if(!fgets(buf + n, (int)(cap - n), stdin)) {
+            if(n == 0) { free(buf); return lumin_make_string(""); }
+            break;
+        }
+        n = strlen(buf);
+        if(n > 0 && buf[n - 1] == '\n') break;
+        if(n < cap - 1) break;                 /* 正常读满前退出（EOF 无换行） */
+        size_t nc = cap * 2;
+        char* nb = (char*)realloc(buf, nc);
+        if(!nb) { fprintf(stderr, "input: 内存不足\n"); exit(EXIT_FAILURE); }
+        buf = nb; cap = nc;
+    }
     while(n > 0 && (buf[n-1] == '\n' || buf[n-1] == '\r')) buf[--n] = '\0';
-    return lumin_make_string(buf);
+    Value r = lumin_make_string(buf);
+    free(buf);
+    return r;
 }
 
 // range() 参数转 long long（double 整数值截断，兼容旧行为）

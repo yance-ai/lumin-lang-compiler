@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 
 #include "yacc/yacc.tab.h"
 #include "ast/ast.h"
@@ -85,7 +86,7 @@ int main(int argc, char** argv) {
                 bytecode_func_free(main_fn);
                 ret = 0;
             } else {
-                char base[256];
+                char base[PATH_MAX];
                 if(out_base) {
                     strncpy(base, out_base, sizeof(base) - 1);
                     base[sizeof(base) - 1] = '\0';
@@ -93,8 +94,8 @@ int main(int argc, char** argv) {
                     default_basename(src_file, base, sizeof(base));
                 }
 
-                char c_path[300];
-                char exe_path[300];
+                char c_path[PATH_MAX];
+                char exe_path[PATH_MAX];
                 snprintf(c_path, sizeof(c_path), "%s.c", base);
                 snprintf(exe_path, sizeof(exe_path), "%s", base);
 
@@ -104,7 +105,7 @@ int main(int argc, char** argv) {
                 printf("[CodeGen] 已生成 %s\n", c_path);
 
                 if(!only_emit_c) {
-                    char cmd[512];
+                    char cmd[PATH_MAX * 2];
                     snprintf(cmd, sizeof(cmd), "gcc -std=gnu11 %s -o %s", c_path, exe_path);
                     int sys_ret = system(cmd);
 

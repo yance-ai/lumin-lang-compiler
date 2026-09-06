@@ -16,11 +16,10 @@ extern unsigned int src_runtime_full_runtime_full_h_len;
 extern unsigned char src_runtime_full_runtime_full_c[];
 extern unsigned int src_runtime_full_runtime_full_c_len;
 
-#define C_NAME_MAX 128
-
 typedef struct {
-    char* names[C_NAME_MAX];
+    char** names;   // 动态扩容，无硬上限
     int count;
+    int cap;
 } NameSet;
 
 static FILE* out;
@@ -40,7 +39,14 @@ static int ns_has(const NameSet* s, const char* name)
 static void ns_add(NameSet* s, const char* name)
 {
     if(!name || ns_has(s, name)) return;
-    if(s->count < C_NAME_MAX) s->names[s->count++] = (char*)name;
+    if(s->count >= s->cap) {
+        int newcap = s->cap > 0 ? s->cap * 2 : 64;
+        char** nn = (char**)realloc(s->names, (size_t)newcap * sizeof(char*));
+        if(!nn) { fprintf(stderr, "codegen: 符号表扩容内存不足\n"); exit(EXIT_FAILURE); }
+        s->names = nn;
+        s->cap = newcap;
+    }
+    s->names[s->count++] = (char*)name;
 }
 
 static int fn_has_param(const BytecodeFunc* fn, const char* name)
@@ -140,14 +146,21 @@ static void collect_func_locals(BytecodeFunc* fn)
 
 /* finally 完成跳转表：FIN_PUSH 的目标 pc → label 编号（生成函数头 static void* 数组） */
 static int fin_lab_cnt = 0;
-static int fin_lab_pcs[256];
+static int* fin_lab_pcs = NULL;
+static int fin_lab_cap = 0;
 
 static int fin_lab_idx_of(int pc)
 {
     for(int i = 0; i < fin_lab_cnt; i++)
         if(fin_lab_pcs[i] == pc) return i;
-    if(fin_lab_cnt < 256) { fin_lab_pcs[fin_lab_cnt] = pc; return fin_lab_cnt++; }
-    fprintf(stderr, "fin_lab 表溢出\n");
+    if(fin_lab_cnt >= fin_lab_cap) {
+        int newcap = fin_lab_cap > 0 ? fin_lab_cap * 2 : 64;
+        int* np = (int*)realloc(fin_lab_pcs, (size_t)newcap * sizeof(int));
+        if(!np) { fprintf(stderr, "codegen: fin_lab 表扩容内存不足\n"); exit(EXIT_FAILURE); }
+        fin_lab_pcs = np;
+        fin_lab_cap = newcap;
+    }
+    fin_lab_pcs[fin_lab_cnt] = pc; return fin_lab_cnt++;
     exit(EXIT_FAILURE);
 }
 
@@ -427,7 +440,7 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_TRY:
                 /* C 级错误处理：全局 jmp_buf 栈（longjmp 后自动变量不可靠，索引从 __g_depth 反推）
                    自闭合结构：setjmp 成功 → goto L(body)；失败 → 恢复本层并 goto L(catch) */
-                fprintf(out, "    { int __d = __g_depth; __g_tgt[__d] = %d; __g_sp0[__d] = __sp; __g_prev[__d] = g_err_jmp;\n", in.a);
+                fprintf(out, "    { int __d = __g_depth; __g_ensure(__d + 2); __g_tgt[__d] = %d; __g_sp0[__d] = __sp; __g_prev[__d] = g_err_jmp;\n", in.a);
                 fprintf(out, "      __g_tn[__d] = g_trace_n; __g_fn[__d] = __g_fin_n;\n");
                 fprintf(out, "      g_err_jmp = &__g_jbs[__d];\n");
                 fprintf(out, "      if(setjmp(__g_jbs[__d]) == 0) { __g_depth = __d + 1; goto L%d; }\n", i + 1);
@@ -460,8 +473,8 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "        if(lumin_map_has(__v, \"message\")) { Value __mv = lumin_map_get(__v, lumin_make_string(\"message\")); if(__mv.type == VAL_STRING) __msg = strdup(__mv.v.s); }\n");
                 fprintf(out, "      }\n");
                 fprintf(out, "      if(!__msg) __msg = value_to_str(__v);\n");
-                fprintf(out, "      snprintf(g_err_type, sizeof(g_err_type), \"%%s\", __tp);\n");
-                fprintf(out, "      snprintf(g_err_msg, sizeof(g_err_msg), \"%%s\", __msg);\n");
+                fprintf(out, "      g_err_type_set(__tp);\n");
+                fprintf(out, "      g_err_msg_set(__msg);\n");
                 fprintf(out, "      free(__msg);\n");
                 fprintf(out, "      if(g_err_jmp) longjmp(*g_err_jmp, 1);\n");
                 fprintf(out, "      fprintf(stderr, \"Runtime Error: %%s\\n\", g_err_msg); exit(EXIT_FAILURE);\n");
@@ -470,7 +483,7 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_FIN_PUSH: {
                 /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN（b=目标 pc→label 编号） */
                 int fidx = in.b ? fin_lab_idx_of(in.b) : 0;
-                fprintf(out, "    __g_fin_act[__g_fin_n] = %d; __g_fin_tgt[__g_fin_n] = %d; __g_fin_dep[__g_fin_n] = __g_depth - 1; __g_fin_n++;\n", in.a, fidx);
+                fprintf(out, "    __g_ensure(__g_fin_n + 2); __g_fin_act[__g_fin_n] = %d; __g_fin_tgt[__g_fin_n] = %d; __g_fin_dep[__g_fin_n] = __g_depth - 1; __g_fin_n++;\n", in.a, fidx);
                 break;
             }
             case OPC_FINISH:
@@ -636,7 +649,7 @@ static void emit_func_def(BytecodeFunc* fn)
         fprintf(out, " };\n");
     }
     fprintf(out, "    int __g_d0 = __g_depth; jmp_buf* __g_gj0 = g_err_jmp; int __g_fin0 = __g_fin_n;\n");
-    fprintf(out, "    g_trace[g_trace_n++] = \"%s\";\n", fn->name);
+    fprintf(out, "    g_trace_push(\"%s\");\n", fn->name);
     for(int i = 0; i < fn_locals.count; i++) {
         fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
     }

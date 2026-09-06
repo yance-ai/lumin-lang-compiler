@@ -34,11 +34,24 @@ typedef enum {
 
 typedef struct {
     TpTokType type;
-    char text[128];      // ID / 字符串内容 / 强转类型名
+    char* text;          // ID / 字符串内容 / 强转类型名（动态，无长度上限）
+    int text_cap;        // text 容量
     long long ival;
     double fval;
     char ch;
 } TpTok;
+
+// token 文本按需扩容
+static void tok_ensure(TpTok* t, int need)
+{
+    if(need <= t->text_cap) return;
+    int nc = t->text_cap > 0 ? t->text_cap * 2 : 64;
+    while(nc < need) nc *= 2;
+    char* nw = (char*)realloc(t->text, (size_t)nc);
+    if(!nw) { fprintf(stderr, "模板解析：token 文本扩容内存不足\n"); exit(EXIT_FAILURE); }
+    t->text = nw;
+    t->text_cap = nc;
+}
 
 typedef struct {
     const char* p;
@@ -95,9 +108,11 @@ static void tp_next_tok(TpParser* tp, TpTok* t)
     // ID / 关键字
     if(isalpha((unsigned char)c) || c == '_') {
         int n = 0;
-        while(p < tp->end && (isalnum((unsigned char)*p) || *p == '_') && n < 120) {
+        while(p < tp->end && (isalnum((unsigned char)*p) || *p == '_')) {
+            tok_ensure(t, n + 2);
             t->text[n++] = *p++;
         }
+        tok_ensure(t, n + 1);
         t->text[n] = '\0';
         tp->p = p;
         if(strcmp(t->text, "true") == 0) t->type = TT_TRUE;
@@ -119,9 +134,11 @@ static void tp_next_tok(TpParser* tp, TpTok* t)
                 if(q[1] == '"' || q[1] == '\'') { q++; continue; }   // 转义引号：跳过 \，引号留作边界
                 q += 2; continue;                                      // 其他转义：原样跳过
             }
-            if(n < 120) t->text[n++] = *q;
+            tok_ensure(t, n + 2);
+            t->text[n++] = *q;
             q++;
         }
+        tok_ensure(t, n + 1);
         t->text[n] = '\0';
         if(q >= tp->end || *q != '"') tp_err("字符串未闭合");
         tp->p = q + 1;
@@ -192,6 +209,9 @@ static void tp_next_tok(TpParser* tp, TpTok* t)
 static TpTok tp_peek(TpParser* tp)
 {
     if(!tp->have_look) {
+        free(tp->look.text);        // 释放上一 token 文本（take 后仍归 look 所有）
+        tp->look.text = NULL;
+        tp->look.text_cap = 0;
         tp_next_tok(tp, &tp->look);
         tp->have_look = 1;
     }

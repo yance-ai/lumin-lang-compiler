@@ -1,31 +1,111 @@
 #include "lumin_value.h"
 #include <string.h>
 
+/* 错误机制全部动态化，无硬上限：
+ *   - g_err_msg/g_err_type：动态缓冲（g_err_msg_set/g_err_type_set 按需扩容）
+ *   - g_trace：调用栈回溯（g_trace_push 按需扩容）
+ *   - __g_*：C 生成通道的 try/catch 处理器栈（__g_ensure 按需扩容；VM 通道用 vm.c 的 vm_jbs）
+ * jmp_buf 经 realloc 移动时内容整体拷贝，setjmp 后再 longjmp(__g_jbs[d]) 语义不变。 */
 _Thread_local jmp_buf* g_err_jmp = NULL;
-_Thread_local char g_err_msg[1024] = {0};
-_Thread_local char g_err_type[64] = "RuntimeError";   // 最近一次错误/throw 的类型名（GET_ERR 构造错误对象用）
-/* 调用栈回溯记录（VM 的 OPC_CALL / C 生成函数入口 push，返回 pop；longjmp 后由 TRY 层截断） */
-_Thread_local const char* g_trace[64];
+_Thread_local char* g_err_msg = NULL;
+static _Thread_local int g_err_msg_cap = 0;
+_Thread_local char* g_err_type = NULL;
+static _Thread_local int g_err_type_cap = 0;
+_Thread_local const char** g_trace = NULL;
 _Thread_local int g_trace_n = 0;
-/* C 生成通道的 try/catch 处理器栈（VM 通道用 vm.c 的 vm_jbs，互不干扰） */
-_Thread_local jmp_buf __g_jbs[64];
-_Thread_local jmp_buf* __g_prev[64];
+static _Thread_local int g_trace_cap = 0;
+_Thread_local jmp_buf* __g_jbs = NULL;
+_Thread_local jmp_buf** __g_prev = NULL;
 _Thread_local int __g_depth = 0;
-_Thread_local int __g_sp0[64];
-_Thread_local int __g_tgt[64];
-int __g_tn[64];        /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
-int __g_fn[64];        /* 每层 TRY 时的 finally 完成栈深度 */
-_Thread_local int __g_fin_act[64];
-int __g_fin_dep[64];   /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
-_Thread_local int __g_fin_tgt[64];
+_Thread_local int* __g_sp0 = NULL;
+_Thread_local int* __g_tgt = NULL;
+_Thread_local int* __g_tn = NULL;        /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
+_Thread_local int* __g_fn = NULL;        /* 每层 TRY 时的 finally 完成栈深度 */
+_Thread_local int* __g_fin_act = NULL;
+_Thread_local int* __g_fin_dep = NULL;   /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
+_Thread_local int* __g_fin_tgt = NULL;
 _Thread_local int __g_fin_n = 0;
+static _Thread_local int __g_cap = 0;
 _Thread_local Value __g_pend_val;    /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
+
+/* 错误机制扩容：同时扩 __g_* try 栈与 g_trace（调用栈回溯） */
+void __g_ensure(int need)
+{
+    if(need <= __g_cap) return;
+    int nc = __g_cap > 0 ? __g_cap * 2 : 64;
+    jmp_buf* nj = (jmp_buf*)realloc(__g_jbs, (size_t)nc * sizeof(jmp_buf));
+    if(!nj) { fprintf(stderr, "错误处理栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    __g_jbs = nj;
+    jmp_buf** np = (jmp_buf**)realloc(__g_prev, (size_t)nc * sizeof(jmp_buf*));
+    if(!np) { fprintf(stderr, "错误处理栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    __g_prev = np;
+    int* na = (int*)realloc(__g_sp0, (size_t)nc * sizeof(int));
+    if(!na) { fprintf(stderr, "错误处理栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    __g_sp0 = na;
+    int* nt = (int*)realloc(__g_tgt, (size_t)nc * sizeof(int));
+    if(!nt) { fprintf(stderr, "错误处理栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    __g_tgt = nt;
+    int* nn = (int*)realloc(__g_tn, (size_t)nc * sizeof(int));
+    if(!nn) { fprintf(stderr, "错误处理栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    __g_tn = nn;
+    int* nf = (int*)realloc(__g_fn, (size_t)nc * sizeof(int));
+    if(!nf) { fprintf(stderr, "错误处理栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    __g_fn = nf;
+    int* nfa = (int*)realloc(__g_fin_act, (size_t)nc * sizeof(int));
+    if(!nfa) { fprintf(stderr, "错误处理栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    __g_fin_act = nfa;
+    int* nfd = (int*)realloc(__g_fin_dep, (size_t)nc * sizeof(int));
+    if(!nfd) { fprintf(stderr, "错误处理栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    __g_fin_dep = nfd;
+    int* nft = (int*)realloc(__g_fin_tgt, (size_t)nc * sizeof(int));
+    if(!nft) { fprintf(stderr, "错误处理栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    __g_fin_tgt = nft;
+    const char** ntr = (const char**)realloc(g_trace, (size_t)nc * sizeof(const char*));
+    if(!ntr) { fprintf(stderr, "调用栈回溯扩容内存不足\n"); exit(EXIT_FAILURE); }
+    g_trace = ntr;
+    __g_cap = nc;
+    g_trace_cap = nc;
+}
+
+/* 调用栈回溯 push（函数入口/调用点） */
+void g_trace_push(const char* nm)
+{
+    __g_ensure(g_trace_n + 1);
+    g_trace[g_trace_n++] = nm;
+}
+
+/* 错误消息/类型动态缓冲 */
+void g_err_msg_set(const char* s)
+{
+    size_t l = s ? strlen(s) : 0;
+    if((int)l + 1 > g_err_msg_cap) {
+        int nc = g_err_msg_cap > 0 ? g_err_msg_cap * 2 : 1024;
+        while(nc < (int)l + 1) nc *= 2;
+        char* nm = (char*)realloc(g_err_msg, (size_t)nc);
+        if(!nm) { fprintf(stderr, "错误消息缓冲扩容内存不足\n"); exit(EXIT_FAILURE); }
+        g_err_msg = nm; g_err_msg_cap = nc;
+    }
+    memcpy(g_err_msg, s ? s : "", l + 1);
+}
+
+void g_err_type_set(const char* s)
+{
+    size_t l = s ? strlen(s) : 0;
+    if((int)l + 1 > g_err_type_cap) {
+        int nc = g_err_type_cap > 0 ? g_err_type_cap * 2 : 64;
+        while(nc < (int)l + 1) nc *= 2;
+        char* nm = (char*)realloc(g_err_type, (size_t)nc);
+        if(!nm) { fprintf(stderr, "错误类型缓冲扩容内存不足\n"); exit(EXIT_FAILURE); }
+        g_err_type = nm; g_err_type_cap = nc;
+    }
+    memcpy(g_err_type, s ? s : "RuntimeError", l + 1);
+}
 
 // 运行时错误：有 try 处理器则恢复（longjmp），否则打印并退出
 void runtime_error(const char* msg) {
     if(g_err_jmp) {
-        snprintf(g_err_type, sizeof(g_err_type), "%s", "RuntimeError");
-        snprintf(g_err_msg, sizeof(g_err_msg), "%s", msg);
+        g_err_type_set("RuntimeError");
+        g_err_msg_set(msg);
         longjmp(*g_err_jmp, 1);
     }
     fprintf(stderr, "Runtime Error: %s\n", msg);

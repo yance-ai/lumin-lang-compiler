@@ -11,19 +11,27 @@
 // ---------------- 作用域快照 ----------------
 // static_sym 是全局单表；检查函数体前保存、检查后恢复，
 // 使函数参数/局部变量不泄漏到顶层，且参数能遮蔽同名全局。
-static SymStaticEntry saved_table[STATIC_SYM_MAX];
-static int saved_count;
+static SymStaticEntry* saved_table = NULL;
+static int saved_count = 0;
+static int saved_cap = 0;
 
+/* 作用域快照：保存当前表（仅前 count 项），检查函数体后恢复。
+ * 嵌套深度无硬上限：每次进入分配 saved_count 项副本。 */
 static void sym_save(void) {
     saved_count = static_sym_count;
-    memcpy(saved_table, static_sym_table, sizeof(saved_table));
+    if(saved_cap < saved_count) {
+        SymStaticEntry* nt = (SymStaticEntry*)realloc(saved_table, (size_t)saved_count * sizeof(SymStaticEntry));
+        if(!nt) { fprintf(stderr, "作用域快照内存不足\n"); exit(EXIT_FAILURE); }
+        saved_table = nt;
+        saved_cap = saved_count;
+    }
+    memcpy(saved_table, static_sym_table, (size_t)saved_count * sizeof(SymStaticEntry));
 }
 
 static void sym_restore(void) {
     for (int i = saved_count; i < static_sym_count; ++i) {
         free(static_sym_table[i].name);
     }
-    memcpy(static_sym_table, saved_table, sizeof(saved_table));
     static_sym_count = saved_count;
 }
 
@@ -31,17 +39,20 @@ static void sym_restore(void) {
 /* typecheck 把函数名引用（AST_VAR→AST_FUNCREF）就地转换后，记录受影响的函数定义，
  * 结束阶段重编译其字节码（parse 期生成的字节码里函数名引用还是 LOAD_VAR）。 */
 static AstNode* g_cur_func_def = NULL;
-static AstNode* g_recompile[64];
+static AstNode** g_recompile = NULL;
 static int g_recompile_cnt = 0;
+static int g_recompile_cap = 0;
 
 static int func_depth = 0;
 // 匿名函数捕获限制：lambda 只能访问 参数 + 全局变量 + 自身局部（C 代码生成不支持闭包捕获）
 static int in_lambda = 0;
 static AstNode* g_lambda_params = NULL;
-static char* lambda_locals[256];
+static char** lambda_locals = NULL;
 static int lambda_locals_cnt = 0;
-static char* g_global_vars[256];
+static int lambda_locals_cap = 0;
+static char** g_global_vars = NULL;
 static int g_global_vars_cnt = 0;
+static int g_global_vars_cap = 0;
 
 static int is_global_var(const char* n) {
     for(int i = 0; i < g_global_vars_cnt; i++)
@@ -69,7 +80,13 @@ static void collect_top_level(AstNode* node) {
         case AST_ASSIGN:
             static_sym_put(node->u.assign.varname, VAL_NONE);
             collect_top_level(node->u.assign.expr);
-            if(g_global_vars_cnt < 256) g_global_vars[g_global_vars_cnt++] = strdup(node->u.assign.varname);
+            if(g_global_vars_cnt >= g_global_vars_cap) {
+                int nc = g_global_vars_cap > 0 ? g_global_vars_cap * 2 : 64;
+                char** nt = (char**)realloc(g_global_vars, (size_t)nc * sizeof(char*));
+                if(!nt) { fprintf(stderr, "全局变量表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                g_global_vars = nt; g_global_vars_cap = nc;
+            }
+            g_global_vars[g_global_vars_cnt++] = strdup(node->u.assign.varname);
             break;
         case AST_FUNC_DEF:
             // 登记函数名（支持前向引用）；不深入函数体
@@ -271,8 +288,15 @@ int typecheck_expr(AstNode* node)
                         int dup = 0;
                         for(int i = 0; i < g_recompile_cnt; i++)
                             if(g_recompile[i] == g_cur_func_def) { dup = 1; break; }
-                        if(!dup && g_recompile_cnt < 64)
+                        if(!dup) {
+                            if(g_recompile_cnt >= g_recompile_cap) {
+                                int nc = g_recompile_cap > 0 ? g_recompile_cap * 2 : 16;
+                                AstNode** nt = (AstNode**)realloc(g_recompile, (size_t)nc * sizeof(AstNode*));
+                                if(!nt) { fprintf(stderr, "重编译表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                                g_recompile = nt; g_recompile_cap = nc;
+                            }
                             g_recompile[g_recompile_cnt++] = g_cur_func_def;
+                        }
                     }
                 } else {
                     node->val_type = t;
@@ -373,7 +397,15 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.assign.expr);
             node->val_type = node->u.assign.expr->val_type;
             static_sym_put(node->u.assign.varname, node->val_type);
-            if(in_lambda && lambda_locals_cnt < 256) lambda_locals[lambda_locals_cnt++] = strdup(node->u.assign.varname);
+            if(in_lambda) {
+                if(lambda_locals_cnt >= lambda_locals_cap) {
+                    int nc = lambda_locals_cap > 0 ? lambda_locals_cap * 2 : 64;
+                    char** nt = (char**)realloc(lambda_locals, (size_t)nc * sizeof(char*));
+                    if(!nt) { fprintf(stderr, "lambda 局部表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                    lambda_locals = nt; lambda_locals_cap = nc;
+                }
+                lambda_locals[lambda_locals_cnt++] = strdup(node->u.assign.varname);
+            }
             break;
         case AST_INDEX: {
             err |= typecheck_expr(node->u.index.arr);

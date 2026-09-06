@@ -24,8 +24,26 @@ StackFrame* stackframe_new(StackFrame* parent)
         exit(EXIT_FAILURE);
     }
     f->cnt = 0;
+    f->cap = 0;
+    f->names = NULL;
+    f->vals = NULL;
     f->parent = parent;
     return f;
+}
+
+/* 帧内变量槽扩容：翻倍，无硬上限 */
+static void frame_ensure(StackFrame* f, int need)
+{
+    if(need <= f->cap) return;
+    int newcap = f->cap > 0 ? f->cap : 16;
+    while(newcap < need) newcap *= 2;
+    char** nn = (char**)realloc(f->names, (size_t)newcap * sizeof(char*));
+    if(!nn) { perror("stackframe expand names"); exit(EXIT_FAILURE); }
+    f->names = nn;
+    Value* nv = (Value*)realloc(f->vals, (size_t)newcap * sizeof(Value));
+    if(!nv) { perror("stackframe expand vals"); exit(EXIT_FAILURE); }
+    f->vals = nv;
+    f->cap = newcap;
 }
 
 void stackframe_destroy(StackFrame* f)
@@ -35,6 +53,8 @@ void stackframe_destroy(StackFrame* f)
         free(f->names[i]);
         slot_release(&f->vals[i]);
     }
+    free(f->names);
+    free(f->vals);
     free(f);
 }
 
@@ -92,10 +112,7 @@ Value* stackframe_bind(StackFrame* f, const char* name, Value v)
         f->vals[idx] = v;
         return &f->vals[idx];
     }
-    if(f->cnt >= 64) {
-        fprintf(stderr, "栈帧变量数量超限(64): %s\n", name);
-        exit(EXIT_FAILURE);
-    }
+    frame_ensure(f, f->cnt + 1);
     f->names[f->cnt] = strdup(name);
     f->vals[f->cnt] = v;
     return &f->vals[f->cnt++];

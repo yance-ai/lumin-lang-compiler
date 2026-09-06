@@ -11,9 +11,10 @@
 
 // ---------------- 全局函数表 ----------------
 // yacc 期注册每个函数（ir_compile_function），main.c 注册 main（ir_compile_main）。
-#define IR_FUNC_TABLE_MAX 64
-static BytecodeFunc* ir_func_table[IR_FUNC_TABLE_MAX];
+// 动态扩容，无硬上限。
+static BytecodeFunc** ir_func_table = NULL;
 static int ir_func_count = 0;
+static int ir_func_cap = 0;
 
 void ir_func_table_reset(void)
 {
@@ -39,9 +40,12 @@ BytecodeFunc* ir_func_table_lookup(const char* name)
 
 static void ir_func_table_add(BytecodeFunc* fn)
 {
-    if(ir_func_count >= IR_FUNC_TABLE_MAX) {
-        fprintf(stderr, "IR: 函数数量超限\n");
-        exit(EXIT_FAILURE);
+    if(ir_func_count >= ir_func_cap) {
+        int newcap = ir_func_cap > 0 ? ir_func_cap * 2 : 64;
+        BytecodeFunc** nt = (BytecodeFunc**)realloc(ir_func_table, (size_t)newcap * sizeof(BytecodeFunc*));
+        if(!nt) { fprintf(stderr, "IR: 函数表扩容内存不足\n"); exit(EXIT_FAILURE); }
+        ir_func_table = nt;
+        ir_func_cap = newcap;
     }
     ir_func_table[ir_func_count++] = fn;
 }
@@ -59,16 +63,85 @@ typedef struct {
 
 typedef struct {
     BytecodeFunc* fn;
-    Layer layers[32];
+    Layer* layers;           // 动态：循环/switch 嵌套无硬上限
     int layer_depth;
+    int layers_cap;
     /* finally 上下文：fin_depth>0 表示当前编译位置在 try-finally 内；
-       fin_pend[depth][*] = body/catch 中 PEND_RETURN(b=0) 的位置，fstart 确定后统一 patch b */
-    int fin_pend[32][64];
-    int fin_pend_n[32];
-    int fin_jmp[32][64];          // try-finally 内 break/continue 的 JMP 位置（patch a=fstart）
-    int fin_jmp_n[32];
+       fin_pend[depth][*] = body/catch 中 PEND_RETURN(b=0) 的位置，fstart 确定后统一 patch b
+       行/列均动态扩容，try-finally 嵌套与每层挂起数无硬上限 */
+    int** fin_pend;
+    int* fin_pend_n;
+    int* fin_pend_cap;
+    int** fin_jmp;            // try-finally 内 break/continue 的 JMP 位置（patch a=fstart）
+    int* fin_jmp_n;
+    int* fin_jmp_cap;
     int fin_depth;
+    int fin_cap;
 } Ctx;
+
+/* 控制层/ finally 行 扩容 helper */
+static void ctx_ensure_layers(Ctx* c, int need)
+{
+    if(need <= c->layers_cap) return;
+    int nc = c->layers_cap > 0 ? c->layers_cap * 2 : 32;
+    Layer* nl = (Layer*)realloc(c->layers, (size_t)nc * sizeof(Layer));
+    if(!nl) { fprintf(stderr, "IR: 控制层扩容内存不足\n"); exit(EXIT_FAILURE); }
+    c->layers = nl;
+    c->layers_cap = nc;
+}
+
+static void ctx_ensure_fin_rows(Ctx* c, int need)
+{
+    if(need < c->fin_cap) return;
+    int nc = c->fin_cap > 0 ? c->fin_cap * 2 : 32;
+    int** np = (int**)realloc(c->fin_pend, (size_t)nc * sizeof(int*));
+    if(!np) { fprintf(stderr, "IR: finally 层扩容内存不足\n"); exit(EXIT_FAILURE); }
+    c->fin_pend = np;
+    int** nj = (int**)realloc(c->fin_jmp, (size_t)nc * sizeof(int*));
+    if(!nj) { fprintf(stderr, "IR: finally 层扩容内存不足\n"); exit(EXIT_FAILURE); }
+    c->fin_jmp = nj;
+    int* nn = (int*)realloc(c->fin_pend_n, (size_t)nc * sizeof(int));
+    if(!nn) { fprintf(stderr, "IR: finally 层扩容内存不足\n"); exit(EXIT_FAILURE); }
+    c->fin_pend_n = nn;
+    int* nm = (int*)realloc(c->fin_jmp_n, (size_t)nc * sizeof(int));
+    if(!nm) { fprintf(stderr, "IR: finally 层扩容内存不足\n"); exit(EXIT_FAILURE); }
+    c->fin_jmp_n = nm;
+    int* nc1 = (int*)realloc(c->fin_pend_cap, (size_t)nc * sizeof(int));
+    if(!nc1) { fprintf(stderr, "IR: finally 层扩容内存不足\n"); exit(EXIT_FAILURE); }
+    c->fin_pend_cap = nc1;
+    int* nc2 = (int*)realloc(c->fin_jmp_cap, (size_t)nc * sizeof(int));
+    if(!nc2) { fprintf(stderr, "IR: finally 层扩容内存不足\n"); exit(EXIT_FAILURE); }
+    c->fin_jmp_cap = nc2;
+    for(int i = c->fin_cap; i < nc; i++) {
+        c->fin_pend[i] = NULL; c->fin_pend_n[i] = 0; c->fin_pend_cap[i] = 0;
+        c->fin_jmp[i] = NULL;  c->fin_jmp_n[i] = 0;  c->fin_jmp_cap[i] = 0;
+    }
+    c->fin_cap = nc;
+}
+
+static void fin_pend_add(Ctx* c, int pos)
+{
+    if(c->fin_pend_n[c->fin_depth] >= c->fin_pend_cap[c->fin_depth]) {
+        int nc = c->fin_pend_cap[c->fin_depth] > 0 ? c->fin_pend_cap[c->fin_depth] * 2 : 16;
+        int* na = (int*)realloc(c->fin_pend[c->fin_depth], (size_t)nc * sizeof(int));
+        if(!na) { fprintf(stderr, "IR: finally 挂起表扩容内存不足\n"); exit(EXIT_FAILURE); }
+        c->fin_pend[c->fin_depth] = na;
+        c->fin_pend_cap[c->fin_depth] = nc;
+    }
+    c->fin_pend[c->fin_depth][c->fin_pend_n[c->fin_depth]++] = pos;
+}
+
+static void fin_jmp_add(Ctx* c, int pos)
+{
+    if(c->fin_jmp_n[c->fin_depth] >= c->fin_jmp_cap[c->fin_depth]) {
+        int nc = c->fin_jmp_cap[c->fin_depth] > 0 ? c->fin_jmp_cap[c->fin_depth] * 2 : 16;
+        int* na = (int*)realloc(c->fin_jmp[c->fin_depth], (size_t)nc * sizeof(int));
+        if(!na) { fprintf(stderr, "IR: finally 跳转表扩容内存不足\n"); exit(EXIT_FAILURE); }
+        c->fin_jmp[c->fin_depth] = na;
+        c->fin_jmp_cap[c->fin_depth] = nc;
+    }
+    c->fin_jmp[c->fin_depth][c->fin_jmp_n[c->fin_depth]++] = pos;
+}
 
 static int here(Ctx* c) { return c->fn->code_len; }
 
@@ -82,7 +155,7 @@ static void patch_to(Ctx* c, int pos) { bf_patch(c->fn, pos, here(c)); }
 
 static void layer_push(Ctx* c, int kind, int cont_target)
 {
-    if(c->layer_depth >= 32) { fprintf(stderr, "IR: 控制层过深\n"); exit(EXIT_FAILURE); }
+    ctx_ensure_layers(c, c->layer_depth + 1);
     Layer* l = &c->layers[c->layer_depth++];
     memset(l, 0, sizeof(Layer));
     l->kind = kind;
@@ -516,12 +589,18 @@ static void c_stmt(Ctx* c, AstNode* node)
             break;
         }
         case AST_IF_CHAIN: {
-            // if-elif-else 链：逐个条件判断
-            int end_jumps[32]; int jump_cnt = 0;
+            // if-elif-else 链：逐个条件判断（分支数动态，无硬上限）
+            int* end_jumps = NULL; int jump_cnt = 0, jump_cap = 0;
             c_expr(c, node->u.if_chain.cond);
             int jf = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);
             c_stmt(c, node->u.if_chain.if_body);
-            if(jump_cnt < 32) end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
+            if(jump_cnt >= jump_cap) {
+                int nc = jump_cap > 0 ? jump_cap * 2 : 8;
+                int* nj = (int*)realloc(end_jumps, (size_t)nc * sizeof(int));
+                if(!nj) { fprintf(stderr, "IR: if-chain 分支表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                end_jumps = nj; jump_cap = nc;
+            }
+            end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
             patch_to(c, jf);
 
             AstNode* p = node->u.if_chain.elif_list;
@@ -529,12 +608,19 @@ static void c_stmt(Ctx* c, AstNode* node)
                 c_expr(c, p->u.elif.cond);
                 int jf2 = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);
                 c_stmt(c, p->u.elif.body);
-                if(jump_cnt < 32) end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
+                if(jump_cnt >= jump_cap) {
+                    int nc = jump_cap > 0 ? jump_cap * 2 : 8;
+                    int* nj = (int*)realloc(end_jumps, (size_t)nc * sizeof(int));
+                    if(!nj) { fprintf(stderr, "IR: if-chain 分支表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                    end_jumps = nj; jump_cap = nc;
+                }
+                end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
                 patch_to(c, jf2);
                 p = p->u.elif.next;
             }
             if(node->u.if_chain.else_body) c_stmt(c, node->u.if_chain.else_body);
             for(int i = 0; i < jump_cnt; i++) patch_to(c, end_jumps[i]);
+            free(end_jumps);
             break;
         }
         case AST_TRY: {
@@ -549,7 +635,7 @@ static void c_stmt(Ctx* c, AstNode* node)
             int jtry = here(c);
             int jf2_patch = -1;
             emit(c, OPC_TRY, 0, 0);
-            if(has_fin) { c->fin_depth++; c->fin_pend_n[c->fin_depth] = 0; }
+            if(has_fin) { c->fin_depth++; ctx_ensure_fin_rows(c, c->fin_depth + 1); c->fin_pend_n[c->fin_depth] = 0; }
             c_stmt(c, node->u.trynode.body);
             if(has_fin) {
                 int jnp = here(c);
@@ -662,7 +748,7 @@ static void c_stmt(Ctx* c, AstNode* node)
         case AST_SWITCH: {
             c_expr(c, node->u.sw.cond);        // 栈顶 sw_val（保留）
             layer_push(c, 1, -1);
-            int end_jumps[64]; int jump_cnt = 0;
+            int* end_jumps = NULL; int jump_cnt = 0, jump_cap = 0;
             AstNode* cp = node->u.sw.cases;
             int first_case = 1;
             int last_jf = -1;                  // 上一个非 default case 的未中跳转
@@ -675,7 +761,13 @@ static void c_stmt(Ctx* c, AstNode* node)
                 if(cp->u.cs.is_default) {
                     emit(c, OPC_POP, 0, 0);      // 丢弃 sw_val
                     c_stmt(c, cp->u.cs.body);
-                    if(jump_cnt < 64) end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
+                    if(jump_cnt >= jump_cap) {
+                        int nc = jump_cap > 0 ? jump_cap * 2 : 8;
+                        int* nj = (int*)realloc(end_jumps, (size_t)nc * sizeof(int));
+                        if(!nj) { fprintf(stderr, "IR: switch 分支表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                        end_jumps = nj; jump_cap = nc;
+                    }
+                    end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
                 } else {
                     emit(c, OPC_DUP, 0, 0);
                     c_expr(c, cp->u.cs.const_val);
@@ -683,7 +775,13 @@ static void c_stmt(Ctx* c, AstNode* node)
                     last_jf = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);
                     emit(c, OPC_POP, 0, 0);      // 命中：丢弃 sw_val
                     c_stmt(c, cp->u.cs.body);
-                    if(jump_cnt < 64) end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
+                    if(jump_cnt >= jump_cap) {
+                        int nc = jump_cap > 0 ? jump_cap * 2 : 8;
+                        int* nj = (int*)realloc(end_jumps, (size_t)nc * sizeof(int));
+                        if(!nj) { fprintf(stderr, "IR: switch 分支表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                        end_jumps = nj; jump_cap = nc;
+                    }
+                    end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
                 }
                 first_case = 0;
                 cp = cp->u.cs.next;
@@ -694,6 +792,7 @@ static void c_stmt(Ctx* c, AstNode* node)
             Layer l = layer_pop(c);
             int l_end = here(c);
             for(int i = 0; i < jump_cnt; i++) bf_patch(c->fn, end_jumps[i], l_end);
+            free(end_jumps);
             for(int i = 0; i < l.brk_cnt; i++) bf_patch(c->fn, l.brk[i], l_end);
             for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
             for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
@@ -714,7 +813,7 @@ static void c_stmt(Ctx* c, AstNode* node)
                 int pos = emit_here(c, OPC_FIN_PUSH, 3, 0);
                 layer_brk_fin_add(c, pos);
                 int jp = emit_here(c, OPC_JMP, 0, 0);
-                c->fin_jmp[c->fin_depth][c->fin_jmp_n[c->fin_depth]++] = jp;
+                fin_jmp_add(c, jp);
                 break;
             }
             int pos = emit_here(c, OPC_JMP, 0, 0);
@@ -727,7 +826,7 @@ static void c_stmt(Ctx* c, AstNode* node)
                 int pos = emit_here(c, OPC_FIN_PUSH, 4, 0);
                 layer_cont_fin_add(c, pos);
                 int jp = emit_here(c, OPC_JMP, 0, 0);
-                c->fin_jmp[c->fin_depth][c->fin_jmp_n[c->fin_depth]++] = jp;
+                fin_jmp_add(c, jp);
                 break;
             }
             int pos = emit_here(c, OPC_JMP, 0, 0);
@@ -741,7 +840,7 @@ static void c_stmt(Ctx* c, AstNode* node)
                 else emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
                 int ppos = here(c);
                 emit(c, OPC_PEND_RETURN, 0, 0);   // b 由 AST_TRY 结束处 patch 为 fstart
-                c->fin_pend[c->fin_depth][c->fin_pend_n[c->fin_depth]++] = ppos;
+                fin_pend_add(c, ppos);
                 break;
             }
             if(node->u.ret.ret_val) {

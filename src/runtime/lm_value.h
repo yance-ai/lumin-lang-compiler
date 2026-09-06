@@ -44,10 +44,16 @@ Value lumin_index_get(Value c, Value idx);  // 数组元素 / 字符串字符 / 
 Value lumin_type(Value v);          // type(x)：类型名字符串
 Value lumin_input(void);            // input()：读一行（去换行）
 
-// ===== 错误机制全局（定义在 lm_value.c） =====
-extern _Thread_local char g_err_type[64];
-extern _Thread_local const char* g_trace[64];
+// ===== 错误机制全局（定义在 lm_value.c；动态扩容，无硬上限） =====
+extern _Thread_local char* g_err_type;
+extern _Thread_local const char** g_trace;
 extern _Thread_local int g_trace_n;
+extern _Thread_local char* g_err_msg;
+
+void __g_ensure(int need);
+void g_trace_push(const char* nm);
+void g_err_msg_set(const char* s);
+void g_err_type_set(const char* s);
 
 // ===== 错误对象 =====
 Value lumin_make_error(const char* type, const char* msg, const char* stack);

@@ -95,9 +95,10 @@ struct EvalCtx {
 
 // 新增，不修改原有EvalCtx，栈帧独立
 typedef struct StackFrame {
-    char* names[64];
-    Value vals[64];
+    char** names;    // 动态：按需扩容，无硬上限
+    Value* vals;
     int cnt;
+    int cap;
     struct StackFrame* parent;
 } StackFrame;
 

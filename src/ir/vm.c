@@ -11,21 +11,55 @@
 #include <stdlib.h>
 #include <setjmp.h>
 
-/* try/catch 错误处理器栈（VM 侧；C 生成侧用局部 jmp_buf） */
-static _Thread_local jmp_buf vm_jbs[64];
-static _Thread_local jmp_buf* vm_prev[64];
+/* try/catch 错误处理器栈（VM 侧；C 生成侧用局部 jmp_buf）：动态扩容，无硬上限。
+ * 注意 jmp_buf 经 realloc 移动时内容整体拷贝，setjmp 后再 longjmp(vm_jbs[d]) 语义不变。 */
+static _Thread_local jmp_buf* vm_jbs = NULL;
+static _Thread_local jmp_buf** vm_prev = NULL;
 static _Thread_local int vm_depth = 0;
-static _Thread_local int vm_sp[64];
-static _Thread_local int vm_target[64];   /* 每层的 catch 目标（longjmp 后自动变量不可靠） */
-static _Thread_local int vm_tn[64];       /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
-static _Thread_local int vm_fn[64];       /* 每层 TRY 时的 finally 完成栈深度 */
-static _Thread_local int vm_fin_act[64];  /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
-static _Thread_local int vm_fin_tgt[64];
-static _Thread_local int vm_fin_dep[64];  /* FIN_PUSH 时的恢复深度（FINISH act=1/3/4 恢复，防循环内 depth 漂移） */
+static _Thread_local int* vm_sp = NULL;
+static _Thread_local int* vm_target = NULL;   /* 每层的 catch 目标（longjmp 后自动变量不可靠） */
+static _Thread_local int* vm_tn = NULL;       /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
+static _Thread_local int* vm_fn = NULL;       /* 每层 TRY 时的 finally 完成栈深度 */
+static _Thread_local int* vm_fin_act = NULL;  /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
+static _Thread_local int* vm_fin_tgt = NULL;
+static _Thread_local int* vm_fin_dep = NULL;  /* FIN_PUSH 时的恢复深度（FINISH act=1/3/4 恢复，防循环内 depth 漂移） */
 static _Thread_local int vm_fin_n = 0;
+static _Thread_local int vm_cap = 0;          /* 错误处理器栈容量 */
 static _Thread_local Value vm_pend_val;   /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
 
-#define VM_STACK_MAX 256
+static void vm_ensure(int need)
+{
+    if(need <= vm_cap) return;
+    int nc = vm_cap > 0 ? vm_cap * 2 : 64;
+    jmp_buf* nj = (jmp_buf*)realloc(vm_jbs, (size_t)nc * sizeof(jmp_buf));
+    if(!nj) { fprintf(stderr, "vm: try 栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    vm_jbs = nj;
+    jmp_buf** np = (jmp_buf**)realloc(vm_prev, (size_t)nc * sizeof(jmp_buf*));
+    if(!np) { fprintf(stderr, "vm: try 栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    vm_prev = np;
+    int* na = (int*)realloc(vm_sp, (size_t)nc * sizeof(int));
+    if(!na) { fprintf(stderr, "vm: try 栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    vm_sp = na;
+    int* nt = (int*)realloc(vm_target, (size_t)nc * sizeof(int));
+    if(!nt) { fprintf(stderr, "vm: try 栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    vm_target = nt;
+    int* nn = (int*)realloc(vm_tn, (size_t)nc * sizeof(int));
+    if(!nn) { fprintf(stderr, "vm: try 栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    vm_tn = nn;
+    int* nf = (int*)realloc(vm_fn, (size_t)nc * sizeof(int));
+    if(!nf) { fprintf(stderr, "vm: try 栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    vm_fn = nf;
+    int* nfa = (int*)realloc(vm_fin_act, (size_t)nc * sizeof(int));
+    if(!nfa) { fprintf(stderr, "vm: try 栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    vm_fin_act = nfa;
+    int* nft = (int*)realloc(vm_fin_tgt, (size_t)nc * sizeof(int));
+    if(!nft) { fprintf(stderr, "vm: try 栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    vm_fin_tgt = nft;
+    int* nfd = (int*)realloc(vm_fin_dep, (size_t)nc * sizeof(int));
+    if(!nfd) { fprintf(stderr, "vm: try 栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+    vm_fin_dep = nfd;
+    vm_cap = nc;
+}
 
 // 未定义变量/函数：统一报错退出（与 ast_interp.c 输出一致）
 static void runtime_undefined(const char* what, const char* name)
@@ -75,7 +109,7 @@ static void vm_thread_body(ThreadLaunch* t)
     }
     RuntimeFunc* prev_rf = interp_set_current_rf(rf);
     EvalCtx ctx = {0};
-    if(g_trace_n < 64) g_trace[g_trace_n++] = "<thread>";
+    g_trace_push("<thread>");
     Value r = rf->entry(t->argc, t->args, &ctx, callee);
     if(g_trace_n > 0) g_trace_n--;
     interp_set_current_rf(prev_rf);
@@ -113,7 +147,7 @@ static Value vm_call_rf(RuntimeFunc* rf, Value* args, int argc, StackFrame* pare
     int saved_cont = ctx->hit_continue;
     ctx->hit_break = 0;
     ctx->hit_continue = 0;
-    if(g_trace_n < 64) g_trace[g_trace_n++] = "<anonymous>";
+    g_trace_push("<anonymous>");
     Value ret = rf->entry(argc, args, ctx, callee);
     if(g_trace_n > 0) g_trace_n--;
     ctx->hit_break = saved_break;
@@ -152,15 +186,9 @@ Value vm_func_entry(int arg_cnt, const Value* args, EvalCtx* ctx, StackFrame* fr
 
 static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
 {
-    // 静态栈深度分析：精确分配执行栈，并校验 IR 栈平衡
+    // 静态栈深度分析：精确分配执行栈（动态，无硬上限），并校验 IR 栈平衡
     int maxd = bc_analyze_stack(bf, NULL, 0);
     if(maxd < 0) exit(EXIT_FAILURE);   // 已打印下溢位置
-    if(maxd + 2 > VM_STACK_MAX) {
-        char buf[128];
-        snprintf(buf, sizeof(buf), "vm: 函数 %s 需要栈深 %d 超过上限 %d",
-                 bf->name ? bf->name : "<main>", maxd, VM_STACK_MAX);
-        runtime_error(buf);
-    }
     Value* stack = (Value*)malloc(sizeof(Value) * (maxd + 2));
     if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
     int sp = 0;
@@ -469,7 +497,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 sp--;
                 break;
             case OPC_TRY: {
-                /* longjmp 后自动变量值未定义：catch 目标按层 static 保存 */
+                /* longjmp 后自动变量值未定义：catch 目标按层保存 */
+                vm_ensure(vm_depth + 2);
                 int d = vm_depth;
                 vm_target[d] = in.a;
                 vm_sp[d] = sp;
@@ -522,14 +551,15 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                 }
                 if(!msg) msg = value_to_str(v);
-                snprintf(g_err_type, sizeof(g_err_type), "%s", type);
-                snprintf(g_err_msg, sizeof(g_err_msg), "%s", msg);
+                g_err_type_set(type);
+                g_err_msg_set(msg);
                 free(msg);
                 if(g_err_jmp) longjmp(*g_err_jmp, 1);
                 fprintf(stderr, "Runtime Error: %s\n", g_err_msg);
                 exit(EXIT_FAILURE);
             }
             case OPC_FIN_PUSH:
+                vm_ensure(vm_fin_n + 2);
                 vm_fin_act[vm_fin_n] = in.a;
                 vm_fin_tgt[vm_fin_n] = in.b;
                 vm_fin_dep[vm_fin_n] = vm_depth - 1;   /* try 前深度（异常入口 act=2 不使用） */
@@ -622,7 +652,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 ctx->hit_break = 0;
                 ctx->hit_continue = 0;
                 /* 调用栈回溯：入栈函数名（longjmp 跳过 pop 由 GET_ERR 截断） */
-                if(g_trace_n < 64) g_trace[g_trace_n++] = fname;
+                g_trace_push(fname);
                 Value ret = rf->entry(argc, eval_args, ctx, callee);
                 if(g_trace_n > 0) g_trace_n--;
                 ctx->hit_break = saved_break;
