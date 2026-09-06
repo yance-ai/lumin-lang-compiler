@@ -1,0 +1,47 @@
+// Created by kai on 2026/9/4.
+#ifndef LM_VALUE_H
+#define LM_VALUE_H
+
+#include "ast/lumin_value_type.h"
+#include "ast/lumin_value.h"
+
+// 构造
+Value lumin_make_int(long long i);
+Value lumin_make_double(double d);
+Value lumin_make_bool(_Bool b);
+Value lumin_make_string(const char* s);
+Value lumin_make_char(char ch);
+
+// 算术
+Value lumin_add(Value a, Value b);
+Value lumin_sub(Value a, Value b);
+Value lumin_mul(Value a, Value b);
+Value lumin_div(Value a, Value b);
+Value lumin_unary_plus(Value v);
+Value lumin_unary_minus(Value v);
+
+// 比较
+Value lumin_gt(Value a, Value b);
+Value lumin_lt(Value a, Value b);
+Value lumin_ge(Value a, Value b);
+Value lumin_le(Value a, Value b);
+Value lumin_eq(Value a, Value b);
+Value lumin_ne(Value a, Value b);
+
+_Bool lumin_to_bool(Value v);
+
+// ===== 强转新API =====
+Value lumin_cast_int(Value v);
+Value lumin_cast_double(Value v);
+Value lumin_cast_bool(Value v);
+Value lumin_cast_string(Value v);
+Value lumin_cast_char(Value v);
+Value lumin_cast_ascii(Value v);
+
+int lumin_extract_int(Value v);
+
+void lumin_print(Value v);
+
+
+
+#endif //LM_VALUE_H

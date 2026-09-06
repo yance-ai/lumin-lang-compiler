@@ -1,0 +1,418 @@
+#include "ast_node.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+
+
+AstNode* ast_int(long long v)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_INT;
+    p->val_type = VAL_INT;
+    p->u.inum = v;
+    return p;
+}
+
+AstNode* ast_num(double v)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_NUM;
+    p->val_type = VAL_DOUBLE;
+    p->u.num = v;
+    return p;
+}
+
+AstNode* ast_bool(_Bool v)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_BOOL;
+    p->val_type = VAL_BOOL;
+    p->u.bval = v;
+    return p;
+}
+
+AstNode* ast_new_char(char c)
+{
+    AstNode* n = ast_new(AST_CHAR);
+    n->u.ch = c;
+    n->val_type = VAL_CHAR;
+    return n;
+}
+
+AstNode* ast_string(const char* s)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_STRING;
+    p->val_type = VAL_STRING;
+    p->u.sval = strdup(s);
+    return p;
+}
+
+AstNode* ast_var(char* name)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_VAR;
+    p->val_type = VAL_NONE;
+    p->u.varname = strdup(name);
+    return p;
+}
+
+AstNode* ast_binop(BinOp op, AstNode* l, AstNode* r)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_BINOP;
+    p->val_type = VAL_NONE;
+    p->u.bin.op = op;
+    p->u.bin.left = l;
+    p->u.bin.right = r;
+    return p;
+}
+
+AstNode* ast_assign(char* name, AstNode* e)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_ASSIGN;
+    p->val_type = VAL_NONE;
+    p->u.assign.varname = strdup(name);
+    p->u.assign.expr = e;
+    return p;
+}
+
+AstNode* ast_print(AstNode* e)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_PRINT;
+    p->val_type = VAL_NONE;
+    p->u.print.expr = e;
+    return p;
+}
+
+AstNode* ast_seq(AstNode* a, AstNode* b)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_SEQ;
+    p->val_type = VAL_NONE;
+    p->u.seq.first = a;
+    p->u.seq.second = b;
+    return p;
+}
+
+AstNode* ast_if(AstNode* cond, AstNode* then_stmt, AstNode* elif_chain, AstNode* else_stmt)
+{
+    AstNode* p = malloc(sizeof(AstNode));
+    p->type = AST_IF;
+    p->val_type = VAL_NONE;
+    p->u.ifnode.cond = cond;
+    p->u.ifnode.then_stmt = then_stmt;
+    p->u.ifnode.elif_chain = elif_chain;
+    p->u.ifnode.else_stmt = else_stmt;
+    return p;
+}
+
+AstNode* ast_block(AstNode* stmts)
+{
+    AstNode* n = ast_new(AST_BLOCK);
+    n->u.block.stmts = stmts;
+    return n;
+}
+
+AstNode* ast_elif(AstNode* cond, AstNode* body)
+{
+    AstNode* n = ast_new(AST_ELIF);
+    n->u.elif.cond = cond;
+    n->u.elif.body = body;
+    n->u.elif.next = NULL;
+    return n;
+}
+
+AstNode* ast_elif_append(AstNode* list, AstNode* elif)
+{
+    if (!list) return elif;
+    AstNode* p = list;
+    while (p->u.elif.next != NULL) {
+        p = p->u.elif.next;
+    }
+    p->u.elif.next = elif;
+    return list;
+}
+
+AstNode* ast_if_chain(AstNode* cond, AstNode* if_body, AstNode* elif_list, AstNode* else_body)
+{
+    AstNode* n = ast_new(AST_IF_CHAIN);
+    n->u.if_chain.cond = cond;
+    n->u.if_chain.if_body = if_body;
+    n->u.if_chain.elif_list = elif_list;
+    n->u.if_chain.else_body = else_body;
+    return n;
+}
+
+AstNode* ast_new(AstType type)
+{
+    AstNode* n = calloc(1, sizeof(AstNode));
+    if (!n) abort();
+    n->type = type;
+    n->val_type = VAL_NONE;
+    return n;
+}
+
+AstNode* ast_while(AstNode* cond, AstNode* body)
+{
+    AstNode* n = ast_new(AST_WHILE);
+    n->u.while_node.cond = cond;
+    n->u.while_node.body = body;
+    return n;
+}
+
+AstNode* ast_for(AstNode* init, AstNode* cond, AstNode* update, AstNode* body)
+{
+    AstNode* n = ast_new(AST_FOR);
+    n->u.for_node.init = init;
+    n->u.for_node.cond = cond;
+    n->u.for_node.update = update;
+    n->u.for_node.body = body;
+    return n;
+}
+
+AstNode* ast_unary(BinOp op, AstNode* child)
+{
+    AstNode* n = ast_new(AST_UNARY);
+    n->u.uny.op = op;
+    n->u.uny.child = child;
+    return n;
+}
+
+AstNode* new_cast_node(int cast_type, AstNode* child)
+{
+    AstNode* n = ast_new(AST_CAST);
+    n->u.cast.cast_type = cast_type;
+    n->u.cast.child = child;
+    return n;
+}
+
+AstNode* ast_ternary(AstNode* cond, AstNode* t, AstNode* f)
+{
+    AstNode* n = ast_new(AST_TERNARY);
+    n->u.ternary.cond = cond;
+    n->u.ternary.true_expr = t;
+    n->u.ternary.false_expr = f;
+    return n;
+}
+
+AstNode* ast_switch(AstNode* expr, AstNode* cases)
+{
+    AstNode* n = ast_new(AST_SWITCH);
+    n->u.sw.cond = expr;
+    n->u.sw.cases = cases;
+    return n;
+}
+
+AstNode* ast_case(AstNode* const_expr, AstNode* body, int is_default)
+{
+    AstNode* n = ast_new(AST_CASE);
+    n->u.cs.const_val = const_expr;
+    n->u.cs.body = body;
+    n->u.cs.is_default = is_default;
+    n->u.cs.next = NULL;
+    return n;
+}
+
+AstNode* ast_break(void)
+{
+    AstNode* n = ast_new(AST_BREAK);
+    return n;
+}
+
+AstNode* ast_continue(void)
+{
+    AstNode* n = ast_new(AST_CONTINUE);
+    return n;
+}
+
+AstNode* ast_return(AstNode* expr)
+{
+    AstNode* n = ast_new(AST_RETURN);
+    n->u.ret.ret_val = expr;
+    return n;
+}
+
+AstNode* ast_case_append(AstNode* case_list, AstNode* one_case)
+{
+    if (!one_case) return case_list;
+    if (!case_list) return one_case;
+    AstNode* p = case_list;
+    while (p->u.cs.next != NULL) {
+        p = p->u.cs.next;
+    }
+    p->u.cs.next = one_case;
+    return case_list;
+}
+
+
+AstNode* ast_func_def(char* name, AstNode* params, AstNode* body) {
+    AstNode* n = ast_new(AST_FUNC_DEF);
+    n->u.func_def.name = strdup(name);
+    n->u.func_def.params = params;
+    n->u.func_def.body = body;
+    return n;
+}
+
+AstNode* ast_param(char* name, int is_ellipsis) {
+    AstNode* n = ast_new(AST_PARAM);
+    n->u.param.name = strdup(name);
+    n->u.param.is_ellipsis = is_ellipsis;
+    n->u.param.next = NULL;
+    return n;
+}
+
+AstNode* ast_param_append(AstNode* list, AstNode* p) {
+    if(!list) return p;
+    AstNode* cur = list;
+    while(cur->u.param.next) cur = cur->u.param.next;
+    cur->u.param.next = p;
+    return list;
+}
+
+AstNode* ast_call(char* func_name, AstNode* args) {
+    AstNode* n = ast_new(AST_CALL);
+    n->u.call.name = strdup(func_name);
+    n->u.call.args = args;
+    return n;
+}
+
+AstNode* ast_arg_append(AstNode* list, AstNode* arg) {
+    // 复用于AST_SEQ风格链表，简单复用AST_SEQ串联实参
+    return ast_seq(list, arg);
+}
+
+
+
+// ===================== AST内存释放 =====================
+void ast_free(AstNode* node) {
+    if(!node) return;
+    switch(node->type) {
+        case AST_INT:
+        case AST_NUM:
+        case AST_BOOL:
+        case AST_CHAR:
+            break;
+        case AST_STRING:
+            free(node->u.sval);
+            break;
+        case AST_VAR:
+            free(node->u.varname);
+            break;
+        case AST_UNARY:
+            ast_free(node->u.uny.child);
+            break;
+        case AST_BINOP:
+            ast_free(node->u.bin.left);
+            ast_free(node->u.bin.right);
+            break;
+        case AST_ASSIGN:
+            free(node->u.assign.varname);
+            ast_free(node->u.assign.expr);
+            break;
+        case AST_PRINT:
+            ast_free(node->u.print.expr);
+            break;
+        case AST_SEQ:
+            ast_free(node->u.seq.first);
+            ast_free(node->u.seq.second);
+            break;
+        case AST_IF:
+            ast_free(node->u.ifnode.cond);
+            ast_free(node->u.ifnode.then_stmt);
+            ast_free(node->u.ifnode.elif_chain);
+            ast_free(node->u.ifnode.else_stmt);
+            break;
+        case AST_BLOCK:
+            ast_free(node->u.block.stmts);
+            break;
+        case AST_IF_CHAIN:{
+            ast_free(node->u.if_chain.cond);
+            ast_free(node->u.if_chain.if_body);
+            AstNode* p = node->u.if_chain.elif_list;
+            while(p){
+                AstNode* nxt = p->u.elif.next;
+                ast_free(p->u.elif.cond);
+                ast_free(p->u.elif.body);
+                free(p);
+                p = nxt;
+            }
+            ast_free(node->u.if_chain.else_body);
+            break;
+        }
+        case AST_ELIF:
+            break;
+        case AST_WHILE:
+            ast_free(node->u.while_node.cond);
+            ast_free(node->u.while_node.body);
+            break;
+        case AST_FOR:
+            ast_free(node->u.for_node.init);
+            ast_free(node->u.for_node.cond);
+            ast_free(node->u.for_node.update);
+            ast_free(node->u.for_node.body);
+            break;
+        case AST_CAST:
+            ast_free(node->u.cast.child);
+            break;
+        case AST_TERNARY:
+            ast_free(node->u.ternary.cond);
+            ast_free(node->u.ternary.true_expr);
+            ast_free(node->u.ternary.false_expr);
+            break;
+        case AST_SWITCH:
+            ast_free(node->u.sw.cond);
+            {
+                AstNode* p = node->u.sw.cases;
+                while(p) {
+                    AstNode* nx = p->u.cs.next;
+                    ast_free(p->u.cs.const_val);
+                    ast_free(p->u.cs.body);
+                    free(p);
+                    p = nx;
+                }
+            }
+            break;
+        case AST_CASE:
+            break;
+        case AST_BREAK:
+        case AST_CONTINUE:
+        case AST_RETURN:
+            ast_free(node->u.ret.ret_val);
+            break;
+
+        // ==========新增函数相关节点释放==========
+        case AST_FUNC_DEF:
+        {
+            free(node->u.func_def.name);
+            // 释放形参链表 AST_PARAM
+            AstNode* pp = node->u.func_def.params;
+            while(pp)
+            {
+                AstNode* nx = pp->u.param.next;
+                free(pp->u.param.name);
+                free(pp);
+                pp = nx;
+            }
+            ast_free(node->u.func_def.body);
+            break;
+        }
+        case AST_CALL:
+        {
+            free(node->u.call.name);
+            // ast_arg_append 使用 AST_SEQ 链表，直接递归free
+            ast_free(node->u.call.args);
+            break;
+        }
+        case AST_PARAM:
+            // 只被AST_FUNC_DEF内部循环释放，外部不会单独走到这里
+            break;
+
+        default: break;
+    }
+    free(node);
+}
+

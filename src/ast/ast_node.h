@@ -1,0 +1,49 @@
+#ifndef AST_NODE_H
+#define AST_NODE_H
+
+#include "lumin_types.h"
+#include "ast_node_type.h"
+
+// 创建AST节点
+AstNode* ast_int(long long v);
+AstNode* ast_num(double v);
+AstNode* ast_bool(_Bool v);
+AstNode* ast_new_char(char c);
+AstNode* ast_string(const char* s);
+AstNode* ast_var(char* name);
+AstNode* ast_binop(BinOp op, AstNode* l, AstNode* r);
+AstNode* ast_assign(char* name, AstNode* e);
+AstNode* ast_print(AstNode* e);
+AstNode* ast_seq(AstNode* a, AstNode* b);
+AstNode* ast_if(AstNode* cond, AstNode* then_stmt, AstNode* elif_chain, AstNode* else_stmt);
+AstNode* ast_block(AstNode* stmts);
+AstNode* ast_elif(AstNode* cond, AstNode* body);
+AstNode* ast_elif_append(AstNode* list, AstNode* elif);
+AstNode* ast_if_chain(AstNode* cond, AstNode* if_body, AstNode* elif_list, AstNode* else_body);
+AstNode* ast_new(AstType type);
+AstNode* ast_while(AstNode* cond, AstNode* body);
+AstNode* ast_for(AstNode* init, AstNode* cond, AstNode* update, AstNode* body);
+AstNode* new_cast_node(int cast_type, AstNode* child);
+AstNode* ast_unary(BinOp op, AstNode* child);
+AstNode* ast_ternary(AstNode* cond, AstNode* t, AstNode* f);
+AstNode* ast_switch(AstNode* expr, AstNode* cases);
+AstNode* ast_case(AstNode* const_expr, AstNode* body, int is_default);
+AstNode* ast_break(void);
+AstNode* ast_continue(void);
+AstNode* ast_return(AstNode* expr);
+AstNode* ast_case_append(AstNode* case_list, AstNode* one_case);
+
+// func def: func name(params) body
+AstNode* ast_func_def(char* name, AstNode* params, AstNode* body);
+// 形参；is_ellipsis=1代表 ...args
+AstNode* ast_param(char* name, int is_ellipsis);
+AstNode* ast_param_append(AstNode* list, AstNode* p);
+
+// 函数调用
+AstNode* ast_call(char* func_name, AstNode* arg_list);
+AstNode* ast_arg_append(AstNode* list, AstNode* arg);
+
+// 释放AST
+void ast_free(AstNode* node);
+
+#endif

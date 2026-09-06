@@ -53,3 +53,16 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# build artifact
+lumin‑lang-compiler
+yacc.output
+*.lm.c
+
+# bison debug report
+generated/yacc.output
+
+# test intermediate output
+tests/*.lm.c
+tests/*.lm.out
+tests/stackframe_test

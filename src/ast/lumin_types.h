@@ -1,0 +1,73 @@
+#ifndef LUMIN_TYPES_H
+#define LUMIN_TYPES_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include "lumin_value.h"
+
+// AST节点类型
+typedef enum {
+    AST_INT,
+    AST_NUM,
+    AST_BOOL,
+    AST_CHAR,
+    AST_STRING,
+    AST_VAR,
+    AST_BINOP,
+    AST_UNARY,
+    AST_ASSIGN,
+    AST_PRINT,
+    AST_SEQ,
+    AST_IF,
+    AST_BLOCK,
+    AST_IF_CHAIN,
+    AST_ELIF,
+    AST_WHILE,
+    AST_FOR,
+    AST_CAST,
+    AST_TERNARY,
+    AST_SWITCH,
+    AST_CASE,
+    AST_BREAK,
+    AST_CONTINUE,
+    AST_RETURN,
+    AST_FUNC_DEF,      // 函数定义 func f(a,...args){}
+    AST_PARAM,         // 形参节点（普通 / ...可变）
+    AST_CALL,          // 函数调用 f(1,2,3)
+} AstType;
+
+// 二元运算符
+typedef enum {
+    OP_ADD,
+    OP_SUB,
+    OP_MUL,
+    OP_DIV,
+    OP_GT,
+    OP_LT,
+    OP_GE,
+    OP_LE,
+    OP_EQ,
+    OP_NE,
+    OP_PRE_INC,
+    OP_POST_INC,
+    OP_PRE_DEC,
+    OP_POST_DEC,
+    OP_UNARY_PLUS,
+    OP_UNARY_MINUS,
+} BinOp;
+
+// 辅助：ValueType → C源码字符串
+static inline const char* valtype_to_cstr(ValueType t)
+{
+    switch(t){
+        case VAL_INT:      return "long long";
+        case VAL_DOUBLE:   return "double";
+        case VAL_BOOL:     return "_Bool";
+        case VAL_STRING:   return "char*";
+        case VAL_ARRAY:    return "void*";
+        case VAL_CHAR:     return "char";
+        default:           return "double";
+    }
+}
+
+#endif
