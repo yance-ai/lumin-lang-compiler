@@ -26,6 +26,29 @@ static void sym_restore(void) {
 
 // 函数体递归深度：>0 表示正在检查某函数体，其内的嵌套 func 定义跳过
 static int func_depth = 0;
+// 匿名函数捕获限制：lambda 只能访问 参数 + 全局变量 + 自身局部（C 代码生成不支持闭包捕获）
+static int in_lambda = 0;
+static AstNode* g_lambda_params = NULL;
+static char* lambda_locals[256];
+static int lambda_locals_cnt = 0;
+static char* g_global_vars[256];
+static int g_global_vars_cnt = 0;
+
+static int is_global_var(const char* n) {
+    for(int i = 0; i < g_global_vars_cnt; i++)
+        if(strcmp(g_global_vars[i], n) == 0) return 1;
+    return 0;
+}
+static int is_lambda_local(const char* n) {
+    for(int i = 0; i < lambda_locals_cnt; i++)
+        if(strcmp(lambda_locals[i], n) == 0) return 1;
+    return 0;
+}
+static int is_lambda_param(const char* n) {
+    for(AstNode* p = g_lambda_params; p; p = p->u.param.next)
+        if(strcmp(p->u.param.name, n) == 0) return 1;
+    return 0;
+}
 
 // ---------------- 阶段1：顶层收集 ----------------
 // 遍历顶层（不深入函数体）：登记全部函数名 + 顶层赋值变量，
@@ -37,6 +60,7 @@ static void collect_top_level(AstNode* node) {
         case AST_ASSIGN:
             static_sym_put(node->u.assign.varname, VAL_NONE);
             collect_top_level(node->u.assign.expr);
+            if(g_global_vars_cnt < 256) g_global_vars[g_global_vars_cnt++] = strdup(node->u.assign.varname);
             break;
         case AST_FUNC_DEF:
             // 登记函数名（支持前向引用）；不深入函数体
@@ -196,6 +220,14 @@ int typecheck_expr(AstNode* node)
             node->val_type = VAL_CHAR;
             break;
         case AST_VAR:{
+            if(in_lambda && !is_lambda_param(node->u.varname) &&
+               !is_global_var(node->u.varname) && !is_lambda_local(node->u.varname)) {
+                fprintf(stderr, "语义错误(第%d行)：匿名函数不能访问外层函数局部变量 %s（可用参数或全局变量）\n",
+                        node->line, node->u.varname);
+                node->val_type = VAL_NONE;
+                err = 1;
+                break;
+            }
             ValueType t;
             if(static_sym_get(node->u.varname, &t)) {
                 if(t == VAL_FUNC) {
@@ -301,6 +333,7 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.assign.expr);
             node->val_type = node->u.assign.expr->val_type;
             static_sym_put(node->u.assign.varname, node->val_type);
+            if(in_lambda && lambda_locals_cnt < 256) lambda_locals[lambda_locals_cnt++] = strdup(node->u.assign.varname);
             break;
         case AST_INDEX: {
             err |= typecheck_expr(node->u.index.arr);
@@ -502,18 +535,24 @@ int typecheck_expr(AstNode* node)
                 }
                 p = p->u.param.next;
             }
-            if(func_depth > 0) {
-                // 嵌套函数定义：codegen 不支持，语义检查同样跳过（保持一致）
+            int is_lambda = strncmp(node->u.func_def.name, "_lambda_", 8) == 0;
+            if(func_depth > 0 && !is_lambda) {
+                // 嵌套具名函数：codegen 不支持，语义检查同样跳过（保持一致）
                 node->val_type = VAL_FUNC;
                 break;
             }
             func_depth++;
             sym_save();
+            int save_in_lambda = in_lambda;
+            AstNode* save_params = g_lambda_params;
+            int save_lc = lambda_locals_cnt;
+            if(is_lambda) { in_lambda = 1; g_lambda_params = node->u.func_def.params; lambda_locals_cnt = 0; }
             // 登记参数（覆盖同名全局实现遮蔽；类型动态 → VAL_NONE 占位）
             for(p = node->u.func_def.params; p; p = p->u.param.next) {
                 static_sym_put(p->u.param.name, VAL_NONE);
             }
             err |= typecheck_expr(node->u.func_def.body);
+            if(is_lambda) { in_lambda = save_in_lambda; g_lambda_params = save_params; lambda_locals_cnt = save_lc; }
             sym_restore();
             func_depth--;
             node->val_type = VAL_FUNC;

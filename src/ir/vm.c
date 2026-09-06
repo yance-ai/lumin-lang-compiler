@@ -117,7 +117,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 break;
             case OPC_GETFUNC: {
                 const char* fname = bf->syms[in.a];
-                Value fv;
+                Value fv = val_none();
                 if(sym_has(fname)) fv = sym_get(fname);
                 else runtime_undefined("函数", fname);
                 stack[sp++] = fv;

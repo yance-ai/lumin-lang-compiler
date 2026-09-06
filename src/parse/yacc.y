@@ -8,7 +8,9 @@
 #include <stdio.h>
 extern int yylineno;
 AstNode* new_cast_node(int cast_type, AstNode* child);
+AstNode* maybe_template(const char* s);      // 字符串模板拆解（parse/tmpl.c）
 void yyerror(const char* s);
+static int g_lambda_seq = 0;                 // 匿名函数内部名 _lambda_N
 int yylex(void);
 AstNode* root;
 // AST 构造辅助：报错定位用（节点行号 = 当前 lookahead 行）
@@ -211,7 +213,7 @@ primary
     | TRUE                    { $$ = ast_bool(1); }
     | FALSE                   { $$ = ast_bool(0); }
     | NULL_LIT                { $$ = ast_none(); }
-    | STRING_LIT              { $$ = ast_string($1); free($1); }
+    | STRING_LIT              { $$ = L(maybe_template($1)); free($1); }
     | char_lit                { $$ = ast_new_char($1); }
     | ID                      { $$ = L(ast_var($1)); }
     | ID LPAREN arg_list RPAREN { $$ = L(ast_call($1, $3)); }  /* 函数调用 foo(a,b,c) */
@@ -223,6 +225,17 @@ primary
     | LPAREN TOK_BOOL RPAREN primary       { $$ = new_cast_node(CAST_BOOL, $4); }
     | LPAREN TOK_ASCII RPAREN primary      { $$ = new_cast_node(CAST_ASCII, $4); }
     | LPAREN TOK_CHAR RPAREN primary       { $$ = new_cast_node(CAST_CHAR, $4); }
+    | FUNC LPAREN param_list RPAREN block_stmt {
+          /* 匿名函数表达式：生成内部名 _lambda_N，与具名同路注册（VM sym + IR 函数表） */
+          char nm[64];
+          snprintf(nm, sizeof nm, "_lambda_%d", g_lambda_seq++);
+          $$ = L(ast_func_def(nm, $3, $5));
+          RuntimeFunc* rf = compile_func_from_ast($$);
+          Value func_val;
+          func_val.type = VAL_FUNC;
+          func_val.v.func.func_obj = rf;
+          sym_set(nm, func_val);
+      }
     ;
 
 postfix_expr

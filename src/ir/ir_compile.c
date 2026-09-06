@@ -248,6 +248,14 @@ static void c_expr(Ctx* c, AstNode* node)
             else
                 emit(c, OPC_LOAD_VAR, bf_sym(c->fn, node->u.varname), 0);
             break;
+        case AST_FUNC_DEF:
+            // 匿名函数表达式：函数已由 yacc 期注册（compile_func_from_ast → IR 函数表），
+            // 表达式求值 = 压入函数值（内部名 _lambda_N）
+            if(strncmp(node->u.func_def.name, "_lambda_", 8) == 0)
+                emit(c, OPC_GETFUNC, bf_sym(c->fn, node->u.func_def.name), 0);
+            else
+                emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
+            break;
         case AST_ASSIGN:
             c_expr(c, node->u.assign.expr);
             emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.assign.varname), 0);

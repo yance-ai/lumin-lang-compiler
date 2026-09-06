@@ -492,13 +492,18 @@ static void emit_func_wraps(void)
         fprintf(out, "static Value lum_wrap_%d(Value* a, int n)\n{\n", i);
         for(int k = 0; k < fn->param_cnt; k++)
             fprintf(out, "    Value p%d = (n > %d) ? a[%d] : val_none();\n", k, k, k);
+        if(fn->has_variadic) {
+            // 变参打包：n - fixed 个尾部实参进数组（动态调用经 wrap 时实参在 a[]）
+            fprintf(out, "    Value __rest = val_array(n > %d ? n - %d : 0);\n", fn->param_cnt, fn->param_cnt);
+            fprintf(out, "    for(int __k = 0; __k < __rest.v.array.len; __k++) __rest.v.array.items[__k] = a[%d + __k];\n", fn->param_cnt);
+        }
         fprintf(out, "    return lumin_func_%s(", fn->name);
         int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
         for(int k = 0; k < total; k++) {
             if(k) fprintf(out, ", ");
             if(k < fn->param_cnt) fprintf(out, "p%d", k);
             else {
-                fprintf(out, "(Value)val_array(0)");   // 变参打包为空数组
+                fprintf(out, "__rest");
             }
         }
         fprintf(out, ");\n}\n\n");
@@ -522,6 +527,10 @@ static void emit_main(BytecodeFunc* main_fn)
     // 函数原型（前向引用/递归）
     for(int i = 0; i < ir_func_table_count(); i++) {
         emit_func_proto(ir_func_table_get(i));
+    }
+    // 高阶包装前置声明（函数体内 GETFUNC 先于 wraps 定义使用）
+    for(int i = 0; i < ir_func_table_count(); i++) {
+        fprintf(out, "static Value lum_wrap_%d(Value*, int);\n", i);
     }
     fprintf(out, "\n");
 
