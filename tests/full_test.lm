@@ -221,3 +221,18 @@ print([1, 2, 3].sum());                 // 6
 print([1, 2, 3].avg());                 // 2
 nm = " lumin ";
 print("[{nm.strip().toupper()}]");      // [LUMIN]
+
+// ============ 10. 动态字符串内插安全性 ============
+server = "hello {{name}}";            // 运行时值 hello {{name}}（源码 {{ 转义）
+print("{server}");                    // hello {{name}}（原样，不二次解析）
+srv2 = "price: {}";
+print("{srv2}");                      // price: {}（原样）
+srv3 = "a}" + "{{" + "c";             // 运行时值 a}{{c
+print("{srv3}");                      // a}{{c（原样）
+n2 = 5;
+t2 = "x={n2}";
+print(t2);                            // x=5（模板已求值）
+print("{t2}");                        // x=5（原样，不二次内插）
+print("{{x}} {n2}");                // {x} 5（{{ 转义 + {n2} 内插混合）
+print(format("{{x}} {}", n2));      // {x} 5（format 占位 + 转义混合）
+print("v={\"a{b}c\".len()}");         // v=5（内插表达式内字符串用 \"）

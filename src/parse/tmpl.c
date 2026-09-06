@@ -465,6 +465,8 @@ AstNode* maybe_template(const char* s)
             q++;
         }
         if(!has_interp) return ast_string(s);
+        // 注：无内插的字符串原样返回——{{/}} 转义是模板特性（有内插的模板串才生效），
+        // 且 format 的格式串实参不能被提前转义（否则 format("{{x}}") 双重转义报错）。
     }
 
     // 拆段
