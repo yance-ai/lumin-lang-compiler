@@ -64,6 +64,9 @@ typedef enum {
     BUILTIN_REPLACE,      // replace(s, from, to)
     BUILTIN_SUM,          // sum(arr)
     BUILTIN_AVG,          // avg(arr)
+    BUILTIN_FORMAT,       // format(fmt, args...) 变参
+    BUILTIN_SORT,         // sort(arr)
+    BUILTIN_REVERSE,      // reverse(arr)
     BUILTIN_COUNT
 } BuiltinId;
 

@@ -93,3 +93,18 @@ print(sum([1.5, 2.5]));          // 4（全 double → double）
 print(sum([1, 2.5]));            // 3.5（混合 → double）
 print(avg([1, 2, 3, 4]));        // 2.5
 print(avg([2, 4]));              // 3
+
+// ---- 负数 int / sort / reverse / range 步长 / format / 拼接 ----
+print(type(-1));            // int（修复：负数字面量是 int）
+print(type(-3.5));          // double
+print(-1 + 0);              // -1
+print(join(sort([5, 2, 9, 1]), ","));      // 1,2,5,9（数字升序）
+print(join(sort(["banana", "apple", "cherry"]), ","));  // apple,banana,cherry（字典序）
+print(join(reverse([1, 2, 3]), ","));      // 3,2,1
+print(join(range(2, 6), ""));              // 2345
+print(join(range(0, 10, 3), ""));          // 0369
+print(join(range(5, 0, -1), ""));          // 54321（负步长）
+print(format("x={} y={} z={}", 1, "two", 3.5));  // x=1 y=two z=3.5
+print(format("{{}} 转义 {}", 99));         // {} 转义 99
+print("n=" + 5);            // n=5（字符串拼接自动转）
+print("b=" + true);         // b=true

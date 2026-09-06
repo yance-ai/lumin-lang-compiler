@@ -410,26 +410,31 @@ int typecheck_expr(AstNode* node)
             // 内置函数白名单：len/type/input/range/substr（用户函数同名时用户优先）
             ValueType t;
             if(!static_sym_get(node->u.call.name, &t)) {
-                static const struct { const char* name; int argc; } builtins[] = {
-                    {"len", 1}, {"type", 1}, {"input", 0}, {"range", 1}, {"substr", 3},
-                    {"toupper", 1}, {"tolower", 1}, {"split", 2}, {"del", 2}, {"insert", 3},
-                    {"floor", 1}, {"ceil", 1}, {"abs", 1}, {"sqrt", 1},
-                    {"max", -1}, {"min", -1}, {"join", 2}, {"contains", 2},
-                    {"repeat", 2}, {"replace", 3}, {"sum", 1}, {"avg", 1},
+                static const struct { const char* name; int min; int max; } builtins[] = {
+                    {"len", 1, 1}, {"type", 1, 1}, {"input", 0, 0}, {"range", 1, 3}, {"substr", 3, 3},
+                    {"toupper", 1, 1}, {"tolower", 1, 1}, {"split", 2, 2}, {"del", 2, 2}, {"insert", 3, 3},
+                    {"floor", 1, 1}, {"ceil", 1, 1}, {"abs", 1, 1}, {"sqrt", 1, 1},
+                    {"max", 1, -1}, {"min", 1, -1}, {"join", 2, 2}, {"contains", 2, 2},
+                    {"repeat", 2, 2}, {"replace", 3, 3}, {"sum", 1, 1}, {"avg", 1, 1},
+                    {"format", 1, -1}, {"sort", 1, 1}, {"reverse", 1, 1},
                 };
                 int found = 0;
-                for(int k = 0; k < 22; k++) {
+                for(int k = 0; k < 25; k++) {
                     if(strcmp(node->u.call.name, builtins[k].name) == 0) {
                         found = 1;
                         int nargs = count_args(node->u.call.args);
-                        int bad = (builtins[k].argc < 0) ? (nargs < -builtins[k].argc) : (nargs != builtins[k].argc);
+                        int bad = (nargs < builtins[k].min) ||
+                                  (builtins[k].max >= 0 && nargs > builtins[k].max);
                         if(bad) {
-                            if(builtins[k].argc < 0)
-                                fprintf(stderr,"语义错误(第%d行)：%s() 需要至少 %d 个实参（给了 %d 个）\n", node->line,
-                                        builtins[k].name, -builtins[k].argc, nargs);
-                            else
+                            if(builtins[k].max >= 0 && builtins[k].min == builtins[k].max)
                                 fprintf(stderr,"语义错误(第%d行)：%s() 需要 %d 个实参（给了 %d 个）\n", node->line,
-                                        builtins[k].name, builtins[k].argc, nargs);
+                                        builtins[k].name, builtins[k].min, nargs);
+                            else if(builtins[k].max < 0)
+                                fprintf(stderr,"语义错误(第%d行)：%s() 需要至少 %d 个实参（给了 %d 个）\n", node->line,
+                                        builtins[k].name, builtins[k].min, nargs);
+                            else
+                                fprintf(stderr,"语义错误(第%d行)：%s() 需要 %d 到 %d 个实参（给了 %d 个）\n", node->line,
+                                        builtins[k].name, builtins[k].min, builtins[k].max, nargs);
                             err = 1;
                         }
                         break;

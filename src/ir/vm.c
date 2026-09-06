@@ -164,8 +164,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_RANGE: {
-                        Value v = stack[--sp];
-                        stack[sp++] = lumin_range(v);
+                        int n = in.b;
+                        Value r = lumin_range_n(&stack[sp - n], n);
+                        stack[sp - n] = r;
+                        sp = sp - n + 1;
                         break;
                     }
                     case BUILTIN_SUBSTR: {
@@ -243,6 +245,15 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_SUM: { Value v = stack[--sp]; stack[sp++] = lumin_sum(v); break; }
                     case BUILTIN_AVG: { Value v = stack[--sp]; stack[sp++] = lumin_avg(v); break; }
+                    case BUILTIN_FORMAT: {
+                        int n = in.b;
+                        Value r = lumin_format(&stack[sp - n], n);
+                        stack[sp - n] = r;
+                        sp = sp - n + 1;
+                        break;
+                    }
+                    case BUILTIN_SORT:    { Value v = stack[--sp]; stack[sp++] = lumin_sort(v); break; }
+                    case BUILTIN_REVERSE:{ Value v = stack[--sp]; stack[sp++] = lumin_reverse(v); break; }
                     default:
                         runtime_error("未知内置函数");
                         break;

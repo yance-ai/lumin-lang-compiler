@@ -59,6 +59,10 @@ Value lumin_contains(Value hay, Value needle);  // contains(s/arr, x)：字符�
 Value lumin_repeat(Value s, Value n);  // repeat(s, n)：字符串重复 n 次
 Value lumin_replace(Value s, Value from, Value to);  // replace(s, from, to)：替换所有出现
 Value lumin_sum(Value arr);  // sum(arr)：数字数组求和（全 int 返回 int，否则 double）
+Value lumin_range_n(Value* args, int n);  // range(n) / range(a,b) / range(a,b,step)
+Value lumin_format(Value* args, int n);   // format(fmt, args...)：{} 占位替换
+Value lumin_sort(Value arr);   // sort(arr)：升序（全数字或全字符串），返回新数组
+Value lumin_reverse(Value arr);  // reverse(arr)：反转，返回新数组
 Value lumin_avg(Value arr);  // avg(arr)：数字数组平均值（double），空数组报错
 
 // ===== 强转新API =====

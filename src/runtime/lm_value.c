@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <math.h>
 
 Value lumin_make_int(long long i) {
@@ -110,6 +111,10 @@ Value lumin_unary_plus(Value v) {
 }
 
 Value lumin_unary_minus(Value v) {
+    if(v.type == VAL_INT) {
+        if(v.v.i == LLONG_MIN) return lumin_make_double(-(double)v.v.i);  // 溢出保护
+        return lumin_make_int(-v.v.i);
+    }
     double num = value_as_number(v);
     return lumin_make_double(-num);
 }
@@ -266,14 +271,29 @@ Value lumin_input(void) {
     return lumin_make_string(buf);
 }
 
-Value lumin_range(Value n) {
-    if(n.type == VAL_DOUBLE) n = lumin_make_int((long long)n.v.d);
-    if(n.type != VAL_INT) runtime_error("range() 参数必须是整数");
-    if(n.v.i < 0) runtime_error("range() 参数不能为负数");
-    int len = (int)n.v.i;
-    Value arr = val_array(len);
-    for(int i = 0; i < len; i++) {
-        Value item = lumin_make_int(i);
+// range() 参数转 long long（double 整数值截断，兼容旧行为）
+static long long range_to_ll(Value v) {
+    if(v.type == VAL_DOUBLE) return (long long)v.v.d;
+    if(v.type != VAL_INT) runtime_error("range() 参数必须是整数");
+    return v.v.i;
+}
+
+// range(n) / range(a,b) / range(a,b,step)：生成等差数列数组
+Value lumin_range_n(Value* args, int n) {
+    if(n < 1 || n > 3) runtime_error("range() 需要 1 到 3 个参数");
+    long long a = 0, b, step = 1;
+    if(n == 1) { b = range_to_ll(args[0]); if(b < 0) runtime_error("range() 上界不能为负数"); }
+    else if(n == 2) { a = range_to_ll(args[0]); b = range_to_ll(args[1]); }
+    else { a = range_to_ll(args[0]); b = range_to_ll(args[1]); step = range_to_ll(args[2]); if(step == 0) runtime_error("range() 步长不能为 0"); }
+    // 元素数：正步长 (b-a) 向上；负步长 (a-b) 向上；方向不对 → 空
+    long double span = step > 0 ? ((long double)b - a) : ((long double)a - b);
+    long long len = 0;
+    if(span > 0) len = (long long)((span + (step > 0 ? step : -step) - 1) / (step > 0 ? step : -step));
+    if(len < 0) len = 0;
+    if(len > 100000000LL) runtime_error("range() 元素数过多");
+    Value arr = val_array((int)len);
+    for(long long i = 0; i < len; i++) {
+        Value item = lumin_make_int(a + i * step);
         arr.v.array.items[i] = val_clone(&item);
     }
     return arr;
@@ -826,4 +846,96 @@ Value lumin_avg(Value arr)
     long long isum; int all_int;
     double dsum = array_sum_d(arr, &isum, &all_int);
     return lumin_make_double(dsum / arr.v.array.len);
+}
+
+// format(fmt, args...)：{} 占位依次替换（{{ 和 }} 转义字面花括号）
+Value lumin_format(Value* args, int n) {
+    if(n < 1 || args[0].type != VAL_STRING) runtime_error("format() 第一个参数必须是格式串");
+    const char* fmt = args[0].v.s;
+    int nargs = n - 1;
+    int placeholders = 0;
+    const char* scan = fmt;
+    while(*scan) {
+        if(scan[0] == '{' && scan[1] == '{') { scan += 2; continue; }
+        if(scan[0] == '}' && scan[1] == '}') { scan += 2; continue; }
+        if(scan[0] == '{' && scan[1] == '}') { placeholders++; scan += 2; continue; }
+        if(scan[0] == '{') runtime_error("format() 格式串含未配对的 '{'");
+        if(scan[0] == '}') runtime_error("format() 格式串含未配对的 '}'");
+        scan++;
+    }
+    if(placeholders != nargs) {
+        char b[128];
+        snprintf(b, sizeof b, "format() 占位符 %d 个（给了 %d 个实参）", placeholders, nargs);
+        runtime_error(b);
+    }
+    size_t cap = strlen(fmt) + 64;
+    for(int i = 0; i < nargs; i++) {
+        char* t = value_to_str(args[i + 1]);
+        cap += strlen(t);
+        free(t);
+    }
+    char* out = (char*)malloc(cap + 1);
+    if(!out) { perror("format"); exit(EXIT_FAILURE); }
+    size_t w = 0;
+    int ai = 0;
+    const char* p = fmt;
+    while(*p) {
+        if(p[0] == '{' && p[1] == '{') { out[w++] = '{'; p += 2; continue; }
+        if(p[0] == '}' && p[1] == '}') { out[w++] = '}'; p += 2; continue; }
+        if(p[0] == '{' && p[1] == '}') {
+            char* t = value_to_str(args[ai + 1]);
+            size_t tl = strlen(t);
+            memcpy(out + w, t, tl); w += tl;
+            free(t);
+            ai++;
+            p += 2;
+            continue;
+        }
+        out[w++] = *p++;
+    }
+    out[w] = '\0';
+    Value r = lumin_make_string(out);
+    free(out);
+    return r;
+}
+
+// sort：升序（全数字按数值 / 全字符串按字典序），混合类型报错
+static int g_sort_numeric = 1;
+static int sort_cmp(const void* pa, const void* pb)
+{
+    const Value* a = (const Value*)pa;
+    const Value* b = (const Value*)pb;
+    if(g_sort_numeric) {
+        double x = value_as_number(*a), y = value_as_number(*b);
+        return (x > y) - (x < y);
+    }
+    return strcmp(a->v.s, b->v.s);
+}
+Value lumin_sort(Value arr) {
+    if(arr.type != VAL_ARRAY) runtime_error("sort() 参数必须是数组");
+    int n = arr.v.array.len;
+    int all_num = 1, all_str = 1;
+    for(int i = 0; i < n; i++) {
+        Value v = arr.v.array.items[i];
+        if(v.type != VAL_INT && v.type != VAL_DOUBLE) all_num = 0;
+        if(v.type != VAL_STRING) all_str = 0;
+    }
+    if(!all_num && !all_str) runtime_error("sort() 数组元素须全为数字或全为字符串");
+    int numeric = all_num;
+    Value r = val_array(n);
+    for(int i = 0; i < n; i++) r.v.array.items[i] = val_clone(&arr.v.array.items[i]);
+    if(n > 1) {
+        g_sort_numeric = numeric;
+        qsort(r.v.array.items, (size_t)n, sizeof(Value), sort_cmp);
+    }
+    return r;
+}
+
+// reverse：反转（任意类型）
+Value lumin_reverse(Value arr) {
+    if(arr.type != VAL_ARRAY) runtime_error("reverse() 参数必须是数组");
+    int n = arr.v.array.len;
+    Value r = val_array(n);
+    for(int i = 0; i < n; i++) r.v.array.items[i] = val_clone(&arr.v.array.items[n - 1 - i]);
+    return r;
 }

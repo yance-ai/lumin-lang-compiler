@@ -219,8 +219,9 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_INPUT:
                         fprintf(out, "    { __stk[__sp++] = lumin_input(); }\n");
                         break;
-                    case BUILTIN_RANGE:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_range(__v); }\n");
+                                        case BUILTIN_RANGE:
+                        fprintf(out, "    { Value __r = lumin_range_n(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n",
+                                in.b, in.b, in.b, in.b);
                         break;
                     case BUILTIN_SUBSTR:
                         fprintf(out, "    { Value __n = __stk[--__sp], __st = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_substr(__s, __st, __n); }\n");
@@ -274,6 +275,16 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_SUM:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_sum(__v); }\n");
+                        break;
+                    case BUILTIN_FORMAT:
+                        fprintf(out, "    { Value __r = lumin_format(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n",
+                                in.b, in.b, in.b, in.b);
+                        break;
+                    case BUILTIN_SORT:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_sort(__v); }\n");
+                        break;
+                    case BUILTIN_REVERSE:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_reverse(__v); }\n");
                         break;
                     case BUILTIN_AVG:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_avg(__v); }\n");
