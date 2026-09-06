@@ -56,11 +56,13 @@ typedef struct {
 } CondSlot;
 
 static LockSlot* g_locks = NULL;
-static int g_lock_cap = 0;
+static int g_lock_cap = 0;      // 当前容量（初始 64，按需翻倍扩容，无硬上限）
+static int g_lock_used = 0;     // 已分配锁数（锁不销毁、id 不复用，槽位 0..used-1 顺序占满）
 static pthread_mutex_t g_tbl_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static CondSlot* g_conds = NULL;
-static int g_cond_cap = 0;
+static int g_cond_cap = 0;      // 当前容量（初始 64，按需翻倍扩容，无硬上限）
+static int g_cond_used = 0;     // 已分配条件变量数（同上，顺序占满）
 static pthread_mutex_t g_cond_tbl_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int lock_alloc(LockKind k)
@@ -71,17 +73,15 @@ static int lock_alloc(LockKind k)
         if(!g_locks) { pthread_mutex_unlock(&g_tbl_lock); runtime_error("lock: 内存不足"); }
         g_lock_cap = LOCK_INITIAL_CAP;
     }
-    int slot = -1;
-    for(int i = 0; i < g_lock_cap; i++) {
-        if(!g_locks[i].used) { slot = i; break; }
-    }
-    if(slot < 0) {
+    /* 顺序分配 O(1)：锁不销毁、槽位不复用，已分配槽必然从 0 连续占满，
+       无需线性扫描找空闲位（无上限，仅受内存/系统资源限制） */
+    int slot = g_lock_used;
+    if(slot >= g_lock_cap) {
         int newcap = g_lock_cap * 2;
         LockSlot* ns = (LockSlot*)realloc(g_locks, (size_t)newcap * sizeof(LockSlot));
         if(!ns) { pthread_mutex_unlock(&g_tbl_lock); runtime_error("lock: 锁表扩容内存不足"); }
         memset(ns + g_lock_cap, 0, (size_t)(newcap - g_lock_cap) * sizeof(LockSlot));
         g_locks = ns;
-        slot = g_lock_cap;
         g_lock_cap = newcap;
     }
     LockObj* o = (LockObj*)calloc(1, sizeof(LockObj));
@@ -102,6 +102,7 @@ static int lock_alloc(LockKind k)
     }
     g_locks[slot].used = 1;
     g_locks[slot].obj = o;
+    g_lock_used = slot + 1;    // 顺序分配推进游标
     pthread_mutex_unlock(&g_tbl_lock);
     return slot;   // 锁 id = 槽位下标
 }
@@ -200,17 +201,14 @@ static int cond_alloc(void)
         if(!g_conds) { pthread_mutex_unlock(&g_cond_tbl_lock); runtime_error("condvar: 内存不足"); }
         g_cond_cap = LOCK_INITIAL_CAP;
     }
-    int slot = -1;
-    for(int i = 0; i < g_cond_cap; i++) {
-        if(!g_conds[i].used) { slot = i; break; }
-    }
-    if(slot < 0) {
+    /* 顺序分配 O(1)：条件变量不销毁、id 不复用，与锁表同理（无上限，仅受内存限制） */
+    int slot = g_cond_used;
+    if(slot >= g_cond_cap) {
         int newcap = g_cond_cap * 2;
         CondSlot* ns = (CondSlot*)realloc(g_conds, (size_t)newcap * sizeof(CondSlot));
         if(!ns) { pthread_mutex_unlock(&g_cond_tbl_lock); runtime_error("condvar: 条件表扩容内存不足"); }
         memset(ns + g_cond_cap, 0, (size_t)(newcap - g_cond_cap) * sizeof(CondSlot));
         g_conds = ns;
-        slot = g_cond_cap;
         g_cond_cap = newcap;
     }
     CondObj* o = (CondObj*)calloc(1, sizeof(CondObj));
@@ -218,6 +216,7 @@ static int cond_alloc(void)
     pthread_cond_init(&o->cond, NULL);
     g_conds[slot].used = 1;
     g_conds[slot].obj = o;
+    g_cond_used = slot + 1;    // 顺序分配推进游标
     pthread_mutex_unlock(&g_cond_tbl_lock);
     return slot;   // 条件 id = 槽位下标
 }
