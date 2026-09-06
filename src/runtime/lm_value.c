@@ -495,9 +495,25 @@ Value lumin_cast_int(Value v) {
         case VAL_CHAR:
             iv = (unsigned char)v.v.c;
             break;
-        case VAL_STRING:
-            runtime_error("(int) cast cannot convert string");
+        case VAL_STRING: {
+            const char* t = v.v.s;
+            while(*t && isspace((unsigned char)*t)) t++;
+            char* end = NULL;
+            long long r = strtoll(t, &end, 10);
+            if(end == t) runtime_error("(int) cast: 字符串无法转为整数");
+            while(*end && isspace((unsigned char)*end)) end++;
+            if(*end == '.') {
+                double d = strtod(t, &end);
+                while(*end && isspace((unsigned char)*end)) end++;
+                if(*end != '\0') runtime_error("(int) cast: 字符串无法转为整数");
+                iv = (long long)d;
+            } else if(*end != '\0') {
+                runtime_error("(int) cast: 字符串无法转为整数");
+            } else {
+                iv = r;
+            }
             break;
+        }
         default:
             runtime_error("(int) cast: unsupported type");
     }
@@ -521,9 +537,17 @@ Value lumin_cast_double(Value v) {
         case VAL_CHAR:
             dv = (double)(unsigned char)v.v.c;
             break;
-        case VAL_STRING:
-            runtime_error("(double) cast cannot convert string");
+        case VAL_STRING: {
+            const char* t = v.v.s;
+            while(*t && isspace((unsigned char)*t)) t++;
+            char* end = NULL;
+            double d = strtod(t, &end);
+            if(end == t) runtime_error("(double) cast: 字符串无法转为数字");
+            while(*end && isspace((unsigned char)*end)) end++;
+            if(*end != '\0') runtime_error("(double) cast: 字符串无法转为数字");
+            dv = d;
             break;
+        }
         default:
             runtime_error("(double) cast: unsupported type");
     }
