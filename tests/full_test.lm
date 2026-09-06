@@ -255,3 +255,30 @@ idx = 2;
 write "/tmp/ft_data_{idx}.txt" "x";          // 模板路径
 print(file_exists("/tmp/ft_data_2.txt"));    // true
 print(read "/tmp/ft_data_2.txt");            // x
+
+// ============ 12. 字典 / 哈希表 ============
+d = {"name": "kai", "age": 30};
+print(len(d));                    // 2
+print(d["name"]);                 // kai
+print(d["missing"]);              // null
+print(contains(d, "age"));        // true
+d["city"] = "chongqing";
+print(len(d));                    // 3
+print(d["city"]);                 // chongqing
+ks = keys(d);
+print(join(ks, ","));             // name,age,city
+print(len(values(d)));            // 3
+print(type(d));                   // map
+d2 = del(d, "age");
+print(len(d2));                   // 2
+print(contains(d2, "age"));       // false
+d3 = {"a": {"b": 42}, "arr": [1, 2]};
+print(d3["a"]["b"]);              // 42
+print(d3["arr"][1]);              // 2
+d4 = {};                          // 空字典
+print(len(d4));                   // 0
+d5 = {x: 1, y: "two"};            // ID 键（字面量）
+print(d5["x"]);                   // 1
+print(d5 == {"x": 1, "y": "two"});// true
+print(d5 == {"x": 2});            // false
+print(join(keys(d5), "-"));       // x-y

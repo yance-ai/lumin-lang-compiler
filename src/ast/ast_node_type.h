@@ -129,6 +129,13 @@ struct AstNode {
         struct {
             AstNode* elems;  // AST_SEQ 链：数组元素
         } array_lit;
+        struct {
+            AstNode* entries;  // AST_SEQ 链：AST_MAP_ENTRY
+        } map_lit;
+        struct {
+            AstNode* key;    // 键表达式（字符串）
+            AstNode* value;  // 值表达式
+        } map_entry;
     } u;
 };
 

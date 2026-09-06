@@ -55,7 +55,16 @@ Value lumin_sqrt(Value x);   // sqrt(x)：平方根（double），负数报错
 Value lumin_max(Value* args, int n);  // max(a, b, ...)：变参最大值（≥1）
 Value lumin_min(Value* args, int n);  // min(a, b, ...)：变参最小值（≥1）
 Value lumin_join(Value arr, Value sep);  // join(arr, sep)：字符串数组拼接（非字符串元素自动转字符串）
-Value lumin_contains(Value hay, Value needle);  // contains(s/arr, x)：字符串子串 / 数组元素包含
+Value lumin_contains(Value hay, Value needle);  // contains(s/arr/map, x)：字符串子串 / 数组元素 / 字典键包含
+
+// 字典（VAL_MAP）
+void lumin_map_set(Value* map, Value key, Value val);    // d["k"] = v（原地，传指针）
+Value lumin_map_get(Value map, Value key);              // d["k"]；缺键 → null
+int   lumin_map_has(Value map, const char* key);        // 键是否存在
+Value lumin_map_del(Value map, const char* key);        // 删键，返回新字典
+Value lumin_map_keys(Value map);                        // keys(d) → 字符串数组
+Value lumin_map_values(Value map);                      // values(d) → 值数组
+Value lumin_map_lit(Value* kv, int n);                  // OPC_MAP_LIT：键值交替构造
 Value lumin_repeat(Value s, Value n);  // repeat(s, n)：字符串重复 n 次
 Value lumin_replace(Value s, Value from, Value to);  // replace(s, from, to)：替换所有出现
 Value lumin_sum(Value arr);  // sum(arr)：数字数组求和（全 int 返回 int，否则 double）

@@ -65,6 +65,17 @@ Value val_array(int len) {
     return r;
 }
 
+Value val_map(void) {
+    Value r;
+    r.type = VAL_MAP;
+    r.v.map = (ValueMap*)malloc(sizeof(ValueMap));
+    r.v.map->len = 0;
+    r.v.map->cap = 0;
+    r.v.map->keys = NULL;
+    r.v.map->values = NULL;
+    return r;
+}
+
 // -------- 销毁 --------
 void val_destroy(Value* v) {
     if(!v) return;
@@ -80,6 +91,20 @@ void val_destroy(Value* v) {
         free(v->v.array.items);
         v->v.array.items = NULL;
         v->v.array.len = 0;
+        break;
+    }
+    case VAL_MAP: {
+        ValueMap* m = v->v.map;
+        if(m) {
+            for(int i = 0; i < m->len; i++) {
+                free(m->keys[i]);
+                val_destroy(&m->values[i]);
+            }
+            free(m->keys);
+            free(m->values);
+            free(m);
+            v->v.map = NULL;
+        }
         break;
     }
     case VAL_FUNC: {
@@ -125,6 +150,23 @@ Value val_clone(const Value* src) {
         }
         break;
     }
+    case VAL_MAP: {
+        ValueMap* srcm = src->v.map;
+        dst = val_map();
+        ValueMap* dm = dst.v.map;
+        for(int i = 0; i < srcm->len; i++) {
+            if(dm->len >= dm->cap) {
+                int ncap = dm->cap ? dm->cap * 2 : 8;
+                dm->keys = (char**)realloc(dm->keys, sizeof(char*) * ncap);
+                dm->values = (Value*)realloc(dm->values, sizeof(Value) * ncap);
+                dm->cap = ncap;
+            }
+            dm->keys[dm->len] = strdup(srcm->keys[i]);
+            dm->values[dm->len] = val_clone(&srcm->values[i]);
+            dm->len++;
+        }
+        break;
+    }
     case VAL_NONE:
     default:
         dst = val_none();
@@ -144,6 +186,7 @@ const char* val_typename(ValueType t) {
     case VAL_STRING: return "string";
     case VAL_FUNC: return "func";
     case VAL_ARRAY: return "array";
+    case VAL_MAP: return "map";
     default: return "unknown";
     }
 }

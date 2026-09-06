@@ -210,6 +210,15 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    }\n");
                 break;
             }
+            case OPC_MAP_LIT: {
+                int n = in.b;
+                fprintf(out, "    {\n");
+                fprintf(out, "        Value __m = lumin_map_lit(&__stk[__sp - %d], %d);\n", 2 * n, n);
+                fprintf(out, "        __sp = __sp - %d + 1;\n", 2 * n);
+                fprintf(out, "        __stk[__sp - 1] = __m;\n");
+                fprintf(out, "    }\n");
+                break;
+            }
             case OPC_INDEX_GET:
                 fprintf(out, "    { Value __idx = __stk[--__sp], __c = __stk[--__sp]; __stk[__sp++] = lumin_index_get(__c, __idx); }\n");
                 break;
@@ -311,6 +320,12 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_FILE_EXISTS:
                         fprintf(out, "    { Value __r = lumin_file_exists(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b, in.b);
+                        break;
+                    case BUILTIN_KEYS:
+                        fprintf(out, "    { Value __r = lumin_map_keys(__stk[__sp - %d]); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b);
+                        break;
+                    case BUILTIN_VALUES:
+                        fprintf(out, "    { Value __r = lumin_map_values(__stk[__sp - %d]); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b);
                         break;
                     case BUILTIN_MAP:
                     case BUILTIN_FILTER:

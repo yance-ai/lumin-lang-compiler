@@ -38,7 +38,8 @@ typedef enum {
     VAL_CHAR,
     VAL_STRING,
     VAL_FUNC,
-    VAL_ARRAY
+    VAL_ARRAY,
+    VAL_MAP
 } ValueType;
 
 // 数组运行时对象，VAL_ARRAY 使用
@@ -46,6 +47,14 @@ typedef struct {
     Value* items;
     int len;
 } ValueArray;
+
+// 字典运行时对象，VAL_MAP 使用（线性探测哈希：字符串键 → 值）
+typedef struct {
+    char** keys;     // 键（strdup 堆分配）
+    Value* values;   // 值（与 keys 同序）
+    int len;         // 当前键数
+    int cap;         // 容量
+} ValueMap;
 
 // VAL_FUNC：直接持有独立运行时函数堆对象
 typedef struct {
@@ -63,6 +72,7 @@ struct Value {
         char* s;   // VAL_STRING：堆上字符串
         ValueFunc func;        // VAL_FUNC
         ValueArray array;      // VAL_ARRAY
+        ValueMap* map;         // VAL_MAP：堆上共享对象（原地改语义与数组 items 一致）
     } v;
 };
 

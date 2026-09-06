@@ -88,6 +88,13 @@ static void collect_top_level(AstNode* node) {
         case AST_ARRAY_LIT:
             collect_top_level(node->u.array_lit.elems);
             break;
+        case AST_MAP_LIT:
+            collect_top_level(node->u.map_lit.entries);
+            break;
+        case AST_MAP_ENTRY:
+            collect_top_level(node->u.map_entry.key);
+            collect_top_level(node->u.map_entry.value);
+            break;
         case AST_TERNARY:
             collect_top_level(node->u.ternary.cond);
             collect_top_level(node->u.ternary.true_expr);
@@ -340,8 +347,9 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.index.idx);
             if(node->u.index.arr->val_type != VAL_ARRAY &&
                node->u.index.arr->val_type != VAL_STRING &&
+               node->u.index.arr->val_type != VAL_MAP &&
                node->u.index.arr->val_type != VAL_NONE) {
-                fprintf(stderr,"语义错误(第%d行)：下标访问的对象不是数组或字符串\n", node->line);
+                fprintf(stderr,"语义错误(第%d行)：下标访问的对象不是数组、字符串或字典\n", node->line);
                 err = 1;
             }
             node->val_type = VAL_NONE;   // 元素类型不可静态追踪
@@ -352,8 +360,9 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.index_assign.idx);
             err |= typecheck_expr(node->u.index_assign.value);
             if(node->u.index_assign.arr->val_type != VAL_ARRAY &&
+               node->u.index_assign.arr->val_type != VAL_MAP &&
                node->u.index_assign.arr->val_type != VAL_NONE) {
-                fprintf(stderr,"语义错误(第%d行)：下标访问的对象不是数组\n", node->line);
+                fprintf(stderr,"语义错误(第%d行)：下标访问的对象不是数组或字典\n", node->line);
                 err = 1;
             }
             node->val_type = node->u.index_assign.value->val_type;
@@ -362,6 +371,15 @@ int typecheck_expr(AstNode* node)
         case AST_ARRAY_LIT:
             err |= typecheck_expr(node->u.array_lit.elems);
             node->val_type = VAL_ARRAY;
+            break;
+        case AST_MAP_LIT:
+            err |= typecheck_expr(node->u.map_lit.entries);
+            node->val_type = VAL_MAP;
+            break;
+        case AST_MAP_ENTRY:
+            err |= typecheck_expr(node->u.map_entry.key);
+            err |= typecheck_expr(node->u.map_entry.value);
+            node->val_type = VAL_MAP;
             break;
         case AST_PRINT:
             err |= typecheck_expr(node->u.print.expr);
@@ -462,9 +480,10 @@ int typecheck_expr(AstNode* node)
                     {"map", 2, 2}, {"filter", 2, 2}, {"reduce", 3, 3},
                     {"strip", 1, 1}, {"startswith", 2, 2}, {"endswith", 2, 2},
                     {"read_file", 1, 1}, {"write_file", 2, 2}, {"file_exists", 1, 1},
+                    {"keys", 1, 1}, {"values", 1, 1},
                 };
                 int found = 0;
-                for(int k = 0; k < 34; k++) {
+                for(int k = 0; k < 36; k++) {
                     if(strcmp(node->u.call.name, builtins[k].name) == 0) {
                         found = 1;
                         int nargs = count_args(node->u.call.args);

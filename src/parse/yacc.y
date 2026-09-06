@@ -28,7 +28,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 }
 
 %token PRINT ID NUMBER INTEGER PLUS MINUS MUL DIV ASSIGN SEMI LPAREN RPAREN
-%token TRUE FALSE NULL_LIT STRING_LIT
+%token TRUE FALSE NULL_LIT STRING_LIT MAP_OPEN
 %token IF ELSEIF ELSE
 %token GE LE EQ NE GT LT
 %token LBRACE RBRACE
@@ -36,7 +36,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII
 %token PLUSPLUS MINUSMINUS
-%token QMARK COLON
+%token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN
 %token CONTINUE
 %token FUNC ELLIPSIS
@@ -61,7 +61,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 
 %type<node> program stmt_list closed_stmt open_stmt block_stmt
 %type<node> elif_clause_list elif_clause else_part
-%type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary
+%type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> func_def param_list param arg_list arg
 %type <ch> char_lit
@@ -167,10 +167,10 @@ case_list
     ;
 
 case_item
-    : CASE const_expr COLON stmt_list {
+    : CASE const_expr CASE_COLON stmt_list {
         $$ = ast_case($2, $4, 0);
     }
-    | DEFAULT COLON stmt_list {
+    | DEFAULT CASE_COLON stmt_list {
         $$ = ast_case(NULL, $3, 1);
     }
     ;
@@ -227,6 +227,7 @@ primary
     | ID                      { $$ = L(ast_var($1)); }
     | ID LPAREN arg_list RPAREN { $$ = L(ast_call($1, $3)); }  /* 函数调用 foo(a,b,c) */
     | ARRAY_OPEN arg_list RBRACKET { $$ = ast_array_lit($2); }  /* 数组字面量 [1,2,3] / []（lexer 按上下文消歧） */
+    | MAP_OPEN map_items RBRACE   { $$ = ast_map_lit($2); }    /* 字典字面量 {"k": v, name: 1} / {}（lexer 上下文消歧：表达式位置） */
     | LPAREN expr RPAREN      { $$ = $2; }
     | LPAREN TOK_INT RPAREN primary        { $$ = new_cast_node(CAST_INT, $4); }
     | LPAREN TOK_DOUBLE RPAREN primary     { $$ = new_cast_node(CAST_DOUBLE, $4); }
@@ -268,6 +269,24 @@ postfix_expr
       }
     /* 无参方法 a.b → b(a) */
     | postfix_expr DOT ID { $$ = L(ast_call($3, $1)); }
+    ;
+
+/* 字典字面量 {"k": v, name: 1, ...}；键为字符串字面量（支持模板）或标识符 */
+map_items
+    : %empty          { $$ = NULL; }
+    | map_item        { $$ = $1; }
+    | map_items COMMA map_item { $$ = ast_seq($1, $3); }
+    ;
+
+map_item
+    : STRING_LIT COLON expr {
+          AstNode* k = maybe_template($1);
+          free($1);
+          $$ = ast_map_entry(k, $3);
+      }
+    | ID COLON expr {
+          $$ = ast_map_entry(ast_string(strdup($1)), $3);
+      }
     ;
 
 unary_expr

@@ -40,6 +40,8 @@ typedef enum {
     AST_INDEX,         // 数组下标读 a[i]
     AST_INDEX_ASSIGN,  // 数组下标写 a[i] = v
     AST_ARRAY_LIT,     // 数组字面量 [1,2,3]
+    AST_MAP_LIT,       // 字典字面量 {"k": v, ...}
+    AST_MAP_ENTRY,     // 字典字面量的一项（键表达式 + 值表达式）
 } AstType;
 
 // 二元运算符

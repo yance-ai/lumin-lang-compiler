@@ -131,6 +131,19 @@ static void c_args(Ctx* c, AstNode* args, int* argc)
     c_args(c, args->u.seq.second, argc);
 }
 
+// 字典字面量项递归展开：AST_SEQ 链 / AST_MAP_ENTRY 单节点
+static void c_map_entries(Ctx* c, AstNode* e, int* n) {
+    if(!e) return;
+    if(e->type == AST_SEQ) {
+        c_map_entries(c, e->u.seq.first, n);
+        c_map_entries(c, e->u.seq.second, n);
+        return;
+    }
+    c_expr(c, e->u.map_entry.key);
+    c_expr(c, e->u.map_entry.value);
+    (*n)++;
+}
+
 // ---------------- 常量折叠 ----------------
 // 纯字面量表达式在编译期求值（调用运行时 lumin_*，语义与执行期一致）。
 // 除零不折叠（保留运行期错误行为）。
@@ -347,7 +360,7 @@ static void c_expr(Ctx* c, AstNode* node)
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
-            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists"};
+            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values"};
             int bid = -1;
             if(!ir_func_table_lookup(node->u.call.name)) {
                 for(int k = 0; k < BUILTIN_COUNT; k++) {
@@ -380,6 +393,12 @@ static void c_expr(Ctx* c, AstNode* node)
             int n = 0;
             c_args(c, node->u.array_lit.elems, &n);
             emit(c, OPC_ARRAY_LIT, 0, n);
+            break;
+        }
+        case AST_MAP_LIT: {
+            int n = 0;
+            c_map_entries(c, node->u.map_lit.entries, &n);
+            emit(c, OPC_MAP_LIT, 0, n);
             break;
         }
         case AST_PRINT:
@@ -443,6 +462,7 @@ static void c_stmt(Ctx* c, AstNode* node)
         case AST_INDEX:
         case AST_INDEX_ASSIGN:
         case AST_ARRAY_LIT:
+        case AST_MAP_LIT:
             c_expr(c, node);
             emit(c, OPC_POP, 0, 0);
             break;

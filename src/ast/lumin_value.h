@@ -17,6 +17,7 @@ Value val_char(char v);
 Value val_string(const char* s);
 // ❗ 删除这一行：Value val_func(AstNode* func_ast);
 Value val_array(int len);
+Value val_map(void);
 
 // ---------------- 内存管理 ----------------
 void val_destroy(Value* v);

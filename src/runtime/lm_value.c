@@ -6,6 +6,10 @@
 #include <math.h>
 #include <ctype.h>
 
+// 字典辅助（VAL_MAP）前向声明：lumin_eq 等在定义之前引用
+static int map_find(const ValueMap* m, const char* key);
+static void map_reserve(ValueMap* m, int need);
+
 Value lumin_make_int(long long i) {
     Value v;
     v.type = VAL_INT;
@@ -220,12 +224,17 @@ Value lumin_array_get(Value arr, Value idx) {
 Value lumin_len(Value v) {
     if(v.type == VAL_ARRAY) return lumin_make_int(v.v.array.len);
     if(v.type == VAL_STRING) return lumin_make_int((long long)strlen(v.v.s));
-    runtime_error("len() 参数必须是数组或字符串");
+    if(v.type == VAL_MAP) return lumin_make_int(v.v.map->len);
+    runtime_error("len() 参数必须是数组、字符串或字典");
     return lumin_make_int(0);
 }
 
-// 下标读：数组元素 / 字符串字符（返回 char）
+// 下标读：数组元素 / 字符串字符（返回 char） / 字典键
 Value lumin_index_get(Value c, Value idx) {
+    if(c.type == VAL_MAP) {
+        if(idx.type != VAL_STRING) runtime_error("字典下标必须是字符串键");
+        return lumin_map_get(c, idx);
+    }
     long long i = array_index_of(idx);
     if(c.type == VAL_ARRAY) {
         if(i < 0 || i >= c.v.array.len) {
@@ -244,7 +253,7 @@ Value lumin_index_get(Value c, Value idx) {
         }
         return lumin_make_char(c.v.s[i]);
     }
-    runtime_error("下标访问的对象不是数组或字符串");
+    runtime_error("下标访问的对象不是数组、字符串或字典");
     return val_none();
 }
 
@@ -260,6 +269,7 @@ Value lumin_type(Value v) {
         case VAL_STRING: return lumin_make_string("string");
         case VAL_FUNC:   return lumin_make_string("func");
         case VAL_ARRAY:  return lumin_make_string("array");
+        case VAL_MAP:    return lumin_make_string("map");
     }
     return lumin_make_string("unknown");
 }
@@ -319,6 +329,7 @@ Value lumin_substr(Value s, Value start, Value n) {
 
 // 写回数组元素（深拷贝），返回 val 作为表达式值
 Value lumin_array_set(Value arr, Value idx, Value val) {
+    if(arr.type == VAL_MAP) { lumin_map_set(&arr, idx, val); return val; }
     if(arr.type != VAL_ARRAY) runtime_error("下标访问的对象不是数组");
     long long i = array_index_of(idx);
     if(i < 0 || i >= arr.v.array.len) {
@@ -403,6 +414,17 @@ Value lumin_eq(Value a, Value b) {
         free(sa);
         free(sb);
         return lumin_make_bool(eq);
+    }
+    if(a.type == VAL_MAP || b.type == VAL_MAP) {
+        if(a.type != VAL_MAP || b.type != VAL_MAP) return lumin_make_bool(0);
+        if(a.v.map->len != b.v.map->len) return lumin_make_bool(0);
+        for(int i = 0; i < a.v.map->len; i++) {
+            int pos = map_find(b.v.map, a.v.map->keys[i]);
+            if(pos < 0) return lumin_make_bool(0);
+            Value eq = lumin_eq(a.v.map->values[i], b.v.map->values[pos]);
+            if(!eq.v.b) return lumin_make_bool(0);
+        }
+        return lumin_make_bool(1);
     }
     double na = value_as_number(a);
     double nb = value_as_number(b);
@@ -667,7 +689,11 @@ Value lumin_split(Value s, Value sep)
 // del(arr, idx)：返回删除第 idx 个元素后的新数组（值语义，原数组不变）
 Value lumin_del(Value arr, Value idx)
 {
-    if(arr.type != VAL_ARRAY) runtime_error("del() 第一个参数必须是数组");
+    if(arr.type == VAL_MAP) {
+        if(idx.type != VAL_STRING) runtime_error("del() 字典键必须是字符串");
+        return lumin_map_del(arr, idx.v.s);
+    }
+    if(arr.type != VAL_ARRAY) runtime_error("del() 第一个参数必须是数组或字典");
     if(idx.type != VAL_INT) runtime_error("del() 下标必须是整数");
     long long i = idx.v.i;
     int n = arr.v.array.len;
@@ -784,7 +810,11 @@ Value lumin_contains(Value hay, Value needle)
         }
         return lumin_make_bool(0);
     }
-    runtime_error("contains() 第一个参数必须是字符串或数组");
+    if(hay.type == VAL_MAP) {
+        if(needle.type != VAL_STRING) runtime_error("contains() 字典键必须是字符串");
+        return lumin_make_bool(lumin_map_has(hay, needle.v.s));
+    }
+    runtime_error("contains() 第一个参数必须是字符串、数组或字典");
     return val_none();
 }
 
@@ -1054,4 +1084,102 @@ Value lumin_file_exists(Value* args, int n) {
     FILE* f = fopen(args[0].v.s, "rb");
     if(f) { fclose(f); return val_bool(1); }
     return val_bool(0);
+}
+
+// ---------------- 字典（VAL_MAP） ----------------
+
+static int map_find(const ValueMap* m, const char* key) {
+    for(int i = 0; i < m->len; i++)
+        if(strcmp(m->keys[i], key) == 0) return i;
+    return -1;
+}
+
+static void map_reserve(ValueMap* m, int need) {
+    if(need <= m->cap) return;
+    int ncap = m->cap ? m->cap : 8;
+    while(ncap < need) ncap *= 2;
+    m->keys = (char**)realloc(m->keys, sizeof(char*) * ncap);
+    m->values = (Value*)realloc(m->values, sizeof(Value) * ncap);
+    m->cap = ncap;
+}
+
+// val_map() 定义在 ast/lumin_value.c（与 val_array 同层，供 stackframe_test 等链接）
+
+// 下标写：d["k"] = v（原地改共享对象；ValueMap 是堆上指针，所有引用共享）
+void lumin_map_set(Value* map, Value key, Value val) {
+    if(map->type != VAL_MAP || key.type != VAL_STRING)
+        runtime_error("字典下标写需要 字典[字符串键]");
+    ValueMap* m = map->v.map;
+    int i = map_find(m, key.v.s);
+    if(i >= 0) {
+        val_destroy(&m->values[i]);
+        m->values[i] = val_clone(&val);
+    } else {
+        map_reserve(m, m->len + 1);
+        m->keys[m->len] = strdup(key.v.s);
+        m->values[m->len] = val_clone(&val);
+        m->len++;
+    }
+}
+
+// 下标读：d["k"]；键不存在 → null
+Value lumin_map_get(Value map, Value key) {
+    if(map.type != VAL_MAP || key.type != VAL_STRING)
+        runtime_error("字典下标读需要 字典[字符串键]");
+    ValueMap* m = map.v.map;
+    int i = map_find(m, key.v.s);
+    if(i < 0) return val_none();
+    return m->values[i];
+}
+
+int lumin_map_has(Value map, const char* key) {
+    if(map.type != VAL_MAP) return 0;
+    return map_find(map.v.map, key) >= 0;
+}
+
+// del(d, "k") → 新字典（去掉该键；键不存在 → 原样拷贝）
+Value lumin_map_del(Value map, const char* key) {
+    if(map.type != VAL_MAP) runtime_error("del() 参数必须是数组或字典");
+    ValueMap* src = map.v.map;
+    Value r = val_map();
+    ValueMap* dst = r.v.map;
+    map_reserve(dst, src->len);
+    for(int i = 0; i < src->len; i++) {
+        if(strcmp(src->keys[i], key) == 0) continue;
+        dst->keys[dst->len] = strdup(src->keys[i]);
+        dst->values[dst->len] = val_clone(&src->values[i]);
+        dst->len++;
+    }
+    return r;
+}
+
+Value lumin_map_keys(Value map) {
+    if(map.type != VAL_MAP) runtime_error("keys() 参数必须是字典");
+    ValueMap* m = map.v.map;
+    Value r = val_array(m->len);
+    for(int i = 0; i < m->len; i++)
+        r.v.array.items[i] = lumin_make_string(m->keys[i]);
+    return r;
+}
+
+Value lumin_map_values(Value map) {
+    if(map.type != VAL_MAP) runtime_error("values() 参数必须是字典");
+    ValueMap* m = map.v.map;
+    Value r = val_array(m->len);
+    for(int i = 0; i < m->len; i++)
+        r.v.array.items[i] = val_clone(&m->values[i]);
+    return r;
+}
+
+// OPC_MAP_LIT：栈上 2n 个值（键、值交替）构造字典
+// 注意：lumin_map_set 返回 val（下标写表达式值），此处必须原地改 r
+Value lumin_map_lit(Value* kv, int n) {
+    Value r = val_map();
+    for(int i = 0; i < n; i++) {
+        Value k = kv[i * 2];
+        Value v = kv[i * 2 + 1];
+        if(k.type != VAL_STRING) runtime_error("字典字面量的键必须是字符串");
+        lumin_map_set(&r, k, v);
+    }
+    return r;
 }

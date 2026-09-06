@@ -7,12 +7,16 @@
 static int prev_token = 0;
 
 // 表达式结束类 token（其后 `[` 是下标）
+static int in_case_expr = 0;   /* case 值后的冒号 → CASE_COLON（与字典/三元冒号区分） */
+
 static int is_expr_end(int t)
 {
     switch(t) {
         case ID: case INTEGER: case NUMBER: case STRING_LIT: case TOK_CHAR_LIT:
         case TRUE: case FALSE: case RBRACKET: case RPAREN:
         case PLUSPLUS: case MINUSMINUS:
+        case ELSE: case ELSEIF:
+        case CASE_COLON:          /* case 10: { → 块 */
             return 1;
         default:
             return 0;
@@ -38,8 +42,8 @@ static int is_expr_end(int t)
 "for"           { fprintf(stderr,"[LEX] FOR\n"); LEX_RET(FOR); }
 
 "switch"        { fprintf(stderr,"[LEX] SWITCH\n");  LEX_RET(SWITCH); }
-"case"          { fprintf(stderr,"[LEX] CASE\n");    LEX_RET(CASE); }
-"default"       { fprintf(stderr,"[LEX] DEFAULT\n"); LEX_RET(DEFAULT); }
+"case"          { in_case_expr = 1; fprintf(stderr,"[LEX] CASE\n");    LEX_RET(CASE); }
+"default"       { in_case_expr = 1; fprintf(stderr,"[LEX] DEFAULT\n"); LEX_RET(DEFAULT); }
 "break"         { fprintf(stderr,"[LEX] BREAK\n");   LEX_RET(BREAK); }
 "continue"      { fprintf(stderr,"[LEX] CONTINUE\n"); LEX_RET(CONTINUE); }
 "return"        { fprintf(stderr,"[LEX] RETURN\n");  LEX_RET(RETURN); }
@@ -115,14 +119,17 @@ static int is_expr_end(int t)
 "/="        { fprintf(stderr,"[LEX] DIVEQ\n"); LEX_RET(DIVEQ); }
 
 "?"         { fprintf(stderr,"[LEX] QMARK\n"); LEX_RET(QMARK); }
-":"         { fprintf(stderr,"[LEX] COLON\n"); LEX_RET(COLON); }
+":"         { if(in_case_expr) { in_case_expr = 0; fprintf(stderr,"[LEX] CASE_COLON\n"); LEX_RET(CASE_COLON); }
+             fprintf(stderr,"[LEX] COLON\n"); LEX_RET(COLON); }
 
 "="             { fprintf(stderr,"[LEX] ASSIGN\n"); LEX_RET(ASSIGN); }
 ";"             { fprintf(stderr,"[LEX] SEMI\n"); LEX_RET(SEMI); }
 
 "("             { fprintf(stderr,"[LEX] LPAREN\n"); LEX_RET(LPAREN); }
 ")"             { fprintf(stderr,"[LEX] RPAREN\n"); LEX_RET(RPAREN); }
-"{"             { fprintf(stderr,"[LEX] LBRACE\n"); LEX_RET(LBRACE); }
+"{"             { fprintf(stderr,"[LEX] %s\n", is_expr_end(prev_token) ? "LBRACE" : "MAP_OPEN");
+                  if(is_expr_end(prev_token)) LEX_RET(LBRACE);
+                  else { prev_token = MAP_OPEN; return MAP_OPEN; } }
 "}"             { fprintf(stderr,"[LEX] RBRACE\n"); LEX_RET(RBRACE); }
 "["             { fprintf(stderr,"[LEX] %s\n", is_expr_end(prev_token) ? "LBRACKET" : "ARRAY_OPEN");
                   if(is_expr_end(prev_token)) LEX_RET(LBRACKET);

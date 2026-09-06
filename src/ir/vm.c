@@ -178,6 +178,13 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp - 1] = arr;
                 break;
             }
+            case OPC_MAP_LIT: {
+                int n = in.b;
+                Value m = lumin_map_lit(&stack[sp - 2 * n], n);
+                sp = sp - 2 * n + 1;
+                stack[sp - 1] = m;
+                break;
+            }
             case OPC_INDEX_GET: {
                 Value idx = stack[--sp];
                 Value c = stack[--sp];
@@ -305,6 +312,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_READ_FILE:  { int n2 = in.b; Value r = lumin_read_file(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
                     case BUILTIN_WRITE_FILE: { int n2 = in.b; Value r = lumin_write_file(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
                     case BUILTIN_FILE_EXISTS:{ int n2 = in.b; Value r = lumin_file_exists(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
+                    case BUILTIN_KEYS:     { int n2 = in.b; Value r = lumin_map_keys(stack[sp - n2]); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
+                    case BUILTIN_VALUES:   { int n2 = in.b; Value r = lumin_map_values(stack[sp - n2]); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
                     case BUILTIN_MAP:
                     case BUILTIN_FILTER:
                     case BUILTIN_REDUCE: {

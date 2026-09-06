@@ -51,6 +51,8 @@ AstNode* ast_arg_append(AstNode* list, AstNode* arg);
 AstNode* ast_index(AstNode* arr, AstNode* idx);
 AstNode* ast_index_assign(AstNode* arr, AstNode* idx, AstNode* value);
 AstNode* ast_array_lit(AstNode* elems);
+AstNode* ast_map_lit(AstNode* entries);
+AstNode* ast_map_entry(AstNode* key, AstNode* value);
 
 // 深拷贝（复合赋值下标展开防双重释放）
 AstNode* ast_clone_node(const AstNode* src);

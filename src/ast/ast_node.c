@@ -379,6 +379,19 @@ AstNode* ast_array_lit(AstNode* elems) {
     return n;
 }
 
+AstNode* ast_map_lit(AstNode* entries) {
+    AstNode* n = ast_new(AST_MAP_LIT);
+    n->u.map_lit.entries = entries;
+    return n;
+}
+
+AstNode* ast_map_entry(AstNode* key, AstNode* value) {
+    AstNode* n = ast_new(AST_MAP_ENTRY);
+    n->u.map_entry.key = key;
+    n->u.map_entry.value = value;
+    return n;
+}
+
 AstNode* ast_arg_append(AstNode* list, AstNode* arg) {
     // 复用于AST_SEQ风格链表，简单复用AST_SEQ串联实参
     return ast_seq(list, arg);
