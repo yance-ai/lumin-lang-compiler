@@ -141,7 +141,8 @@ static int is_jump_target(BytecodeFunc* fn, int idx)
 {
     for(int i = 0; i < fn->code_len; i++) {
         Instruction in = fn->code[i];
-        if((in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE) && in.a == idx)
+        if((in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE
+            || in.op == OPC_TRY || in.op == OPC_ENDTRY) && in.a == idx)
             return 1;
     }
     return 0;
@@ -386,6 +387,24 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_POP:
                 fprintf(out, "    __sp--;\n");
                 break;
+            case OPC_TRY:
+                /* C 级错误处理：全局 jmp_buf 栈（longjmp 后自动变量不可靠，索引从 __g_depth 反推） */
+                fprintf(out, "    { int __d = __g_depth; __g_tgt[__d] = %d; __g_sp0[__d] = __sp; __g_prev[__d] = g_err_jmp;\n", in.a);
+                fprintf(out, "      g_err_jmp = &__g_jbs[__d];\n");
+                fprintf(out, "      if(setjmp(__g_jbs[__d]) == 0) { __g_depth = __d + 1;\n");
+                break;
+            case OPC_ENDTRY:
+                fprintf(out, "        __g_depth = __d; g_err_jmp = __g_prev[__d];\n");
+                fprintf(out, "      } else {\n");
+                fprintf(out, "        int __d2 = __g_depth - 1;\n");
+                fprintf(out, "        __sp = __g_sp0[__d2]; __g_depth = __d2; g_err_jmp = __g_prev[__d2];\n");
+                fprintf(out, "        goto L%d;\n", in.a);
+                fprintf(out, "      }\n");
+                fprintf(out, "    }\n");
+                break;
+            case OPC_GET_ERR:
+                fprintf(out, "    __stk[__sp++] = lumin_make_string(g_err_msg);\n");
+                break;
             case OPC_JMP:
                 fprintf(out, "    goto L%d;\n", in.a);
                 break;
@@ -396,24 +415,25 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    if (lumin_to_bool(__stk[--__sp])) goto L%d;\n", in.a);
                 break;
             case OPC_CALL: {
+                /* 帧链优先（VM 语义）：名字是局部/全局变量时按函数值动态调用，
+                   与具名全局函数冲突时以变量为准（局部闭包遮蔽全局函数） */
+                int is_var = (g_cur_fn && (fn_has_param(g_cur_fn, nm) || ns_has(&fn_locals, nm))) ||
+                             ns_has(&g_globals, nm);
+                if(is_var) {
+                    int argc = in.b;
+                    fprintf(out, "    {\n");
+                    fprintf(out, "        Value __f = %s;\n", cvar(nm));
+                    fprintf(out, "        if(__f.type != VAL_FUNC) runtime_error(\"尝试调用非函数: %s\");\n", nm);
+                    fprintf(out, "        int __argc = %d;\n", argc);
+                    fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
+                    fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - __argc + __k];\n");
+                    fprintf(out, "        __sp -= __argc;\n");
+                    fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))__f.v.func.func_obj)(__args, __argc);\n");
+                    fprintf(out, "    }\n");
+                    break;
+                }
                 BytecodeFunc* callee = ir_func_table_lookup(nm);
                 if(!callee) {
-                    // 变量中存函数值 → 动态值调用（与 VM OPC_CALL 帧链语义一致）
-                    int is_var = (g_cur_fn && (fn_has_param(g_cur_fn, nm) || ns_has(&fn_locals, nm))) ||
-                                 ns_has(&g_globals, nm);
-                    if(is_var) {
-                        int argc = in.b;
-                        fprintf(out, "    {\n");
-                        fprintf(out, "        Value __f = %s;\n", cvar(nm));
-                        fprintf(out, "        if(__f.type != VAL_FUNC) runtime_error(\"尝试调用非函数: %s\");\n", nm);
-                        fprintf(out, "        int __argc = %d;\n", argc);
-                        fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
-                        fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - __argc + __k];\n");
-                        fprintf(out, "        __sp -= __argc;\n");
-                        fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))__f.v.func.func_obj)(__args, __argc);\n");
-                        fprintf(out, "    }\n");
-                        break;
-                    }
                     fprintf(stderr, "codegen: 未定义函数: %s\n", nm);
                     exit(EXIT_FAILURE);
                 }
@@ -466,15 +486,17 @@ static void emit_insns(BytecodeFunc* fn)
                 break;
             }
             case OPC_RETURN:
-                if(g_cur_fn)
+                if(g_cur_fn) {
+                    fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0;\n");
                     fprintf(out, "    { Value __v = __stk[--__sp]; return val_clone(&__v); }\n");
-                else
+                } else
                     fprintf(out, "    return 0;\n");
                 break;
             case OPC_RETURN_NIL:
-                if(g_cur_fn)
+                if(g_cur_fn) {
+                    fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0;\n");
                     fprintf(out, "    return val_none();\n");
-                else
+                } else
                     fprintf(out, "    return 0;\n");
                 break;
             case OPC_HALT:
@@ -512,6 +534,7 @@ static void emit_func_def(BytecodeFunc* fn)
     fprintf(out, ")\n{\n");
     fprintf(out, "    Value __stk[%d];\n", maxd + 2);
     fprintf(out, "    int __sp = 0;\n");
+    fprintf(out, "    int __g_d0 = __g_depth; jmp_buf* __g_gj0 = g_err_jmp;\n");
     for(int i = 0; i < fn_locals.count; i++) {
         fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
     }

@@ -8,6 +8,14 @@
 #include "runtime/lm_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <setjmp.h>
+
+/* try/catch 错误处理器栈（VM 侧；C 生成侧用局部 jmp_buf） */
+static jmp_buf vm_jbs[64];
+static jmp_buf* vm_prev[64];
+static int vm_depth = 0;
+static int vm_sp[64];
+static int vm_target[64];   /* 每层的 catch 目标（longjmp 后自动变量不可靠） */
 
 #define VM_STACK_MAX 256
 
@@ -96,6 +104,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
     int sp = 0;
     int pc = 0;
+    /* 函数边界隔离 try 状态：进入保存，所有退出点恢复（try 内 return 不能泄漏） */
+    int saved_depth = vm_depth;
+    jmp_buf* saved_gj = g_err_jmp;
 
     if(getenv("LUMIN_BC_DUMP")) {
         fprintf(stderr, "== bc dump: %s (code_len=%d, max_stack=%d) ==\n",
@@ -373,6 +384,31 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_POP:
                 sp--;
                 break;
+            case OPC_TRY: {
+                /* longjmp 后自动变量值未定义：catch 目标按层 static 保存 */
+                int d = vm_depth;
+                vm_target[d] = in.a;
+                vm_sp[d] = sp;
+                vm_prev[d] = g_err_jmp;
+                g_err_jmp = &vm_jbs[d];
+                if(setjmp(vm_jbs[d]) == 0) {
+                    vm_depth = d + 1;
+                } else {
+                    /* longjmp 后局部变量值未定义：本层索引从 static vm_depth 反推 */
+                    int d2 = vm_depth - 1;
+                    sp = vm_sp[d2];
+                    vm_depth = d2;
+                    g_err_jmp = vm_prev[d2];
+                    pc = vm_target[d2];
+                }
+                break;
+            }
+            case OPC_ENDTRY:
+                if(vm_depth > 0) { vm_depth--; g_err_jmp = vm_prev[vm_depth]; }
+                break;
+            case OPC_GET_ERR:
+                stack[sp++] = lumin_make_string(g_err_msg);
+                break;
             case OPC_JMP:
                 pc = in.a;
                 break;
@@ -479,13 +515,19 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             }
             case OPC_RETURN: {
                 Value v = stack[--sp];
+                vm_depth = saved_depth;
+                g_err_jmp = saved_gj;
                 free(stack);
                 return val_clone(&v);
             }
             case OPC_RETURN_NIL:
+                vm_depth = saved_depth;
+                g_err_jmp = saved_gj;
                 free(stack);
                 return val_none();
             case OPC_HALT:
+                vm_depth = saved_depth;
+                g_err_jmp = saved_gj;
                 free(stack);
                 return val_none();
             default:

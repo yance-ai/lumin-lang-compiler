@@ -118,6 +118,11 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
         case OPC_CAST_INT: case OPC_CAST_DOUBLE: case OPC_CAST_CHAR:
         case OPC_CAST_BOOL: case OPC_CAST_STRING: case OPC_CAST_ASCII:
             return 0;                        // 弹1压1
+        case OPC_TRY:
+        case OPC_ENDTRY:
+            return 0;                        // 栈不变
+        case OPC_GET_ERR:
+            return 1;                        // 压 1 错误消息
         case OPC_BUILTIN:
             return -in.b + 1;                // 弹 b 实参，压 1 结果
         case OPC_ARRAY_LIT:
@@ -250,6 +255,9 @@ static const char* opc_name(OpCode op)
         case OPC_TO_BOOL: return "TO_BOOL";
         case OPC_DUP: return "DUP";
         case OPC_POP: return "POP";
+        case OPC_TRY: return "TRY";
+        case OPC_ENDTRY: return "ENDTRY";
+        case OPC_GET_ERR: return "GET_ERR";
         case OPC_JMP: return "JMP";
         case OPC_JMP_IF_FALSE: return "JMP_IF_FALSE";
         case OPC_JMP_IF_TRUE: return "JMP_IF_TRUE";
@@ -308,6 +316,8 @@ void bc_disasm(FILE* out, BytecodeFunc* fn)
             case OPC_JMP:
             case OPC_JMP_IF_FALSE:
             case OPC_JMP_IF_TRUE:
+            case OPC_TRY:
+            case OPC_ENDTRY:
                 snprintf(txt, sizeof(txt), "%s L%d", opc_name(in.op), in.a);
                 break;
             case OPC_CALL:

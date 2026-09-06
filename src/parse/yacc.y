@@ -37,7 +37,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
-%token SWITCH CASE DEFAULT BREAK RETURN
+%token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH
 %token CONTINUE
 %token FUNC ELLIPSIS
 %token READ WRITE
@@ -59,7 +59,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %right ASSIGN        /*赋值最低*/
 %precedence ELSE
 
-%type<node> program stmt_list closed_stmt open_stmt block_stmt
+%type<node> program stmt_list closed_stmt open_stmt block_stmt try_stmt
 %type<node> elif_clause_list elif_clause else_part
 %type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
@@ -98,6 +98,7 @@ closed_stmt
           free($2);
           $$ = L(ast_call(strdup("write_file"), ast_seq(p, $3)));
       }
+    | try_stmt { $$ = $1; }
     ;
 
 func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
@@ -136,6 +137,13 @@ arg
 
 open_stmt
     : IF LPAREN expr RPAREN closed_stmt elif_clause_list else_part         { $$ = ast_if_chain($3, $5, $6, $7); }
+    ;
+
+/* try { body } catch (e) { handler } */
+try_stmt
+    : TRY block_stmt CATCH LPAREN ID RPAREN block_stmt {
+          $$ = ast_try($2, strdup($5), $7);
+      }
     ;
 
 block_stmt

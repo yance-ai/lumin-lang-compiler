@@ -27,6 +27,9 @@ typedef enum {
     OPC_TO_BOOL,      // 弹1压1 bool
     OPC_DUP,          // 复制栈顶
     OPC_POP,          // 丢弃栈顶
+    OPC_TRY,          // a=catch 起始pc；setjmp 注册错误处理器
+    OPC_ENDTRY,       // a=catch 起始pc；正常路径恢复外层处理器
+    OPC_GET_ERR,      // 压入最近捕获的错误消息字符串（catch 绑定用）
     OPC_JMP,          // a=目标pc
     OPC_JMP_IF_FALSE, // a=目标pc；弹条件，假则跳
     OPC_JMP_IF_TRUE,  // a=目标pc；弹条件，真则跳

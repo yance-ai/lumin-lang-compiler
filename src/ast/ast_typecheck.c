@@ -91,6 +91,10 @@ static void collect_top_level(AstNode* node) {
         case AST_MAP_LIT:
             collect_top_level(node->u.map_lit.entries);
             break;
+        case AST_TRY:
+            collect_top_level(node->u.trynode.body);
+            collect_top_level(node->u.trynode.catch_body);
+            break;
         case AST_MAP_ENTRY:
             collect_top_level(node->u.map_entry.key);
             collect_top_level(node->u.map_entry.value);
@@ -380,6 +384,13 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.map_entry.key);
             err |= typecheck_expr(node->u.map_entry.value);
             node->val_type = VAL_MAP;
+            break;
+        case AST_TRY:
+            err |= typecheck_expr(node->u.trynode.body);
+            /* catch 变量先注册（作用域：catch 块内）再检查 catch 块 */
+            static_sym_put(node->u.trynode.catch_var, VAL_NONE);
+            err |= typecheck_expr(node->u.trynode.catch_body);
+            node->val_type = VAL_NONE;
             break;
         case AST_PRINT:
             err |= typecheck_expr(node->u.print.expr);

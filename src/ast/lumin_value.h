@@ -8,6 +8,11 @@
 // runtime错误抛出
 void runtime_error(const char* msg);
 
+// try/catch 全局错误状态：当前错误跳转点（NULL=无 try，直接退出）与错误消息
+#include <setjmp.h>
+extern jmp_buf* g_err_jmp;
+extern char g_err_msg[1024];
+
 // ---------------- 值构造API ----------------
 Value val_none(void);
 Value val_int(long long v);

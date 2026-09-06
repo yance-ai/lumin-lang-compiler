@@ -508,6 +508,25 @@ static void c_stmt(Ctx* c, AstNode* node)
             for(int i = 0; i < jump_cnt; i++) patch_to(c, end_jumps[i]);
             break;
         }
+        case AST_TRY: {
+            /* try { body } catch (e) { handler }
+               布局：TRY → body → ENDTRY → JMP skip → catch: GET_ERR, e=..., handler */
+            int jtry = here(c);
+            emit(c, OPC_TRY, 0, 0);
+            c_stmt(c, node->u.trynode.body);
+            int jend = here(c);
+            emit(c, OPC_ENDTRY, 0, 0);
+            int jskip = here(c);
+            emit(c, OPC_JMP, 0, 0);
+            int cstart = here(c);
+            bf_patch(c->fn, jtry, cstart);   // 错误恢复 → catch
+            bf_patch(c->fn, jend, cstart);   // ENDTRY 的 a（C 端 else 分支 goto）
+            emit(c, OPC_GET_ERR, 0, 0);
+            emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.trynode.catch_var), 0);
+            c_stmt(c, node->u.trynode.catch_body);
+            patch_to(c, jskip);
+            break;
+        }
         case AST_ELIF:
             // 仅由 IF_CHAIN 直接遍历，不独立出现
             break;

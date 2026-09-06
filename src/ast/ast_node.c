@@ -385,6 +385,14 @@ AstNode* ast_map_lit(AstNode* entries) {
     return n;
 }
 
+AstNode* ast_try(AstNode* body, char* catch_var, AstNode* catch_body) {
+    AstNode* n = ast_new(AST_TRY);
+    n->u.trynode.body = body;
+    n->u.trynode.catch_var = catch_var;
+    n->u.trynode.catch_body = catch_body;
+    return n;
+}
+
 AstNode* ast_map_entry(AstNode* key, AstNode* value) {
     AstNode* n = ast_new(AST_MAP_ENTRY);
     n->u.map_entry.key = key;

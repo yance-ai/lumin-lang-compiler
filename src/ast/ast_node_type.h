@@ -136,6 +136,11 @@ struct AstNode {
             AstNode* key;    // 键表达式（字符串）
             AstNode* value;  // 值表达式
         } map_entry;
+        struct {
+            AstNode* body;       // try 块
+            char* catch_var;     // catch (e) 的变量名
+            AstNode* catch_body; // catch 块
+        } trynode;
     } u;
 };
 

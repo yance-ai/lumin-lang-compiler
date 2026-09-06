@@ -3,7 +3,7 @@
 
 #include "lumin_types.h"
 
-#define STATIC_SYM_MAX 64
+#define STATIC_SYM_MAX 128
 
 typedef struct {
     char* name;

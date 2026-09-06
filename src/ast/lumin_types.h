@@ -42,6 +42,7 @@ typedef enum {
     AST_ARRAY_LIT,     // 数组字面量 [1,2,3]
     AST_MAP_LIT,       // 字典字面量 {"k": v, ...}
     AST_MAP_ENTRY,     // 字典字面量的一项（键表达式 + 值表达式）
+    AST_TRY,           // try { body } catch (e) { handler }
 } AstType;
 
 // 二元运算符

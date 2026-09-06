@@ -1,7 +1,21 @@
 #include "lumin_value.h"
 #include <string.h>
 
+jmp_buf* g_err_jmp = NULL;
+char g_err_msg[1024] = {0};
+/* C 生成通道的 try/catch 处理器栈（VM 通道用 vm.c 的 vm_jbs，互不干扰） */
+jmp_buf __g_jbs[64];
+jmp_buf* __g_prev[64];
+int __g_depth = 0;
+int __g_sp0[64];
+int __g_tgt[64];
+
+// 运行时错误：有 try 处理器则恢复（longjmp），否则打印并退出
 void runtime_error(const char* msg) {
+    if(g_err_jmp) {
+        snprintf(g_err_msg, sizeof(g_err_msg), "%s", msg);
+        longjmp(*g_err_jmp, 1);
+    }
     fprintf(stderr, "Runtime Error: %s\n", msg);
     exit(EXIT_FAILURE);
 }
