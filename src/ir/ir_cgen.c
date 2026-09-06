@@ -342,6 +342,26 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_KEYS:
                         fprintf(out, "    { Value __r = lumin_map_keys(__stk[__sp - %d]); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b);
                         break;
+                    case BUILTIN_THREAD: {
+                        int argc = in.b;
+                        fprintf(out, "    {\n");
+                        fprintf(out, "        int __argc = %d;\n", argc);
+                        fprintf(out, "        Value __fn = __stk[__sp - __argc];\n");
+                        fprintf(out, "        if(__fn.type != VAL_FUNC) runtime_error(\"thread() 第一个参数必须是函数\");\n");
+                        fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
+                        if(argc > 1)
+                            fprintf(out, "        int __tid = lumin_thread_start_c(__cf, &__stk[__sp - __argc + 1], %d);\n", argc - 1);
+                        else
+                            fprintf(out, "        int __tid = lumin_thread_start_c(__cf, NULL, 0);\n");
+                        fprintf(out, "        __stk[__sp - __argc] = lumin_make_int(__tid);\n");
+                        fprintf(out, "        __sp = __sp - __argc + 1;\n");
+                        fprintf(out, "    }\n");
+                        break;
+                    }
+                    case BUILTIN_THREAD_JOIN: {
+                        fprintf(out, "    { Value __idv = __stk[--__sp]; if(__idv.type != VAL_INT) runtime_error(\"thread_join() 参数必须是线程id（整数）\"); __stk[__sp++] = lumin_thread_join((int)__idv.v.i); }\n");
+                        break;
+                    }
                     case BUILTIN_VALUES:
                         fprintf(out, "    { Value __r = lumin_map_values(__stk[__sp - %d]); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b);
                         break;

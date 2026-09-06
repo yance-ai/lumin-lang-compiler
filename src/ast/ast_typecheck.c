@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ast_symtab.h"
+#include "func_compile.h"
 
 
 // ---------------- 作用域快照 ----------------
@@ -27,6 +28,12 @@ static void sym_restore(void) {
 }
 
 // 函数体递归深度：>0 表示正在检查某函数体，其内的嵌套 func 定义跳过
+/* typecheck 把函数名引用（AST_VAR→AST_FUNCREF）就地转换后，记录受影响的函数定义，
+ * 结束阶段重编译其字节码（parse 期生成的字节码里函数名引用还是 LOAD_VAR）。 */
+static AstNode* g_cur_func_def = NULL;
+static AstNode* g_recompile[64];
+static int g_recompile_cnt = 0;
+
 static int func_depth = 0;
 // 匿名函数捕获限制：lambda 只能访问 参数 + 全局变量 + 自身局部（C 代码生成不支持闭包捕获）
 static int in_lambda = 0;
@@ -190,7 +197,9 @@ static void collect_top_level(AstNode* node) {
 // 实参链表是左嵌套 AST_SEQ 链，递归展开逐个检查
 static int typecheck_call_args(AstNode* args) {
     if (!args) return 0;
-    if (args->type != AST_SEQ) return typecheck_expr(args);
+    if (args->type != AST_SEQ) {
+        return typecheck_expr(args);
+    }
     return typecheck_call_args(args->u.seq.first) | typecheck_call_args(args->u.seq.second);
 }
 
@@ -202,7 +211,13 @@ int ast_typecheck(AstNode* node)
     // 阶段1：顶层收集（函数名 + 全局变量），支持前向引用/函数体读全局
     collect_top_level(node);
     // 阶段2：全面检查（含函数体递归）
-    return typecheck_expr(node);
+    int err = typecheck_expr(node);
+    // 阶段3：函数体内函数名引用被转成 AST_FUNCREF 的函数，重编译字节码
+    if(!err) {
+        for(int i = 0; i < g_recompile_cnt; i++)
+            func_compile_recompile(g_recompile[i]);
+    }
+    return err;
 }
 
 // 实参个数：AST_SEQ 二叉链递归计数
@@ -251,6 +266,14 @@ int typecheck_expr(AstNode* node)
                     // 函数名引用：就地转 AST_FUNCREF（函数作为值）
                     node->type = AST_FUNCREF;
                     node->val_type = VAL_FUNC;
+                    // 若发生在函数体内，该函数的 parse 期字节码需重编译
+                    if(g_cur_func_def) {
+                        int dup = 0;
+                        for(int i = 0; i < g_recompile_cnt; i++)
+                            if(g_recompile[i] == g_cur_func_def) { dup = 1; break; }
+                        if(!dup && g_recompile_cnt < 64)
+                            g_recompile[g_recompile_cnt++] = g_cur_func_def;
+                    }
                 } else {
                     node->val_type = t;
                 }
@@ -505,9 +528,10 @@ int typecheck_expr(AstNode* node)
                     {"strip", 1, 1}, {"startswith", 2, 2}, {"endswith", 2, 2},
                     {"read_file", 1, 1}, {"write_file", 2, 2}, {"file_exists", 1, 1},
                     {"keys", 1, 1}, {"values", 1, 1},
+                    {"thread", 1, -1}, {"thread_join", 1, 1},
                 };
                 int found = 0;
-                for(int k = 0; k < 36; k++) {
+                for(int k = 0; k < 38; k++) {
                     if(strcmp(node->u.call.name, builtins[k].name) == 0) {
                         found = 1;
                         int nargs = count_args(node->u.call.args);
@@ -593,6 +617,8 @@ int typecheck_expr(AstNode* node)
                 break;
             }
             func_depth++;
+            AstNode* save_cur = g_cur_func_def;
+            g_cur_func_def = node;
             sym_save();
             int save_in_lambda = in_lambda;
             AstNode* save_params = g_lambda_params;
@@ -605,6 +631,7 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.func_def.body);
             if(is_lambda) { in_lambda = save_in_lambda; g_lambda_params = save_params; lambda_locals_cnt = save_lc; }
             sym_restore();
+            g_cur_func_def = save_cur;
             func_depth--;
             node->val_type = VAL_FUNC;
             break;

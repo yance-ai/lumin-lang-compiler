@@ -389,7 +389,7 @@ static void c_expr(Ctx* c, AstNode* node)
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
-            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values"};
+            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values", "thread", "thread_join"};
             int bid = -1;
             if(!ir_func_table_lookup(node->u.call.name)) {
                 for(int k = 0; k < BUILTIN_COUNT; k++) {
@@ -785,6 +785,24 @@ BytecodeFunc* ir_compile_function(const char* name, AstNode* params, AstNode* bo
 
     ir_func_table_add(fn);
     return fn;
+}
+
+// 重编译已注册函数：函数体字节码在 parse 期生成，早于 typecheck 的
+// AST_VAR→AST_FUNCREF 转换；typecheck 后对受影响函数重编译（原位替换，
+// 保持函数表顺序与 CALL 指令的 index 绑定不变）。
+BytecodeFunc* ir_func_table_recompile(const char* name, AstNode* params, AstNode* body)
+{
+    BytecodeFunc* nb = ir_compile_function(name, params, body); // 内部 add 到表尾
+    int old = -1;
+    for(int i = 0; i < ir_func_count - 1; i++) {
+        if(ir_func_table[i]->name && strcmp(ir_func_table[i]->name, name) == 0) { old = i; break; }
+    }
+    if(old >= 0) {
+        bytecode_func_free(ir_func_table[old]);
+        ir_func_table[old] = nb;
+        ir_func_count--;   // 去掉尾部重复条目（nb 已原位引用）
+    }
+    return nb;
 }
 
 BytecodeFunc* ir_compile_main(AstNode* root)

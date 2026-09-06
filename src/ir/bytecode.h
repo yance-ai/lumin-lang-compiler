@@ -88,6 +88,8 @@ typedef enum {
     BUILTIN_FILE_EXISTS,  // file_exists(path) → bool
     BUILTIN_KEYS,         // keys(d) → 键字符串数组
     BUILTIN_VALUES,       // values(d) → 值数组
+    BUILTIN_THREAD,       // thread(f, args...) → 线程id（多线程）
+    BUILTIN_THREAD_JOIN,  // thread_join(tid) → 等待线程并取返回值（join 已被字符串拼接占用）
     BUILTIN_COUNT
 } BuiltinId;
 

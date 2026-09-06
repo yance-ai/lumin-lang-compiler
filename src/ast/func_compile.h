@@ -16,6 +16,9 @@ typedef struct InterpFuncPayload {
 // 将AST_FUNC_DEF节点编译生成RuntimeFunc（不持有AstNode，内部提取信息生成IR/解释器句柄）
 RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast);
 
+// typecheck 转换函数名引用（AST_VAR→AST_FUNCREF）后重编译该函数字节码并替换
+void func_compile_recompile(AstNode* def);
+
 // 销毁RuntimeFunc（不碰AST）
 void runtime_func_destroy(RuntimeFunc* f);
 

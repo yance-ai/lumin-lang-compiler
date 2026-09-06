@@ -6,11 +6,13 @@
 #include <string.h>
 #include "ast_node.h"
 #include "ir/ir_compile.h"
+#include "ast_runtime_sym.h"
 #include "ir/vm.h"
 
 // ---- 当前被调函数：解释器entry入口处查询自身payload用 ----
-// 单线程解释器，调用点先set、entry入口立即读取到局部变量，之后嵌套调用不影响
-static RuntimeFunc* s_current_rf = NULL;
+// 调用点先set、entry入口立即读取到局部变量，之后嵌套调用不影响
+// _Thread_local：多线程 VM 通道（thread 启动的线程各自调用函数）需要每线程隔离
+static _Thread_local RuntimeFunc* s_current_rf = NULL;
 
 RuntimeFunc* interp_set_current_rf(RuntimeFunc* rf)
 {
@@ -102,6 +104,22 @@ RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast)
     rf->capture_count = -1; // 标记这是解释器payload，不是真实捕获变量
 
     return rf;
+}
+
+// typecheck 把 AST_VAR（函数名）就地转成 AST_FUNCREF 后，重新编译该函数的
+// 字节码并替换（parse 期生成的旧字节码里函数名引用还是 LOAD_VAR）。
+void func_compile_recompile(AstNode* def)
+{
+    if(!def || def->type != AST_FUNC_DEF) return;
+    const char* name = def->u.func_def.name;
+    BytecodeFunc* nb = ir_func_table_recompile(name, def->u.func_def.params, def->u.func_def.body);
+    Value fv = sym_get(name);
+    if(fv.type == VAL_FUNC) {
+        RuntimeFunc* rf = (RuntimeFunc*)fv.v.func.func_obj;
+        InterpFuncPayload* pl = (InterpFuncPayload*)rf->captures;
+        /* 旧字节码已由 ir_func_table_recompile 释放（原位替换），这里只更新指针 */
+        if(pl) pl->bytecode = nb;
+    }
 }
 
 void runtime_func_destroy(RuntimeFunc* f)

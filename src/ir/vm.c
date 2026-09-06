@@ -6,6 +6,7 @@
 #include "ast/ast_runtime_sym.h"
 #include "runtime/lm_value.h"
 #include "runtime/lm_runtime.h"
+#include "runtime/lm_thread.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -35,6 +36,54 @@ static void runtime_undefined(const char* what, const char* name)
 
 static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx);
 
+
+// 线程参数（VM 通道）：函数 + 全局帧。全局变量存 vm_run_main 的顶层帧，
+// 线程函数经 parent 链访问；data 由线程体消费后 free。
+typedef struct {
+    RuntimeFunc* rf;
+    StackFrame* global_frame;
+} VmThreadArg;
+
+/* 当前线程的全局帧（主线程 = vm_run_main 的 top；线程体启动时从 data 继承并写入本线程 TLS） */
+static _Thread_local StackFrame* s_global_frame = NULL;
+
+// 线程体（VM 通道）：线程内执行 RuntimeFunc，与 vm_call_rf 语义一致
+static void vm_thread_body(ThreadLaunch* t)
+{
+    VmThreadArg* a = (VmThreadArg*)t->data;
+    RuntimeFunc* rf = a->rf;
+    StackFrame* saved_global = s_global_frame;
+    s_global_frame = a->global_frame;
+    StackFrame* callee = stackframe_new(a->global_frame);
+    if(interp_func_is_payload(rf)) {
+        int pcnt = interp_func_param_cnt(rf);
+        int i = 0;
+        for(; i < pcnt; i++) {
+            const char* pname = interp_func_param_name(rf, i);
+            Value bound = (i < t->argc) ? val_clone(&t->args[i]) : val_none();
+            stackframe_bind(callee, pname, bound);
+        }
+        if(interp_func_has_variadic(rf)) {
+            const char* vname = interp_func_param_name(rf, pcnt);
+            int rest = t->argc - i;
+            if(rest < 0) rest = 0;
+            Value arr = val_array(rest);
+            for(int k = 0; k < rest; k++)
+                arr.v.array.items[k] = val_clone(&t->args[i + k]);
+            stackframe_bind(callee, vname, arr);
+        }
+    }
+    RuntimeFunc* prev_rf = interp_set_current_rf(rf);
+    EvalCtx ctx = {0};
+    if(g_trace_n < 64) g_trace[g_trace_n++] = "<thread>";
+    Value r = rf->entry(t->argc, t->args, &ctx, callee);
+    if(g_trace_n > 0) g_trace_n--;
+    interp_set_current_rf(prev_rf);
+    stackframe_destroy(callee);
+    s_global_frame = saved_global;
+    lumin_thread_set_result(t, r);
+    free(a);
+}
 
 // 通过函数值调用（高阶函数内部使用）：与 OPC_CALL 的调用语义一致
 static Value vm_call_rf(RuntimeFunc* rf, Value* args, int argc, StackFrame* parent, EvalCtx* ctx)
@@ -78,7 +127,10 @@ Value vm_run_main(BytecodeFunc* main_fn)
 {
     EvalCtx local_ctx = {0};
     StackFrame* top = stackframe_new(NULL);
+    StackFrame* saved_global = s_global_frame;
+    s_global_frame = top;
     Value ret = vm_run(main_fn, top, &local_ctx);
+    s_global_frame = saved_global;
     stackframe_destroy(top);
     return ret;
 }
@@ -335,6 +387,28 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_FILE_EXISTS:{ int n2 = in.b; Value r = lumin_file_exists(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
                     case BUILTIN_KEYS:     { int n2 = in.b; Value r = lumin_map_keys(stack[sp - n2]); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
                     case BUILTIN_VALUES:   { int n2 = in.b; Value r = lumin_map_values(stack[sp - n2]); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
+                    case BUILTIN_THREAD: {
+                        int argc = in.b;
+                        if(argc < 1) runtime_error("thread() 至少需要一个函数参数");
+                        Value fn = stack[sp - argc];
+                        if(fn.type != VAL_FUNC) runtime_error("thread() 第一个参数必须是函数");
+                        RuntimeFunc* rf = fn.v.func.func_obj;
+                        int nargs = argc - 1;
+                        VmThreadArg* a = (VmThreadArg*)malloc(sizeof(VmThreadArg));
+                        if(!a) runtime_error("thread: 内存不足");
+                        a->rf = rf;
+                        a->global_frame = s_global_frame;
+                        int tid = lumin_thread_start(vm_thread_body, (void*)a, (nargs > 0) ? &stack[sp - nargs] : NULL, nargs);
+                        stack[sp - argc] = lumin_make_int(tid);
+                        sp = sp - argc + 1;
+                        break;
+                    }
+                    case BUILTIN_THREAD_JOIN: {
+                        Value idv = stack[--sp];
+                        if(idv.type != VAL_INT) runtime_error("thread_join() 参数必须是线程id（整数）");
+                        stack[sp++] = lumin_thread_join((int)idv.v.i);
+                        break;
+                    }
                     case BUILTIN_MAP:
                     case BUILTIN_FILTER:
                     case BUILTIN_REDUCE: {
