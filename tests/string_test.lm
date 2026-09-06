@@ -34,3 +34,31 @@ parts = split("a,b,c", ",");
 print(len(parts));
 print(parts[0]);
 print(parts[2]);
+
+// ---- 多维数组 ----
+m = [[1, 2], [3, 4]];
+print(m[0][1]);   // 2
+print(m[1][0]);   // 3
+print(len(m));    // 2
+m[1][1] = 99;     // 多维写
+print(m[1][1]);   // 99
+cube = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+print(cube[1][0][1]);   // 6（三维）
+
+// ---- del / insert（值语义：返回新数组）----
+a = [1, 2, 3, 4];
+a = del(a, 1);
+print(len(a));    // 3
+print(a[0]);      // 1
+print(a[2]);      // 4
+b = insert(a, 2, 99);
+print(len(b));    // 4
+print(b[2]);      // 99
+b = insert(b, 0, "head");
+print(b[0]);      // head
+b = insert(b, len(b), "tail");
+print(b[len(b)-1]);   // tail
+c = [[1,2],[3,4]];
+c = del(c, 0);
+print(len(c));    // 1
+print(c[0][0]);   // 3

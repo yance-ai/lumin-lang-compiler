@@ -46,6 +46,8 @@ Value lumin_substr(Value s, Value start, Value n);  // substr(s, i, n)
 Value lumin_toupper(Value s);  // toupper(s)：ASCII 大写
 Value lumin_tolower(Value s);  // tolower(s)：ASCII 小写
 Value lumin_split(Value s, Value sep);  // split(s, sep)：按分隔符拆数组
+Value lumin_del(Value arr, Value idx);  // del(arr, idx)：返回删除后的新数组
+Value lumin_insert(Value arr, Value idx, Value val);  // insert(arr, idx, val)：返回插入后的新数组
 
 // ===== 强转新API =====
 Value lumin_cast_int(Value v);

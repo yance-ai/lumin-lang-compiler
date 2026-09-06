@@ -50,6 +50,8 @@ typedef enum {
     BUILTIN_TOUPPER,      // toupper(s)
     BUILTIN_TOLOWER,      // tolower(s)
     BUILTIN_SPLIT,        // split(s, sep)
+    BUILTIN_DEL,          // del(arr, idx)
+    BUILTIN_INSERT,       // insert(arr, idx, val)
     BUILTIN_COUNT
 } BuiltinId;
 

@@ -234,6 +234,12 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_SPLIT:
                         fprintf(out, "    { Value __sep = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_split(__s, __sep); }\n");
                         break;
+                    case BUILTIN_DEL:
+                        fprintf(out, "    { Value __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
+                        break;
+                    case BUILTIN_INSERT:
+                        fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_insert(__arr, __idx, __val); }\n");
+                        break;
                 }
                 break;
             case OPC_PRINT:

@@ -618,3 +618,35 @@ Value lumin_split(Value s, Value sep)
     arr.v.array.items[idx++] = val_clone(&item);
     return arr;
 }
+
+// del(arr, idx)：返回删除第 idx 个元素后的新数组（值语义，原数组不变）
+Value lumin_del(Value arr, Value idx)
+{
+    if(arr.type != VAL_ARRAY) runtime_error("del() 第一个参数必须是数组");
+    if(idx.type != VAL_INT) runtime_error("del() 下标必须是整数");
+    long long i = idx.v.i;
+    int n = arr.v.array.len;
+    if(i < 0 || i >= n) { char b[96]; snprintf(b, sizeof b, "del() 下标 %lld 越界（长度 %d）", i, n); runtime_error(b); }
+    Value r = val_array(n - 1);
+    for(int k = 0; k < n; k++) {
+        if(k == (int)i) continue;
+        int dst = (k < (int)i) ? k : k - 1;
+        r.v.array.items[dst] = val_clone(&arr.v.array.items[k]);
+    }
+    return r;
+}
+
+// insert(arr, idx, val)：返回在第 idx 个位置插入 val 后的新数组（idx 允许 0..n）
+Value lumin_insert(Value arr, Value idx, Value val)
+{
+    if(arr.type != VAL_ARRAY) runtime_error("insert() 第一个参数必须是数组");
+    if(idx.type != VAL_INT) runtime_error("insert() 下标必须是整数");
+    long long i = idx.v.i;
+    int n = arr.v.array.len;
+    if(i < 0 || i > n) { char b[96]; snprintf(b, sizeof b, "insert() 下标 %lld 越界（允许 0..%d）", i, n); runtime_error(b); }
+    Value r = val_array(n + 1);
+    for(int k = 0; k < (int)i; k++) r.v.array.items[k] = val_clone(&arr.v.array.items[k]);
+    r.v.array.items[(int)i] = val_clone(&val);
+    for(int k = (int)i; k < n; k++) r.v.array.items[k + 1] = val_clone(&arr.v.array.items[k]);
+    return r;
+}

@@ -191,6 +191,19 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = lumin_split(s, sep);
                         break;
                     }
+                    case BUILTIN_DEL: {
+                        Value idx = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_del(arr, idx);
+                        break;
+                    }
+                    case BUILTIN_INSERT: {
+                        Value val = stack[--sp];
+                        Value idx = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_insert(arr, idx, val);
+                        break;
+                    }
                     default:
                         runtime_error("未知内置函数");
                         break;

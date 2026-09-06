@@ -412,10 +412,10 @@ int typecheck_expr(AstNode* node)
             if(!static_sym_get(node->u.call.name, &t)) {
                 static const struct { const char* name; int argc; } builtins[] = {
                     {"len", 1}, {"type", 1}, {"input", 0}, {"range", 1}, {"substr", 3},
-                    {"toupper", 1}, {"tolower", 1}, {"split", 2},
+                    {"toupper", 1}, {"tolower", 1}, {"split", 2}, {"del", 2}, {"insert", 3},
                 };
                 int found = 0;
-                for(int k = 0; k < 8; k++) {
+                for(int k = 0; k < 10; k++) {
                     if(strcmp(node->u.call.name, builtins[k].name) == 0) {
                         found = 1;
                         int nargs = count_args(node->u.call.args);
