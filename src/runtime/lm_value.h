@@ -48,6 +48,14 @@ Value lumin_tolower(Value s);  // tolower(s)：ASCII 小写
 Value lumin_split(Value s, Value sep);  // split(s, sep)：按分隔符拆数组
 Value lumin_del(Value arr, Value idx);  // del(arr, idx)：返回删除后的新数组
 Value lumin_insert(Value arr, Value idx, Value val);  // insert(arr, idx, val)：返回插入后的新数组
+Value lumin_floor(Value x);  // floor(x)：向下取整，返回 int
+Value lumin_ceil(Value x);   // ceil(x)：向上取整，返回 int
+Value lumin_abs(Value x);    // abs(x)：绝对值（int/double）
+Value lumin_sqrt(Value x);   // sqrt(x)：平方根（double），负数报错
+Value lumin_max(Value* args, int n);  // max(a, b, ...)：变参最大值（≥1）
+Value lumin_min(Value* args, int n);  // min(a, b, ...)：变参最小值（≥1）
+Value lumin_join(Value arr, Value sep);  // join(arr, sep)：字符串数组拼接（非字符串元素自动转字符串）
+Value lumin_contains(Value hay, Value needle);  // contains(s/arr, x)：字符串子串 / 数组元素包含
 
 // ===== 强转新API =====
 Value lumin_cast_int(Value v);

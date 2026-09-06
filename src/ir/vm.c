@@ -204,6 +204,30 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = lumin_insert(arr, idx, val);
                         break;
                     }
+                    case BUILTIN_FLOOR: { Value v = stack[--sp]; stack[sp++] = lumin_floor(v); break; }
+                    case BUILTIN_CEIL:  { Value v = stack[--sp]; stack[sp++] = lumin_ceil(v); break; }
+                    case BUILTIN_ABS:   { Value v = stack[--sp]; stack[sp++] = lumin_abs(v); break; }
+                    case BUILTIN_SQRT:  { Value v = stack[--sp]; stack[sp++] = lumin_sqrt(v); break; }
+                    case BUILTIN_MAX:
+                    case BUILTIN_MIN: {
+                        int n = in.b;
+                        Value r = (in.a == BUILTIN_MAX) ? lumin_max(&stack[sp - n], n) : lumin_min(&stack[sp - n], n);
+                        stack[sp - n] = r;
+                        sp = sp - n + 1;
+                        break;
+                    }
+                    case BUILTIN_JOIN: {
+                        Value sep = stack[--sp];
+                        Value arr = stack[--sp];
+                        stack[sp++] = lumin_join(arr, sep);
+                        break;
+                    }
+                    case BUILTIN_CONTAINS: {
+                        Value needle = stack[--sp];
+                        Value hay = stack[--sp];
+                        stack[sp++] = lumin_contains(hay, needle);
+                        break;
+                    }
                     default:
                         runtime_error("未知内置函数");
                         break;

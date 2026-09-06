@@ -52,6 +52,14 @@ typedef enum {
     BUILTIN_SPLIT,        // split(s, sep)
     BUILTIN_DEL,          // del(arr, idx)
     BUILTIN_INSERT,       // insert(arr, idx, val)
+    BUILTIN_FLOOR,        // floor(x)
+    BUILTIN_CEIL,         // ceil(x)
+    BUILTIN_ABS,          // abs(x)
+    BUILTIN_SQRT,         // sqrt(x)
+    BUILTIN_MAX,          // max(a, b, ...) 变参
+    BUILTIN_MIN,          // min(a, b, ...) 变参
+    BUILTIN_JOIN,         // join(arr, sep)
+    BUILTIN_CONTAINS,     // contains(s/arr, x)
     BUILTIN_COUNT
 } BuiltinId;
 

@@ -240,6 +240,32 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_INSERT:
                         fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_insert(__arr, __idx, __val); }\n");
                         break;
+                    case BUILTIN_FLOOR:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_floor(__v); }\n");
+                        break;
+                    case BUILTIN_CEIL:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_ceil(__v); }\n");
+                        break;
+                    case BUILTIN_ABS:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_abs(__v); }\n");
+                        break;
+                    case BUILTIN_SQRT:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_sqrt(__v); }\n");
+                        break;
+                    case BUILTIN_MAX:
+                        fprintf(out, "    { Value __r = lumin_max(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n",
+                                in.b, in.b, in.b, in.b);
+                        break;
+                    case BUILTIN_MIN:
+                        fprintf(out, "    { Value __r = lumin_min(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n",
+                                in.b, in.b, in.b, in.b);
+                        break;
+                    case BUILTIN_JOIN:
+                        fprintf(out, "    { Value __sep = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_join(__arr, __sep); }\n");
+                        break;
+                    case BUILTIN_CONTAINS:
+                        fprintf(out, "    { Value __needle = __stk[--__sp], __hay = __stk[--__sp]; __stk[__sp++] = lumin_contains(__hay, __needle); }\n");
+                        break;
                 }
                 break;
             case OPC_PRINT:

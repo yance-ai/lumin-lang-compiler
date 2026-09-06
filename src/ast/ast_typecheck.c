@@ -413,15 +413,22 @@ int typecheck_expr(AstNode* node)
                 static const struct { const char* name; int argc; } builtins[] = {
                     {"len", 1}, {"type", 1}, {"input", 0}, {"range", 1}, {"substr", 3},
                     {"toupper", 1}, {"tolower", 1}, {"split", 2}, {"del", 2}, {"insert", 3},
+                    {"floor", 1}, {"ceil", 1}, {"abs", 1}, {"sqrt", 1},
+                    {"max", -1}, {"min", -1}, {"join", 2}, {"contains", 2},
                 };
                 int found = 0;
-                for(int k = 0; k < 10; k++) {
+                for(int k = 0; k < 18; k++) {
                     if(strcmp(node->u.call.name, builtins[k].name) == 0) {
                         found = 1;
                         int nargs = count_args(node->u.call.args);
-                        if(nargs != builtins[k].argc) {
-                            fprintf(stderr,"语义错误(第%d行)：%s() 需要 %d 个实参（给了 %d 个）\n", node->line,
-                                    builtins[k].name, builtins[k].argc, nargs);
+                        int bad = (builtins[k].argc < 0) ? (nargs < -builtins[k].argc) : (nargs != builtins[k].argc);
+                        if(bad) {
+                            if(builtins[k].argc < 0)
+                                fprintf(stderr,"语义错误(第%d行)：%s() 需要至少 %d 个实参（给了 %d 个）\n", node->line,
+                                        builtins[k].name, -builtins[k].argc, nargs);
+                            else
+                                fprintf(stderr,"语义错误(第%d行)：%s() 需要 %d 个实参（给了 %d 个）\n", node->line,
+                                        builtins[k].name, builtins[k].argc, nargs);
                             err = 1;
                         }
                         break;
