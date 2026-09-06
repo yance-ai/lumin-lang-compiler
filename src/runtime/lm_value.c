@@ -573,6 +573,9 @@ Value lumin_cast_int(Value v) {
         case VAL_CHAR:
             iv = (unsigned char)v.v.c;
             break;
+        case VAL_BYTE:
+            iv = v.v.i & 0xFF;
+            break;
         case VAL_STRING: {
             const char* t = v.v.s;
             while(*t && isspace((unsigned char)*t)) t++;
@@ -614,6 +617,9 @@ Value lumin_cast_double(Value v) {
             break;
         case VAL_CHAR:
             dv = (double)(unsigned char)v.v.c;
+            break;
+        case VAL_BYTE:
+            dv = (double)(v.v.i & 0xFF);
             break;
         case VAL_STRING: {
             const char* t = v.v.s;

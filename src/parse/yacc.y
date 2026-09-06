@@ -248,13 +248,14 @@ primary
     | ARRAY_OPEN arg_list RBRACKET { $$ = ast_array_lit($2); }  /* 数组字面量 [1,2,3] / []（lexer 按上下文消歧） */
     | MAP_OPEN map_items RBRACE   { $$ = ast_map_lit($2); }    /* 字典字面量 {"k": v, name: 1} / {}（lexer 上下文消歧：表达式位置） */
     | LPAREN expr RPAREN      { $$ = $2; }
-    | LPAREN TOK_INT RPAREN primary        { $$ = new_cast_node(CAST_INT, $4); }
-    | LPAREN TOK_DOUBLE RPAREN primary     { $$ = new_cast_node(CAST_DOUBLE, $4); }
-    | LPAREN TOK_STRING RPAREN primary     { $$ = new_cast_node(CAST_STRING, $4); }
-    | LPAREN TOK_BOOL RPAREN primary       { $$ = new_cast_node(CAST_BOOL, $4); }
-    | LPAREN TOK_ASCII RPAREN primary      { $$ = new_cast_node(CAST_ASCII, $4); }
-    | LPAREN TOK_CHAR RPAREN primary       { $$ = new_cast_node(CAST_CHAR, $4); }
-    | LPAREN TOK_BYTE RPAREN primary        { $$ = new_cast_node(CAST_BYTE, $4); }
+    /* 强转 (int)x 接 postfix_expr：C 语义，(int)a[0] = (int)(a[0])（cast 作用于整个后缀表达式） */
+    | LPAREN TOK_INT RPAREN postfix_expr   { $$ = new_cast_node(CAST_INT, $4); }
+    | LPAREN TOK_DOUBLE RPAREN postfix_expr { $$ = new_cast_node(CAST_DOUBLE, $4); }
+    | LPAREN TOK_STRING RPAREN postfix_expr { $$ = new_cast_node(CAST_STRING, $4); }
+    | LPAREN TOK_BOOL RPAREN postfix_expr   { $$ = new_cast_node(CAST_BOOL, $4); }
+    | LPAREN TOK_ASCII RPAREN postfix_expr  { $$ = new_cast_node(CAST_ASCII, $4); }
+    | LPAREN TOK_CHAR RPAREN postfix_expr   { $$ = new_cast_node(CAST_CHAR, $4); }
+    | LPAREN TOK_BYTE RPAREN postfix_expr   { $$ = new_cast_node(CAST_BYTE, $4); }
     | FUNC LPAREN param_list RPAREN block_stmt {
           /* 匿名函数表达式：生成内部名 _lambda_N，与具名同路注册（VM sym + IR 函数表） */
           char nm[64];
