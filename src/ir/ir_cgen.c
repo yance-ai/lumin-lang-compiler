@@ -448,14 +448,14 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_FIN_PUSH: {
                 /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN（b=目标 pc→label 编号） */
                 int fidx = in.b ? fin_lab_idx_of(in.b) : 0;
-                fprintf(out, "    __g_fin_act[__g_fin_n] = %d; __g_fin_tgt[__g_fin_n] = %d; __g_fin_n++;\n", in.a, fidx);
+                fprintf(out, "    __g_fin_act[__g_fin_n] = %d; __g_fin_tgt[__g_fin_n] = %d; __g_fin_dep[__g_fin_n] = __g_depth - 1; __g_fin_n++;\n", in.a, fidx);
                 break;
             }
             case OPC_FINISH:
                 /* 完成动作的目标在运行时才知道（__g_fin_tgt 存的是 label 编号），用跳转表 */
                 fprintf(out, "    if(__g_fin_n <= 0) runtime_error(\"finally 完成栈为空\");\n");
                 fprintf(out, "    { int __fa = __g_fin_act[--__g_fin_n];\n");
-                fprintf(out, "      if(__fa == 1 || __fa == 3 || __fa == 4) goto *__g_fin_labs[__g_fin_tgt[__g_fin_n]];\n");
+                fprintf(out, "      if(__fa == 1 || __fa == 3 || __fa == 4) { __g_depth = __g_fin_dep[__g_fin_n]; g_err_jmp = __g_prev[__g_fin_dep[__g_fin_n]]; goto *__g_fin_labs[__g_fin_tgt[__g_fin_n]]; }\n");
                 fprintf(out, "      else if(__fa == 2) { if(g_err_jmp) longjmp(*g_err_jmp, 1); fprintf(stderr, \"Runtime Error: %%s\\n\", g_err_msg); exit(EXIT_FAILURE); }\n");
                 if(!g_cur_fn)
                     fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; return 0; }\n");

@@ -15,7 +15,8 @@ int __g_sp0[64];
 int __g_tgt[64];
 int __g_tn[64];        /* 每层 TRY 时的调用栈深度（GET_ERR 截断残留） */
 int __g_fn[64];        /* 每层 TRY 时的 finally 完成栈深度 */
-int __g_fin_act[64];   /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
+int __g_fin_act[64];
+int __g_fin_dep[64];   /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
 int __g_fin_tgt[64];
 int __g_fin_n = 0;
 Value __g_pend_val;    /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */

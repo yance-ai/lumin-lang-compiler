@@ -20,6 +20,7 @@ static int vm_tn[64];       /* 每层 TRY 时的调用栈深度（GET_ERR 截断
 static int vm_fn[64];       /* 每层 TRY 时的 finally 完成栈深度 */
 static int vm_fin_act[64];  /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN */
 static int vm_fin_tgt[64];
+static int vm_fin_dep[64];  /* FIN_PUSH 时的恢复深度（FINISH act=1/3/4 恢复，防循环内 depth 漂移） */
 static int vm_fin_n = 0;
 static Value vm_pend_val;   /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
 
@@ -458,12 +459,15 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_FIN_PUSH:
                 vm_fin_act[vm_fin_n] = in.a;
                 vm_fin_tgt[vm_fin_n] = in.b;
+                vm_fin_dep[vm_fin_n] = vm_depth - 1;   /* try 前深度（异常入口 act=2 不使用） */
                 vm_fin_n++;
                 break;
             case OPC_FINISH: {
                 if(vm_fin_n <= 0) runtime_error("finally 完成栈为空");
                 int act = vm_fin_act[--vm_fin_n];
                 if(act == 1 || act == 3 || act == 4) {
+                    vm_depth = vm_fin_dep[vm_fin_n];   /* 退出 try 保护区，恢复层深度 */
+                    g_err_jmp = vm_prev[vm_fin_dep[vm_fin_n]];  /* 还原 TRY 前 handler */
                     pc = vm_fin_tgt[vm_fin_n];
                 } else if(act == 2) {
                     /* RETHROW：错误消息/类型仍在 g_err_msg/g_err_type，向上一层冒泡 */

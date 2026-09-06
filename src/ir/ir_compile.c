@@ -628,7 +628,8 @@ static void c_stmt(Ctx* c, AstNode* node)
             bf_patch(c->fn, jf, l_end);
             for(int i = 0; i < l.brk_cnt; i++) bf_patch(c->fn, l.brk[i], l_end);
             for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
-            for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
+            /* try-finally 内 continue 的 FIN_PUSH.b 回填到 while 条件（此前遗漏导致跳 pc=0 死循环） */
+            for(int i = 0; i < l.cont_fin_cnt; i++) bf_patch_b(c->fn, l.cont_fin[i], l_cond);
             free(l.brk); free(l.cont);
             break;
         }
