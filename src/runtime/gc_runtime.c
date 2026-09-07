@@ -151,11 +151,22 @@ void gc_mark(Value v)
     }
     case VAL_ARRAY: {
         if (!v.v.array) break;
-        if (!gc_mark_ptr(v.v.array)) break;  /* 已标记，跳过递归（循环引用检测） */
-        if (v.v.array->items) {
-            gc_mark_ptr(v.v.array->items);
-            for (int i = 0; i < v.v.array->len; i++) {
-                gc_mark(v.v.array->items[i]);
+        if (v.v.array->stack_alloc) {
+            /* 编译通道栈分配的 ValueArray：无 GCObject 头，不能 gc_mark_ptr；
+             * 只标记 items 缓冲区及其内容（items 仍由 gc_alloc 管理） */
+            if (v.v.array->items) {
+                gc_mark_ptr(v.v.array->items);
+                for (int i = 0; i < v.v.array->len; i++) {
+                    gc_mark(v.v.array->items[i]);
+                }
+            }
+        } else {
+            if (!gc_mark_ptr(v.v.array)) break;  /* 已标记，跳过递归（循环引用检测） */
+            if (v.v.array->items) {
+                gc_mark_ptr(v.v.array->items);
+                for (int i = 0; i < v.v.array->len; i++) {
+                    gc_mark(v.v.array->items[i]);
+                }
             }
         }
         break;

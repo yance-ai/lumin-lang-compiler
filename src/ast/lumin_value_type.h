@@ -65,10 +65,12 @@ typedef enum {
 // 数组运行时对象，VAL_ARRAY 使用（原地修改语义，cap 预分配容量）
 // GC 管理：ValueArray* 本身由 gc_alloc(vtype=VAL_ARRAY) 分配（堆指针，引用语义）；
 //          items 缓冲区也由 gc_alloc(vtype=VAL_ARRAY) 管理，扩容用 gc_realloc。
+// stack_alloc：0=堆分配（默认，有 GCObject 头），1=编译通道栈分配（无 GCObject 头，GC 标记时跳过自身）
 typedef struct {
     Value* items;
     int len;
     int cap;  // 预分配容量（>= len），add 时按需 2x 扩容
+    uint8_t stack_alloc;  // 0=堆分配，1=编译通道栈分配
 } ValueArray;
 
 // 错误对象，VAL_ERROR 使用（type 为错误类别，message 为消息，stack 为调用栈回溯）

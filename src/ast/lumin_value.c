@@ -222,6 +222,29 @@ Value val_array(int len) {
     r.v.array->items = items;
     r.v.array->len = len;
     r.v.array->cap = len > 0 ? len : 0;
+    r.v.array->stack_alloc = 0;  /* 堆分配，显式标记 */
+    gc_enable();
+    return r;
+}
+
+/* 编译通道栈分配数组：初始化调用方提供的栈上 ValueArray（items 仍走 gc_alloc），
+ * 设置 stack_alloc=1，返回 Value。GC 标记时跳过 ValueArray 自身（无 GCObject 头），
+ * 但仍标记 items 缓冲区及递归标记 items[i]。VM 路径不使用此函数。 */
+Value val_array_from_stack(ValueArray* va, int len) {
+    Value r;
+    r.type = VAL_ARRAY;
+    /* GC 安全：构造期间暂停自动 GC，items 分配期间 va 尚未被任何根引用 */
+    gc_disable();
+    va->stack_alloc = 1;
+    va->len = len;
+    va->cap = len > 0 ? len : 0;
+    if(len > 0) {
+        va->items = (Value*)gc_alloc(sizeof(Value) * len, VAL_ARRAY);
+        for(int i = 0; i < len; i++) va->items[i] = val_none();
+    } else {
+        va->items = NULL;
+    }
+    r.v.array = va;
     gc_enable();
     return r;
 }

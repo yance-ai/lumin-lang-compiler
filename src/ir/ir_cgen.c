@@ -33,6 +33,11 @@ static NameSet g_globals;      // 全局变量（main 指令流引用）
 static NameSet fn_locals;      // 当前函数局部变量（非参数、非全局）
 static BytecodeFunc* g_cur_fn; // 当前生成所在函数（NULL=main）
 
+/* 逃逸分析结果：g_stack_alloc[i]=1 表示指令 i 处的 OPC_ARRAY_LIT 栈分配；
+ * 每次 analyze_escape 后有效，emit_insns 消费，函数结束后释放。 */
+static uint8_t* g_stack_alloc = NULL;
+static int g_stack_alloc_len = 0;
+
 // ---------------- NameSet ----------------
 
 static int ns_has(const NameSet* s, const char* name)
@@ -254,13 +259,24 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_LOGIC_NOT:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_logic_not(__v); }\n"); break;
             case OPC_ARRAY_LIT: {
                 int n = in.b;
-                fprintf(out, "    {\n");
-                fprintf(out, "        Value __arr = val_array(%d);\n", n);
-                for(int k = 0; k < n; k++)
-                    fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
-                fprintf(out, "        __sp = __sp - %d + 1;\n", n);
-                fprintf(out, "        __stk[__sp - 1] = __arr;\n");
-                fprintf(out, "    }\n");
+                if(g_stack_alloc && g_stack_alloc[i]) {
+                    /* 栈分配：ValueArray 结构体在 C 栈上，items 仍走 gc_alloc */
+                    fprintf(out, "    {\n");
+                    fprintf(out, "        Value __arr = val_array_from_stack(&__arr_stk_%d, %d);\n", i, n);
+                    for(int k = 0; k < n; k++)
+                        fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
+                    fprintf(out, "        __sp = __sp - %d + 1;\n", n);
+                    fprintf(out, "        __stk[__sp - 1] = __arr;\n");
+                    fprintf(out, "    }\n");
+                } else {
+                    fprintf(out, "    {\n");
+                    fprintf(out, "        Value __arr = val_array(%d);\n", n);
+                    for(int k = 0; k < n; k++)
+                        fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
+                    fprintf(out, "        __sp = __sp - %d + 1;\n", n);
+                    fprintf(out, "        __stk[__sp - 1] = __arr;\n");
+                    fprintf(out, "    }\n");
+                }
                 break;
             }
             case OPC_MAP_LIT: {
@@ -1013,6 +1029,411 @@ static void emit_insns(BytecodeFunc* fn)
     }
 }
 
+// ---------------- 逃逸分析（位掩码流敏感） ----------------
+/*
+ * 设计目标：识别不逃逸的 OPC_ARRAY_LIT，将 ValueArray 结构体分配在 C 栈上。
+ *
+ * 保守策略（宁可漏优化不可出错）：
+ *   1. 超过 64 个数组字面量 → 全部堆分配（位掩码上限）
+ *   2. 数组出现在逃逸上下文 → 堆分配
+ *      逃逸上下文：return 值、存全局变量、函数调用(OPC_CALL/CALLV)任意参数、
+ *                  INDEX_SET 的容器和元素、THREAD/THREADLOCAL_SET 内置函数参数、
+ *                  ARRAY_ADD/INSERT/ARRAY_SET 等存入数组的值参数、
+ *                  THROW 抛出值、PEND_RETURN 挂起返回值、FINISH 处栈上所有值
+ *   3. 循环体内（后向跳转 [target, src] 范围）的数组 → 堆分配
+ *      （防止同一栈槽被多次迭代复用导致引用错误）
+ *   4. 控制流合并按位 OR，不动点迭代最多 20 轮
+ *   5. 不可达指令（栈深 -1）跳过
+ *
+ * 位掩码：每个 OPC_ARRAY_LIT 分配一个 bit（0..63），栈槽/变量持有 uint64_t 掩码
+ *         表示"可能持有哪些数组"。
+ */
+
+/* 判断符号下标对应的变量是否为全局变量（非参数、非函数局部） */
+static int ea_is_global(BytecodeFunc* fn, int sym_idx)
+{
+    if(sym_idx < 0 || sym_idx >= fn->sym_cnt) return 1;  /* 未知符号保守视为全局 */
+    const char* nm = fn->syms[sym_idx];
+    if(!nm) return 1;
+    if(g_cur_fn && (fn_has_param(fn, nm) || ns_has(&fn_locals, nm))) return 0;
+    return 1;  /* main 中所有变量都是全局 */
+}
+
+static void analyze_escape(BytecodeFunc* fn)
+{
+    int n = fn->code_len;
+
+    /* 释放上一次的结果 */
+    if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
+    g_stack_alloc_len = 0;
+
+    /* 1. 为每个 OPC_ARRAY_LIT 分配 bit 位 */
+    int* array_bit = (int*)malloc(sizeof(int) * n);
+    int array_cnt = 0;
+    for(int i = 0; i < n; i++) {
+        array_bit[i] = -1;
+        if(fn->code[i].op == OPC_ARRAY_LIT) {
+            if(array_cnt < 64) {
+                array_bit[i] = array_cnt++;
+            } else {
+                /* >64 个数组：保守回退，全部堆分配 */
+                free(array_bit);
+                return;
+            }
+        }
+    }
+    if(array_cnt == 0) { free(array_bit); return; }
+
+    /* 2. 获取每条指令的栈深 */
+    int maxd = bc_analyze_stack(fn, NULL, 0);
+    int* depths = (int*)malloc(sizeof(int) * n);
+    bc_analyze_stack(fn, depths, n);
+
+    /* 3. 每指令入口状态：栈槽掩码 + 变量掩码 */
+    int stk_stride = maxd + 2;
+    uint64_t* entry_stk = (uint64_t*)calloc((size_t)n * stk_stride, sizeof(uint64_t));
+    uint64_t* entry_var = (uint64_t*)calloc((size_t)n * fn->sym_cnt, sizeof(uint64_t));
+    /* 临时工作区（避免循环内反复分配） */
+    uint64_t* tmp_stk = (uint64_t*)malloc(sizeof(uint64_t) * stk_stride);
+    uint64_t* tmp_var = (uint64_t*)malloc(sizeof(uint64_t) * (fn->sym_cnt > 0 ? fn->sym_cnt : 1));
+
+    uint64_t escaped = 0;  /* 累积逃逸的数组位掩码 */
+
+    /* 4. 不动点前向传播 */
+    for(int iter = 0; iter < 20; iter++) {
+        int changed = 0;
+
+        for(int i = 0; i < n; i++) {
+            Instruction in = fn->code[i];
+            int depth = depths[i];
+            if(depth < 0) continue;  /* 不可达指令跳过 */
+
+            /* 拷贝入口状态到工作区 */
+            memcpy(tmp_stk, &entry_stk[i * stk_stride], sizeof(uint64_t) * stk_stride);
+            memcpy(tmp_var, &entry_var[i * fn->sym_cnt], sizeof(uint64_t) * fn->sym_cnt);
+
+            int sp = depth;
+            uint64_t esc = 0;  /* 本指令逃逸的位 */
+
+            switch(in.op) {
+                /* ---- 压栈 ---- */
+                case OPC_LOAD_CONST:
+                case OPC_GETFUNC:
+                    tmp_stk[sp] = 0;  /* 常量/函数值不是追踪数组 */
+                    sp++;
+                    break;
+
+                case OPC_LOAD_VAR:
+                    tmp_stk[sp] = (in.a >= 0 && in.a < fn->sym_cnt) ? tmp_var[in.a] : 0;
+                    sp++;
+                    break;
+
+                /* ---- 存变量：弹值写变量，原值压回（表达式值） ---- */
+                case OPC_STORE_VAR: {
+                    uint64_t m = (sp > 0) ? tmp_stk[sp - 1] : 0;
+                    sp--;
+                    if(in.a >= 0 && in.a < fn->sym_cnt) tmp_var[in.a] |= m;
+                    tmp_stk[sp] = m;  /* 压回表达式值 */
+                    sp++;
+                    if(ea_is_global(fn, in.a)) esc |= m;  /* 存全局 → 逃逸 */
+                    break;
+                }
+
+                /* ---- 数组字面量：弹 n 元素，压当前数组 bit ---- */
+                case OPC_ARRAY_LIT: {
+                    int ne = in.b;
+                    sp -= ne;
+                    if(sp < 0) sp = 0;
+                    tmp_stk[sp] = (array_bit[i] >= 0) ? (1ULL << array_bit[i]) : 0;
+                    sp++;
+                    break;
+                }
+
+                case OPC_MAP_LIT: {
+                    int ne = in.b * 2;
+                    sp -= ne;
+                    if(sp < 0) sp = 0;
+                    tmp_stk[sp] = 0;  /* map 不是追踪数组 */
+                    sp++;
+                    break;
+                }
+
+                /* ---- 索引操作 ---- */
+                case OPC_INDEX_GET:
+                    sp -= 2;  /* 弹 idx, arr */
+                    if(sp < 0) sp = 0;
+                    tmp_stk[sp] = 0;  /* 取出的元素不是数组本身 */
+                    sp++;
+                    break;
+
+                case OPC_INDEX_SET: {
+                    /* 弹 val, idx, arr；容器和元素都标记逃逸（保守） */
+                    uint64_t val_m = (sp > 0) ? tmp_stk[sp - 1] : 0;
+                    uint64_t arr_m = (sp > 2) ? tmp_stk[sp - 3] : 0;
+                    sp -= 3;
+                    if(sp < 0) sp = 0;
+                    esc |= arr_m;   /* 被写入的容器逃逸 */
+                    esc |= val_m;   /* 被存入的元素逃逸（可能随容器逃逸） */
+                    tmp_stk[sp] = 0;  /* 返回 val，但 val 已逃逸 */
+                    sp++;
+                    break;
+                }
+
+                /* ---- 函数调用：所有参数逃逸 ---- */
+                case OPC_CALL: {
+                    int argc = in.b;
+                    for(int k = 0; k < argc && (sp - argc + k) >= 0; k++)
+                        esc |= tmp_stk[sp - argc + k];
+                    sp -= argc;
+                    if(sp < 0) sp = 0;
+                    tmp_stk[sp] = 0;  /* 返回值不是追踪数组 */
+                    sp++;
+                    break;
+                }
+                case OPC_CALLV: {
+                    int argc = in.b;
+                    for(int k = 0; k < argc && (sp - argc + k) >= 0; k++)
+                        esc |= tmp_stk[sp - argc + k];
+                    sp -= (argc + 1);  /* 弹参数 + 函数值 */
+                    if(sp < 0) sp = 0;
+                    tmp_stk[sp] = 0;
+                    sp++;
+                    break;
+                }
+
+                /* ---- 返回：返回值逃逸 ---- */
+                case OPC_RETURN: {
+                    uint64_t m = (sp > 0) ? tmp_stk[sp - 1] : 0;
+                    esc |= m;
+                    sp--;
+                    break;
+                }
+                case OPC_PEND_RETURN: {
+                    uint64_t m = (sp > 0) ? tmp_stk[sp - 1] : 0;
+                    esc |= m;  /* 挂起返回值逃逸 */
+                    sp--;
+                    break;
+                }
+                case OPC_THROW: {
+                    uint64_t m = (sp > 0) ? tmp_stk[sp - 1] : 0;
+                    esc |= m;  /* 抛出值可能被捕获后逃逸 */
+                    sp--;
+                    break;
+                }
+
+                /* ---- 内置函数 ---- */
+                case OPC_BUILTIN: {
+                    int argc = in.b;
+                    /* receiver-returning 内置函数：修改 receiver 后将 receiver 留在栈顶（返回自身）。
+                     * 必须保留 receiver 的位掩码，否则后续 RETURN/存全局等逃逸上下文看不到它，
+                     * 导致本应逃逸的数组被错误栈分配 → use-after-free。
+                     * receiver 是第一个参数（参数组底部），位于 sp - argc。 */
+                    int is_recv_returning = 0;
+                    switch(in.a) {
+                        case BUILTIN_ARRAY_CLEAR:
+                        case BUILTIN_ARRAY_ADD:
+                        case BUILTIN_INSERT:
+                        case BUILTIN_DEL:
+                        case BUILTIN_ARRAY_REMOVE:
+                        case BUILTIN_ARRAY_SET:
+                        case BUILTIN_ARRAY_ADDALL:
+                            is_recv_returning = 1;
+                            break;
+                        default:
+                            break;
+                    }
+                    uint64_t recv_m = (argc > 0 && sp >= argc) ? tmp_stk[sp - argc] : 0;
+
+                    /* THREAD / THREADLOCAL_SET：所有参数逃逸（跨线程/全局存储） */
+                    if(in.a == BUILTIN_THREAD || in.a == BUILTIN_THREADLOCAL_SET) {
+                        for(int k = 0; k < argc && (sp - argc + k) >= 0; k++)
+                            esc |= tmp_stk[sp - argc + k];
+                    }
+                    /* 存入数组/字典的值参数逃逸（保守：元素可能随容器逃逸）。
+                     * 注意：receiver 本身不因被写入而逃逸，仅被存入的值逃逸。 */
+                    else if(in.a == BUILTIN_ARRAY_ADD) {
+                        if(in.b == 1) {
+                            /* arr.add() 无额外参数：无值逃逸 */
+                        } else if(in.b == 2) {
+                            /* arr.add(val)：val（栈顶）逃逸 */
+                            if(sp > 0) esc |= tmp_stk[sp - 1];
+                        } else {
+                            /* map.add(k, v)（b>=3）：v（栈顶）逃逸 */
+                            if(sp > 0) esc |= tmp_stk[sp - 1];
+                        }
+                    }
+                    else if(in.a == BUILTIN_INSERT || in.a == BUILTIN_ARRAY_SET) {
+                        /* insert(arr, idx, val) / set(arr, i, v)：val（栈顶）逃逸 */
+                        if(sp > 0) esc |= tmp_stk[sp - 1];
+                    }
+                    else if(in.a == BUILTIN_ARRAY_ADDALL) {
+                        /* addAll(arr, other)：保守标记源数组（other，栈顶）逃逸 */
+                        if(sp > 0) esc |= tmp_stk[sp - 1];
+                    }
+                    /* 其余内置函数（len/sum/sort/reverse/join 等）：参数不逃逸，
+                     * sort/reverse 返回新堆数组（不在追踪范围），压入 0 */
+
+                    sp -= argc;
+                    if(sp < 0) sp = 0;
+                    /* receiver-returning：压入 receiver 位掩码；否则压入 0 */
+                    tmp_stk[sp] = is_recv_returning ? recv_m : 0;
+                    sp++;
+                    break;
+                }
+
+                /* ---- 二元运算：弹 2 压 1（结果不是数组） ---- */
+                case OPC_ADD: case OPC_SUB: case OPC_MUL: case OPC_DIV: case OPC_MOD:
+                case OPC_GT: case OPC_LT: case OPC_GE: case OPC_LE: case OPC_EQ: case OPC_NE:
+                    sp -= 2;
+                    if(sp < 0) sp = 0;
+                    tmp_stk[sp] = 0;
+                    sp++;
+                    break;
+
+                /* ---- 一元运算/类型转换：弹 1 压 1 ---- */
+                case OPC_NEG: case OPC_POS: case OPC_LOGIC_NOT: case OPC_TO_BOOL:
+                case OPC_CAST_INT: case OPC_CAST_DOUBLE: case OPC_CAST_CHAR:
+                case OPC_CAST_BOOL: case OPC_CAST_STRING: case OPC_CAST_ASCII:
+                case OPC_CAST_BYTE: case OPC_CAST_INT8: case OPC_CAST_INT16:
+                case OPC_CAST_INT32: case OPC_CAST_INT64: case OPC_CAST_UINT8:
+                case OPC_CAST_UINT16: case OPC_CAST_UINT32: case OPC_CAST_UINT64:
+                case OPC_CAST_LONG: case OPC_CAST_LONGLONG: case OPC_CAST_FLOAT:
+                    sp -= 1;
+                    if(sp < 0) sp = 0;
+                    tmp_stk[sp] = 0;
+                    sp++;
+                    break;
+
+                /* ---- 变量自增自减：操作变量，压结果（不是数组） ---- */
+                case OPC_PRE_INC: case OPC_POST_INC:
+                case OPC_PRE_DEC: case OPC_POST_DEC:
+                    tmp_stk[sp] = 0;
+                    sp++;
+                    break;
+
+                /* ---- 栈操作 ---- */
+                case OPC_POP:
+                    sp--;
+                    if(sp < 0) sp = 0;
+                    break;
+                case OPC_DUP:
+                    if(sp > 0) { tmp_stk[sp] = tmp_stk[sp - 1]; sp++; }
+                    break;
+                case OPC_PRINT:
+                    break;  /* 不弹栈，不逃逸 */
+
+                /* ---- 错误处理 ---- */
+                case OPC_GET_ERR:
+                    tmp_stk[sp] = 0;  /* 错误对象不是追踪数组 */
+                    sp++;
+                    break;
+                case OPC_TRY:
+                case OPC_ENDTRY:
+                case OPC_FIN_PUSH:
+                    break;  /* 不改变值栈 */
+                case OPC_FINISH:
+                    /* 保守：finally 完成动作目标在运行时确定（跳转表），
+                     * 栈上所有值可能被带到未知位置 → 全部标记逃逸 */
+                    for(int d = 0; d < sp; d++) esc |= tmp_stk[d];
+                    break;
+
+                /* ---- 跳转：条件跳转弹条件 ---- */
+                case OPC_JMP_IF_FALSE:
+                case OPC_JMP_IF_TRUE:
+                    sp--;
+                    if(sp < 0) sp = 0;
+                    break;
+                case OPC_JMP:
+                    break;
+
+                /* ---- 终止 ---- */
+                case OPC_RETURN_NIL:
+                case OPC_HALT:
+                case OPC_NOP:
+                    break;
+
+                default:
+                    break;
+            }
+
+            escaped |= esc;
+
+            /* ---- 计算后继指令并合并输出状态 ---- */
+            int succ[3];
+            int succ_cnt = 0;
+            if(in.op == OPC_JMP) {
+                if(in.a >= 0 && in.a < n) succ[succ_cnt++] = in.a;
+            } else if(in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE) {
+                if(in.a >= 0 && in.a < n) succ[succ_cnt++] = in.a;
+                if(i + 1 < n) succ[succ_cnt++] = i + 1;
+            } else if(in.op == OPC_TRY) {
+                /* TRY: setjmp 成功 goto body(i+1)，失败 goto catch(in.a) */
+                if(i + 1 < n) succ[succ_cnt++] = i + 1;
+                if(in.a > 0 && in.a < n) succ[succ_cnt++] = in.a;
+            } else if(in.op == OPC_ENDTRY) {
+                if(i + 1 < n) succ[succ_cnt++] = i + 1;
+            } else if(in.op == OPC_PEND_RETURN) {
+                if(in.b > 0 && in.b < n) succ[succ_cnt++] = in.b;  /* 跳 finally */
+            } else if(in.op == OPC_RETURN || in.op == OPC_RETURN_NIL ||
+                      in.op == OPC_HALT || in.op == OPC_THROW ||
+                      in.op == OPC_FINISH) {
+                /* 无后继（或后继未知，保守不传播） */
+            } else {
+                if(i + 1 < n) succ[succ_cnt++] = i + 1;
+            }
+
+            for(int s = 0; s < succ_cnt; s++) {
+                int si = succ[s];
+                uint64_t* dst_stk = &entry_stk[si * stk_stride];
+                uint64_t* dst_var = &entry_var[si * fn->sym_cnt];
+                for(int d = 0; d < stk_stride; d++) {
+                    uint64_t old = dst_stk[d];
+                    dst_stk[d] |= tmp_stk[d];
+                    if(dst_stk[d] != old) changed = 1;
+                }
+                for(int v = 0; v < fn->sym_cnt; v++) {
+                    uint64_t old = dst_var[v];
+                    dst_var[v] |= tmp_var[v];
+                    if(dst_var[v] != old) changed = 1;
+                }
+            }
+        }
+
+        if(!changed) break;  /* 不动点收敛 */
+    }
+
+    /* 5. 循环检测：后向跳转 [target, src] 范围内的数组不栈分配 */
+    uint8_t* in_loop = (uint8_t*)calloc(n, sizeof(uint8_t));
+    for(int i = 0; i < n; i++) {
+        Instruction in = fn->code[i];
+        if((in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE)
+           && in.a >= 0 && in.a < i) {
+            for(int k = in.a; k <= i; k++) in_loop[k] = 1;
+        }
+    }
+
+    /* 6. 最终判定：非逃逸且非循环中的 OPC_ARRAY_LIT → 栈分配 */
+    g_stack_alloc = (uint8_t*)calloc(n, sizeof(uint8_t));
+    g_stack_alloc_len = n;
+    for(int i = 0; i < n; i++) {
+        if(fn->code[i].op == OPC_ARRAY_LIT && array_bit[i] >= 0) {
+            uint64_t bit = 1ULL << array_bit[i];
+            if(!(escaped & bit) && !in_loop[i]) {
+                g_stack_alloc[i] = 1;
+            }
+        }
+    }
+
+    /* 清理 */
+    free(array_bit);
+    free(depths);
+    free(entry_stk);
+    free(entry_var);
+    free(tmp_stk);
+    free(tmp_var);
+    free(in_loop);
+}
+
 // ---------------- 函数/主函数发射 ----------------
 
 static void emit_func_proto(BytecodeFunc* fn)
@@ -1029,6 +1450,8 @@ static void emit_func_proto(BytecodeFunc* fn)
 static void emit_func_def(BytecodeFunc* fn)
 {
     collect_func_locals(fn);
+    g_cur_fn = fn;  /* 逃逸分析中用于全局/局部判定 */
+    analyze_escape(fn);
     /* 收集本函数内 FIN_PUSH 的目标（finally/循环结束 label） */
     fin_lab_cnt = 0;
     for(int i = 0; i < fn->code_len; i++) {
@@ -1056,9 +1479,16 @@ static void emit_func_def(BytecodeFunc* fn)
     for(int i = 0; i < fn_locals.count; i++) {
         fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
     }
-    g_cur_fn = fn;
+    /* 栈分配数组声明：逃逸分析判定为不逃逸的 OPC_ARRAY_LIT */
+    for(int i = 0; i < fn->code_len; i++) {
+        if(g_stack_alloc && g_stack_alloc[i]) {
+            fprintf(out, "    ValueArray __arr_stk_%d;\n", i);
+        }
+    }
     emit_insns(fn);
     g_cur_fn = NULL;
+    if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
+    g_stack_alloc_len = 0;
     fprintf(out, "}\n\n");
 }
 
@@ -1123,9 +1553,19 @@ static void emit_main(BytecodeFunc* main_fn)
 
     // main
     int maxd = bc_analyze_stack(main_fn, NULL, 0);
+    /* main 逃逸分析：g_cur_fn=NULL，所有变量视为全局（存全局即逃逸） */
+    g_cur_fn = NULL;
+    memset(&fn_locals, 0, sizeof(fn_locals));
+    analyze_escape(main_fn);
     fprintf(out, "int main(void){\n");
     fprintf(out, "    Value __stk[%d];\n", maxd + 2);
     fprintf(out, "    int __sp = 0;\n");
+    /* 栈分配数组声明 */
+    for(int i = 0; i < main_fn->code_len; i++) {
+        if(g_stack_alloc && g_stack_alloc[i]) {
+            fprintf(out, "    ValueArray __arr_stk_%d;\n", i);
+        }
+    }
     /* 函数边界保存（RETURN/FINISH act=5 恢复用），与 emit_func_def 一致 */
     fprintf(out, "    int __g_d0 = __g_depth; jmp_buf* __g_gj0 = g_err_jmp; int __g_fin0 = __g_fin_n;\n");
     /* main 内 finally 完成动作目标收集（与 emit_func_def 一致，否则 FINISH 引用未定义的 __g_fin_labs） */
@@ -1142,6 +1582,8 @@ static void emit_main(BytecodeFunc* main_fn)
     }
     g_cur_fn = NULL;
     emit_insns(main_fn);
+    if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
+    g_stack_alloc_len = 0;
     fprintf(out, "}\n\n");
 }
 
