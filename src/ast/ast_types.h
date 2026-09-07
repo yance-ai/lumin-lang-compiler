@@ -24,5 +24,6 @@ TypeDef* type_get(int idx);
 
 // 属性类型名（string/int/double/bool/char/ascii/byte）→ ValueType；未知返回 VAL_NONE
 ValueType type_name_to_valtype(const char* tname);
+ValueType castkind_to_valtype(int ck);
 
 #endif //AST_TYPES_H

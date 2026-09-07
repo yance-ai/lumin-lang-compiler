@@ -129,6 +129,8 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
         case OPC_CAST_INT: case OPC_CAST_DOUBLE: case OPC_CAST_CHAR:
         case OPC_CAST_BOOL: case OPC_CAST_STRING: case OPC_CAST_ASCII:
         case OPC_CAST_BYTE:
+        case OPC_CAST_INT8: case OPC_CAST_INT16: case OPC_CAST_INT32: case OPC_CAST_INT64:
+        case OPC_CAST_UINT8: case OPC_CAST_UINT16: case OPC_CAST_UINT32: case OPC_CAST_UINT64:
             return 0;                        // 弹1压1
         case OPC_TRY:
         case OPC_ENDTRY:
@@ -272,6 +274,14 @@ static const char* opc_name(OpCode op)
         case OPC_CAST_STRING: return "CAST_STRING";
         case OPC_CAST_ASCII: return "CAST_ASCII";
         case OPC_CAST_BYTE: return "CAST_BYTE";
+        case OPC_CAST_INT8: return "CAST_INT8";
+        case OPC_CAST_INT16: return "CAST_INT16";
+        case OPC_CAST_INT32: return "CAST_INT32";
+        case OPC_CAST_INT64: return "CAST_INT64";
+        case OPC_CAST_UINT8: return "CAST_UINT8";
+        case OPC_CAST_UINT16: return "CAST_UINT16";
+        case OPC_CAST_UINT32: return "CAST_UINT32";
+        case OPC_CAST_UINT64: return "CAST_UINT64";
         case OPC_ARRAY_LIT: return "ARRAY_LIT";
         case OPC_MAP_LIT: return "MAP_LIT";
         case OPC_INDEX_GET: return "INDEX_GET";

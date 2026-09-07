@@ -68,3 +68,19 @@ ValueType type_name_to_valtype(const char* tname)
     if(strcmp(tname, "byte") == 0)    return VAL_BYTE;
     return VAL_NONE;
 }
+
+ValueType castkind_to_valtype(int ck)
+{
+    switch(ck) {
+        case CAST_STRING: return VAL_STRING;
+        case CAST_INT: case CAST_ASCII: return VAL_INT;
+        case CAST_DOUBLE: return VAL_DOUBLE;
+        case CAST_BOOL: return VAL_BOOL;
+        case CAST_CHAR: return VAL_CHAR;
+        case CAST_BYTE: return VAL_BYTE;
+        case CAST_INT8: case CAST_INT16: case CAST_INT32: case CAST_INT64:
+        case CAST_UINT8: case CAST_UINT16: case CAST_UINT32: case CAST_UINT64:
+            return VAL_INT;
+        default: return VAL_NONE;
+    }
+}

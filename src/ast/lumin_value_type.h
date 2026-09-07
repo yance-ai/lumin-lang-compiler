@@ -29,7 +29,16 @@ typedef enum {
     CAST_BOOL,
     CAST_ASCII,
     CAST_CHAR,
-    CAST_BYTE     // (byte)x 强转：C 风格截断为 8 位无符号整数
+    CAST_BYTE,     // (byte)x 强转：C 风格截断为 8 位无符号整数
+    // 固定宽度整数（运行时统一 long long 存储，强转时 C 风格截断）
+    CAST_INT8,
+    CAST_INT16,
+    CAST_INT32,
+    CAST_INT64,
+    CAST_UINT8,
+    CAST_UINT16,
+    CAST_UINT32,
+    CAST_UINT64,
 } CastKind;
 
 // 值类型：语言支持的数据类型

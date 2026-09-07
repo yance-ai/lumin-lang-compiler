@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <limits.h>
 #include <math.h>
 #include <ctype.h>
@@ -799,3 +800,59 @@ void lumin_print(Value v) {
 }
 
 // toupper/tolower：ASCII 大小写转换（非 ASCII 保持）
+
+// ===== 固定宽度整数强转（返回 VAL_INT，C 风格截断） =====
+static long long value_to_ll(Value v) {
+    switch(v.type) {
+        case VAL_INT: case VAL_BYTE: return v.v.i;
+        case VAL_DOUBLE: return (long long)v.v.d;
+        case VAL_BOOL: return v.v.b ? 1 : 0;
+        case VAL_CHAR: return (long long)(unsigned char)v.v.c;
+        case VAL_STRING: return atoll(v.v.s ? v.v.s : "0");
+        case VAL_NONE: return 0;
+        default: runtime_error("整数强转: 不支持的类型"); return 0;
+    }
+}
+static unsigned long long value_to_ull(Value v) {
+    switch(v.type) {
+        case VAL_INT: case VAL_BYTE: return (unsigned long long)v.v.i;
+        case VAL_DOUBLE: return (unsigned long long)v.v.d;
+        case VAL_BOOL: return v.v.b ? 1ULL : 0ULL;
+        case VAL_CHAR: return (unsigned long long)(unsigned char)v.v.c;
+        case VAL_STRING: return strtoull(v.v.s ? v.v.s : "0", NULL, 10);
+        case VAL_NONE: return 0;
+        default: runtime_error("整数强转: 不支持的类型"); return 0;
+    }
+}
+static Value cast_int_width(Value v, int bits, int is_signed) {
+    if(v.type == VAL_ARRAY) {
+        Value r = val_array(v.v.array.len);
+        for(int i = 0; i < v.v.array.len; i++)
+            r.v.array.items[i] = cast_int_width(v.v.array.items[i], bits, is_signed);
+        return r;
+    }
+    if(v.type == VAL_MAP) {
+        Value r = val_map();
+        for(int i = 0; i < v.v.map->len; i++)
+            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]),
+                          cast_int_width(v.v.map->values[i], bits, is_signed));
+        return r;
+    }
+    long long ll = value_to_ll(v);
+    unsigned long long ull = value_to_ull(v);
+    switch(bits) {
+        case 8:  return lumin_make_int(is_signed ? (long long)(int8_t)ll : (long long)(uint8_t)ull);
+        case 16: return lumin_make_int(is_signed ? (long long)(int16_t)ll : (long long)(uint16_t)ull);
+        case 32: return lumin_make_int(is_signed ? (long long)(int32_t)ll : (long long)(uint32_t)ull);
+        case 64: return lumin_make_int(is_signed ? (long long)(int64_t)ll : (long long)(uint64_t)ull);
+    }
+    return lumin_make_int(ll);
+}
+Value lumin_cast_int8(Value v)  { return cast_int_width(v, 8, 1); }
+Value lumin_cast_int16(Value v) { return cast_int_width(v, 16, 1); }
+Value lumin_cast_int32(Value v) { return cast_int_width(v, 32, 1); }
+Value lumin_cast_int64(Value v) { return cast_int_width(v, 64, 1); }
+Value lumin_cast_uint8(Value v)  { return cast_int_width(v, 8, 0); }
+Value lumin_cast_uint16(Value v) { return cast_int_width(v, 16, 0); }
+Value lumin_cast_uint32(Value v) { return cast_int_width(v, 32, 0); }
+Value lumin_cast_uint64(Value v) { return cast_int_width(v, 64, 0); }

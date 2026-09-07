@@ -69,6 +69,15 @@ Value lumin_cast_string(Value v);
 Value lumin_cast_char(Value v);
 Value lumin_cast_ascii(Value v);
 Value lumin_cast_byte(Value v);
+// 固定宽度整数强转（返回 VAL_INT，值做 C 风格截断）
+Value lumin_cast_int8(Value v);
+Value lumin_cast_int16(Value v);
+Value lumin_cast_int32(Value v);
+Value lumin_cast_int64(Value v);
+Value lumin_cast_uint8(Value v);
+Value lumin_cast_uint16(Value v);
+Value lumin_cast_uint32(Value v);
+Value lumin_cast_uint64(Value v);
 
 int lumin_extract_int(Value v);
 

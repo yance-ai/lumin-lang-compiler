@@ -72,6 +72,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token WHILE FOR
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
+%token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT
 %token TOK_TYPE TOK_ENUM
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
@@ -102,7 +103,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member
-%type<ll> type_name
+%type<ll> type_name builtin_type_name
 %type <ch> char_lit
 %type<ll> INTEGER
 %type<d> NUMBER
@@ -317,6 +318,15 @@ primary
     | LPAREN TOK_ASCII RPAREN postfix_expr  { $$ = new_cast_node(CAST_ASCII, $4); }
     | LPAREN TOK_CHAR RPAREN postfix_expr   { $$ = new_cast_node(CAST_CHAR, $4); }
     | LPAREN TOK_BYTE RPAREN postfix_expr   { $$ = new_cast_node(CAST_BYTE, $4); }
+    | LPAREN TOK_INT8 RPAREN postfix_expr   { $$ = new_cast_node(CAST_INT8, $4); }
+    | LPAREN TOK_INT16 RPAREN postfix_expr  { $$ = new_cast_node(CAST_INT16, $4); }
+    | LPAREN TOK_INT32 RPAREN postfix_expr  { $$ = new_cast_node(CAST_INT32, $4); }
+    | LPAREN TOK_INT64 RPAREN postfix_expr  { $$ = new_cast_node(CAST_INT64, $4); }
+    | LPAREN TOK_UINT8 RPAREN postfix_expr  { $$ = new_cast_node(CAST_UINT8, $4); }
+    | LPAREN TOK_UINT16 RPAREN postfix_expr { $$ = new_cast_node(CAST_UINT16, $4); }
+    | LPAREN TOK_UINT32 RPAREN postfix_expr { $$ = new_cast_node(CAST_UINT32, $4); }
+    | LPAREN TOK_UINT64 RPAREN postfix_expr { $$ = new_cast_node(CAST_UINT64, $4); }
+    | LPAREN TOK_UINT RPAREN postfix_expr   { $$ = new_cast_node(CAST_UINT64, $4); }
     /* 泛型容器字面量：(byte)[1,2,3] 逐元素强转 / (byte){"a":1} 逐值强转
        （lexer 上下文消歧后 cast 后接 LBRACKET/LBRACE，按容器字面量解释） */
     | LPAREN TOK_INT RPAREN LBRACKET arg_list RBRACKET
@@ -348,34 +358,10 @@ primary
     | LPAREN TOK_BYTE RPAREN LBRACE map_items RBRACE
         { $$ = new_cast_node(CAST_BYTE, ast_map_lit($5)); }
     /* 泛型字面量：<T>[1,2,3] 数组逐元素强转 / <string,V>{k:v} map 值强转（键固定 string） */
-    | LT TOK_INT GT ARRAY_OPEN arg_list RBRACKET
-        { $$ = new_cast_node(CAST_INT, ast_array_lit($5)); }
-    | LT TOK_DOUBLE GT ARRAY_OPEN arg_list RBRACKET
-        { $$ = new_cast_node(CAST_DOUBLE, ast_array_lit($5)); }
-    | LT TOK_STRING GT ARRAY_OPEN arg_list RBRACKET
-        { $$ = new_cast_node(CAST_STRING, ast_array_lit($5)); }
-    | LT TOK_BOOL GT ARRAY_OPEN arg_list RBRACKET
-        { $$ = new_cast_node(CAST_BOOL, ast_array_lit($5)); }
-    | LT TOK_ASCII GT ARRAY_OPEN arg_list RBRACKET
-        { $$ = new_cast_node(CAST_ASCII, ast_array_lit($5)); }
-    | LT TOK_CHAR GT ARRAY_OPEN arg_list RBRACKET
-        { $$ = new_cast_node(CAST_CHAR, ast_array_lit($5)); }
-    | LT TOK_BYTE GT ARRAY_OPEN arg_list RBRACKET
-        { $$ = new_cast_node(CAST_BYTE, ast_array_lit($5)); }
-    | LT TOK_STRING COMMA TOK_INT GT MAP_OPEN map_items RBRACE
-        { $$ = new_cast_node(CAST_INT, ast_map_lit($7)); }
-    | LT TOK_STRING COMMA TOK_DOUBLE GT MAP_OPEN map_items RBRACE
-        { $$ = new_cast_node(CAST_DOUBLE, ast_map_lit($7)); }
-    | LT TOK_STRING COMMA TOK_STRING GT MAP_OPEN map_items RBRACE
-        { $$ = new_cast_node(CAST_STRING, ast_map_lit($7)); }
-    | LT TOK_STRING COMMA TOK_BOOL GT MAP_OPEN map_items RBRACE
-        { $$ = new_cast_node(CAST_BOOL, ast_map_lit($7)); }
-    | LT TOK_STRING COMMA TOK_ASCII GT MAP_OPEN map_items RBRACE
-        { $$ = new_cast_node(CAST_ASCII, ast_map_lit($7)); }
-    | LT TOK_STRING COMMA TOK_CHAR GT MAP_OPEN map_items RBRACE
-        { $$ = new_cast_node(CAST_CHAR, ast_map_lit($7)); }
-    | LT TOK_STRING COMMA TOK_BYTE GT MAP_OPEN map_items RBRACE
-        { $$ = new_cast_node(CAST_BYTE, ast_map_lit($7)); }
+    | LT builtin_type_name GT ARRAY_OPEN arg_list RBRACKET
+        { $$ = new_cast_node($2, ast_array_lit($5)); }
+    | LT TOK_STRING COMMA builtin_type_name GT MAP_OPEN map_items RBRACE
+        { $$ = new_cast_node($4, ast_map_lit($7)); }
     | LT ID GT ARRAY_OPEN arg_list RBRACKET {
           /* 泛型自定义类型：<Person>[e1,e2] → [Person(e1), Person(e2)]（形状构造） */
           if(type_lookup($2) >= 0) {
@@ -466,14 +452,26 @@ type_prop_list
 type_prop
     : ID COLON type_name         { type_prop_push($1, $3); $$ = ast_none(); }
     ;
+builtin_type_name
+    : TOK_STRING                 { $$ = CAST_STRING; }
+    | TOK_INT                    { $$ = CAST_INT; }
+    | TOK_DOUBLE                 { $$ = CAST_DOUBLE; }
+    | TOK_BOOL                   { $$ = CAST_BOOL; }
+    | TOK_CHAR                   { $$ = CAST_CHAR; }
+    | TOK_ASCII                  { $$ = CAST_ASCII; }
+    | TOK_BYTE                   { $$ = CAST_BYTE; }
+    | TOK_INT8                   { $$ = CAST_INT8; }
+    | TOK_INT16                  { $$ = CAST_INT16; }
+    | TOK_INT32                  { $$ = CAST_INT32; }
+    | TOK_INT64                  { $$ = CAST_INT64; }
+    | TOK_UINT8                  { $$ = CAST_UINT8; }
+    | TOK_UINT16                 { $$ = CAST_UINT16; }
+    | TOK_UINT32                 { $$ = CAST_UINT32; }
+    | TOK_UINT64                 { $$ = CAST_UINT64; }
+    | TOK_UINT                   { $$ = CAST_UINT64; }
+    ;
 type_name
-    : TOK_STRING                 { $$ = VAL_STRING; }
-    | TOK_INT                    { $$ = VAL_INT; }
-    | TOK_DOUBLE                 { $$ = VAL_DOUBLE; }
-    | TOK_BOOL                   { $$ = VAL_BOOL; }
-    | TOK_CHAR                   { $$ = VAL_CHAR; }
-    | TOK_ASCII                  { $$ = VAL_INT; }
-    | TOK_BYTE                   { $$ = VAL_BYTE; }
+    : builtin_type_name          { $$ = castkind_to_valtype($1); }
     | ID                         { $$ = type_name_to_valtype($1); }
     ;
 

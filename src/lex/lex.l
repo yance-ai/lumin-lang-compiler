@@ -64,6 +64,15 @@ static int is_expr_end(int t)
 "bool"          { LEX_RET(TOK_BOOL); }
 "ASCII"         { LEX_RET(TOK_ASCII); }
 "byte"          { LEX_RET(TOK_BYTE); }
+"int8"          { LEX_RET(TOK_INT8); }
+"int16"         { LEX_RET(TOK_INT16); }
+"int32"         { LEX_RET(TOK_INT32); }
+"int64"         { LEX_RET(TOK_INT64); }
+"uint8"         { LEX_RET(TOK_UINT8); }
+"uint16"        { LEX_RET(TOK_UINT16); }
+"uint32"        { LEX_RET(TOK_UINT32); }
+"uint64"        { LEX_RET(TOK_UINT64); }
+"uint"          { LEX_RET(TOK_UINT); }
 
 "..."           { fprintf(stderr,"[LEX] ELLIPSIS\n"); LEX_RET(ELLIPSIS); }
 

@@ -432,6 +432,14 @@ static int fold_const(Ctx* c, AstNode* node, Value* out)
                 case CAST_STRING: *out = lumin_cast_string(v); return 1;
                 case CAST_ASCII:  *out = lumin_cast_ascii(v); return 1;
                 case CAST_BYTE:   *out = lumin_cast_byte(v); return 1;
+                case CAST_INT8:   *out = lumin_cast_int8(v); return 1;
+                case CAST_INT16:  *out = lumin_cast_int16(v); return 1;
+                case CAST_INT32:  *out = lumin_cast_int32(v); return 1;
+                case CAST_INT64:  *out = lumin_cast_int64(v); return 1;
+                case CAST_UINT8:  *out = lumin_cast_uint8(v); return 1;
+                case CAST_UINT16: *out = lumin_cast_uint16(v); return 1;
+                case CAST_UINT32: *out = lumin_cast_uint32(v); return 1;
+                case CAST_UINT64: *out = lumin_cast_uint64(v); return 1;
                 default: return 0;
             }
         }
@@ -554,6 +562,10 @@ static void c_expr(Ctx* c, AstNode* node)
                 [CAST_CHAR] = OPC_CAST_CHAR, [CAST_BOOL] = OPC_CAST_BOOL,
                 [CAST_STRING] = OPC_CAST_STRING, [CAST_ASCII] = OPC_CAST_ASCII,
                 [CAST_BYTE] = OPC_CAST_BYTE,
+                [CAST_INT8] = OPC_CAST_INT8, [CAST_INT16] = OPC_CAST_INT16,
+                [CAST_INT32] = OPC_CAST_INT32, [CAST_INT64] = OPC_CAST_INT64,
+                [CAST_UINT8] = OPC_CAST_UINT8, [CAST_UINT16] = OPC_CAST_UINT16,
+                [CAST_UINT32] = OPC_CAST_UINT32, [CAST_UINT64] = OPC_CAST_UINT64,
             };
             emit(c, cmap[node->u.cast.cast_type], 0, 0);
             break;

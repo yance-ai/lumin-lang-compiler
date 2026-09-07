@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 // ===================== 运行时辅助函数 =====================
 Value make_int(long long i)      { Value v; v.type = VAL_INT; v.v.i = i; return v; }
@@ -468,6 +469,14 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
                     long long av = (unsigned char)cv;
                     return make_int(av);
                 }
+                case CAST_INT8:   return make_int((long long)(int8_t)subv.v.i);
+                case CAST_INT16:  return make_int((long long)(int16_t)subv.v.i);
+                case CAST_INT32:  return make_int((long long)(int32_t)subv.v.i);
+                case CAST_INT64:  return make_int((long long)(int64_t)subv.v.i);
+                case CAST_UINT8:  return make_int((long long)(uint8_t)(unsigned long long)subv.v.i);
+                case CAST_UINT16: return make_int((long long)(uint16_t)(unsigned long long)subv.v.i);
+                case CAST_UINT32: return make_int((long long)(uint32_t)(unsigned long long)subv.v.i);
+                case CAST_UINT64: return make_int((long long)(uint64_t)(unsigned long long)subv.v.i);
                 default: {
                     return make_int(0);
                 }

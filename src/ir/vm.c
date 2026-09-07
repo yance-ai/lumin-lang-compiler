@@ -296,6 +296,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_CAST_STRING: { Value v = stack[--sp]; stack[sp++] = lumin_cast_string(v); break; }
             case OPC_CAST_ASCII:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_ascii(v); break; }
             case OPC_CAST_BYTE:   { Value v = stack[--sp]; stack[sp++] = lumin_cast_byte(v); break; }
+            case OPC_CAST_INT8:   { Value v = stack[--sp]; stack[sp++] = lumin_cast_int8(v); break; }
+            case OPC_CAST_INT16:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_int16(v); break; }
+            case OPC_CAST_INT32:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_int32(v); break; }
+            case OPC_CAST_INT64:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_int64(v); break; }
+            case OPC_CAST_UINT8:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_uint8(v); break; }
+            case OPC_CAST_UINT16: { Value v = stack[--sp]; stack[sp++] = lumin_cast_uint16(v); break; }
+            case OPC_CAST_UINT32: { Value v = stack[--sp]; stack[sp++] = lumin_cast_uint32(v); break; }
+            case OPC_CAST_UINT64: { Value v = stack[--sp]; stack[sp++] = lumin_cast_uint64(v); break; }
             case OPC_LOGIC_NOT:   { Value v = stack[--sp]; stack[sp++] = lumin_logic_not(v); break; }
             case OPC_ARRAY_LIT: {
                 int n = in.b;

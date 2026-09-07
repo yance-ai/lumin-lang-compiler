@@ -240,6 +240,14 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_CAST_STRING: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_string(__v); }\n"); break;
             case OPC_CAST_ASCII:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_ascii(__v); }\n"); break;
             case OPC_CAST_BYTE:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_byte(__v); }\n"); break;
+            case OPC_CAST_INT8:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_int8(__v); }\n"); break;
+            case OPC_CAST_INT16:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_int16(__v); }\n"); break;
+            case OPC_CAST_INT32:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_int32(__v); }\n"); break;
+            case OPC_CAST_INT64:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_int64(__v); }\n"); break;
+            case OPC_CAST_UINT8:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_uint8(__v); }\n"); break;
+            case OPC_CAST_UINT16: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_uint16(__v); }\n"); break;
+            case OPC_CAST_UINT32: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_uint32(__v); }\n"); break;
+            case OPC_CAST_UINT64: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_uint64(__v); }\n"); break;
             case OPC_LOGIC_NOT:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_logic_not(__v); }\n"); break;
             case OPC_ARRAY_LIT: {
                 int n = in.b;
