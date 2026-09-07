@@ -255,3 +255,45 @@ Value lumin_reverse(Value arr) {
 }
 
 // strip：去首尾空白（空格/tab/换行/回车/垂直制表/换页）
+
+// ===== 数组/字典扁平化 =====
+// depth：展开层数（1=展开一层，2=两层，负数=无限）；字典 → 值数组再展开
+typedef struct { Value* items; int len; int cap; } FlatBuf;
+static void flat_push(FlatBuf* b, Value v) {
+    if(b->len >= b->cap) { b->cap = b->cap ? b->cap * 2 : 16; b->items = realloc(b->items, b->cap * sizeof(Value)); }
+    b->items[b->len++] = val_clone(&v);
+}
+static void flat_rec(Value v, int depth, FlatBuf* b) {
+    if(v.type == VAL_ARRAY) {
+        if(depth > 0) {
+            for(int i = 0; i < v.v.array.len; i++) flat_rec(v.v.array.items[i], depth - 1, b);
+        } else {
+            /* depth 耗尽：数组元素逐个 push（元素若是数组保持原样） */
+            for(int i = 0; i < v.v.array.len; i++) flat_push(b, v.v.array.items[i]);
+        }
+    } else if(v.type == VAL_MAP && depth > 0) {
+        /* 字典：按值展开（flat 的字典语义 = 值数组的扁平化） */
+        Value vals = lumin_map_values(v);
+        for(int i = 0; i < vals.v.array.len; i++) flat_rec(vals.v.array.items[i], depth - 1, b);
+    } else {
+        flat_push(b, v);
+    }
+}
+Value lumin_array_flat(Value v, int depth) {
+    if(depth < 0) depth = 2147483647;  /* 负数 → 无限展开 */
+    FlatBuf b = {0};
+    if(v.type == VAL_ARRAY && depth == 0) {
+        /* 深度 0：浅拷贝（顶层元素逐个复制，不递归） */
+        for(int i = 0; i < v.v.array.len; i++) flat_push(&b, v.v.array.items[i]);
+    } else if(v.type == VAL_MAP && depth == 0) {
+        /* 深度 0：字典 → 值数组（不递归） */
+        Value vals = lumin_map_values(v);
+        for(int i = 0; i < vals.v.array.len; i++) flat_push(&b, vals.v.array.items[i]);
+    } else {
+        flat_rec(v, depth, &b);
+    }
+    Value r = val_array(b.len);
+    for(int i = 0; i < b.len; i++) r.v.array.items[i] = b.items[i];
+    free(b.items);
+    return r;
+}

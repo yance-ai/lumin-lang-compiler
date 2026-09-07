@@ -617,6 +617,7 @@ int typecheck_expr(AstNode* node)
                     {"json", 1, 1}, {"stringify", 1, 1},
                     {"add", 2, 3}, {"remove", 2, 2}, {"clear", 1, 1},
                     {"arr_get", 2, 2}, {"indexOf", 2, 2}, {"set", 3, 3}, {"first", 1, 1}, {"last", 1, 1}, {"has", 2, 2},
+                    {"flat", 1, 2}, {"qs", 1, 1},
                 };
                 int found = 0;
                 int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));

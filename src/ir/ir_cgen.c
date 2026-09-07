@@ -6,6 +6,8 @@
 #include "ir_cgen.h"
 #include "ir_compile.h"
 #include "ast/lumin_types.h"
+#include "runtime/lm_qs.h"
+#include "runtime/lm_array.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -465,6 +467,15 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_STRINGIFY:
                         fprintf(out, "    { Value __v = __stk[--__sp]; char* __js = lumin_json_stringify(__v); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
                         break;
+                    case BUILTIN_ARRAY_FLAT:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __d = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_array_flat(__v, lumin_extract_int(__d)); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_array_flat(__v, 1); }\n");
+                        break;
+                    case BUILTIN_QS:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify(__v); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse(__v.v.s); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                        break;
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -508,6 +519,15 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_STRINGIFY:
                         fprintf(out, "    { Value __v = __stk[--__sp]; char* __js = lumin_json_stringify(__v); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
                         break;
+                    case BUILTIN_ARRAY_FLAT:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __d = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_array_flat(__v, lumin_extract_int(__d)); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_array_flat(__v, 1); }\n");
+                        break;
+                    case BUILTIN_QS:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify(__v); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse(__v.v.s); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                        break;
                     case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
                             case BUILTIN_HTTP_HEAD:   m = "HEAD"; break;
                             case BUILTIN_HTTP_PATCH:  m = "PATCH"; break;
@@ -534,6 +554,20 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "        __init = __stk[--__sp]; __fn = __stk[--__sp]; __arr = __stk[--__sp];\n");
                         else
                             fprintf(out, "        __fn = __stk[--__sp]; __arr = __stk[--__sp];\n");
+                        if(in.a == BUILTIN_MAP) {
+                            /* 字典 map：fn(value, key) → 新字典（键不变值映射） */
+                            fprintf(out, "        if(__arr.type == VAL_MAP) {\n");
+                            fprintf(out, "            if(__fn.type != VAL_FUNC) runtime_error(\"map() 第二个参数必须是函数\");\n");
+                            fprintf(out, "            Value (*__cfm)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
+                            fprintf(out, "            Value __mout = val_map();\n");
+                            fprintf(out, "            for(int __i = 0; __i < __arr.v.map->len; __i++) {\n");
+                            fprintf(out, "                Value __a2[2]; __a2[0] = val_clone(&__arr.v.map->values[__i]); __a2[1] = lumin_make_string(__arr.v.map->keys[__i]);\n");
+                            fprintf(out, "                Value __r = __cfm(__a2, 2);\n");
+                            fprintf(out, "                lumin_map_set(&__mout, lumin_make_string(__arr.v.map->keys[__i]), val_clone(&__r));\n");
+                            fprintf(out, "            }\n");
+                            fprintf(out, "            __stk[__sp++] = __mout;\n");
+                            fprintf(out, "        } else {\n");
+                        }
                         fprintf(out, "        if(__arr.type != VAL_ARRAY) runtime_error(\"map()/filter()/reduce() 第一个参数必须是数组\");\n");
                         fprintf(out, "        if(__fn.type != VAL_FUNC) runtime_error(\"map()/filter()/reduce() 第二个参数必须是函数\");\n");
                         fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
@@ -562,6 +596,9 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "            __acc = __cf(__a2, 2);\n");
                             fprintf(out, "        }\n");
                             fprintf(out, "        __stk[__sp++] = __acc;\n");
+                        }
+                        if(in.a == BUILTIN_MAP) {
+                            fprintf(out, "        }\n");  /* 闭合 map 字典分支的 else */
                         }
                         fprintf(out, "    }\n");
                         break;

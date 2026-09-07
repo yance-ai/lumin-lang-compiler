@@ -11,6 +11,7 @@ runtime/lm_lock.h
 runtime/lm_tls.h
 runtime/lm_http.h
 runtime/lm_json.h
+runtime/lm_qs.h
 
 
 # source list
@@ -26,3 +27,4 @@ runtime/lm_lock.c
 runtime/lm_tls.c
 runtime/lm_http.c
 runtime/lm_json.c
+runtime/lm_qs.c

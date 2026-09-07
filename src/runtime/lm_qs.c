@@ -1,0 +1,159 @@
+// lm_qs.c —— qs 内置函数（qs 库风格）：查询字符串解析/序列化
+// stringify：map → "name=john&age=30"；嵌套 map → "user[name]=john"；
+//            数组 → "tags[0]=a&tags[1]=b"；URL 编码特殊字符（%XX，UTF-8 安全）
+// parse：    "user[name]=john&tags[0]=a" → {user:{name:"john"}, tags:["a"]}
+// 注意：数组空段追加语法 tags[]= 暂不支持（须用显式索引 tags[0]=）
+#include "lm_qs.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+// ===== 简单动态字符串 =====
+typedef struct { char* s; int len; int cap; } QSB;
+static void qsb_init(QSB* b) { b->cap = 64; b->s = malloc(64); b->len = 0; b->s[0] = 0; }
+static void qsb_grow(QSB* b, int need) {
+    if(b->len + need + 1 > b->cap) { while(b->cap < b->len + need + 1) b->cap *= 2; b->s = realloc(b->s, b->cap); }
+}
+static void qsb_ch(QSB* b, char c) { qsb_grow(b, 1); b->s[b->len++] = c; b->s[b->len] = 0; }
+static void qsb_str(QSB* b, const char* s) { int n = (int)strlen(s); qsb_grow(b, n); memcpy(b->s + b->len, s, n); b->len += n; b->s[b->len] = 0; }
+
+// ===== URL 编码/解码（UTF-8 字节安全） =====
+static void qs_encode(QSB* b, const char* s) {
+    for(const unsigned char* p = (const unsigned char*)s; *p; p++) {
+        if(isalnum(*p) || *p=='-' || *p=='_' || *p=='.' || *p=='~') qsb_ch(b, (char)*p);
+        else { char h[4]; snprintf(h, 4, "%%%02X", *p); qsb_str(b, h); }
+    }
+}
+static void qs_decode(QSB* b, const char* s) {
+    for(const char* p = s; *p; p++) {
+        if(*p == '%' && p[1] && p[2]) { int v = 0; sscanf(p + 1, "%2x", &v); qsb_ch(b, (char)v); p += 2; }
+        else if(*p == '+') qsb_ch(b, ' ');
+        else qsb_ch(b, *p);
+    }
+}
+
+// ===== stringify（递归） =====
+static void qs_stringify_rec(QSB* b, const char* key, Value v) {
+    if(v.type == VAL_MAP) {
+        for(int i = 0; i < v.v.map->len; i++) {
+            char* sub;
+            if(*key) { sub = malloc(strlen(key) + strlen(v.v.map->keys[i]) + 4); sprintf(sub, "%s[%s]", key, v.v.map->keys[i]); }
+            else     { sub = malloc(strlen(v.v.map->keys[i]) + 2); sprintf(sub, "%s", v.v.map->keys[i]); }
+            qs_stringify_rec(b, sub, v.v.map->values[i]);
+            free(sub);
+        }
+    } else if(v.type == VAL_ARRAY) {
+        for(int i = 0; i < v.v.array.len; i++) {
+            char* sub = malloc(strlen(key) + 32);
+            sprintf(sub, "%s[%d]", key, i);
+            qs_stringify_rec(b, sub, v.v.array.items[i]);
+            free(sub);
+        }
+    } else {
+        if(b->len) qsb_ch(b, '&');
+        qsb_str(b, key); qsb_ch(b, '=');
+        char* sv = value_to_str(v);
+        qs_encode(b, sv); free(sv);
+    }
+}
+char* lumin_qs_stringify(Value v) {
+    QSB b; qsb_init(&b);
+    qs_stringify_rec(&b, "", v);
+    return b.s;
+}
+
+// ===== parse =====
+static _Bool seg_is_num(const char* s) {
+    if(!*s) return 0;
+    for(const char* p = s; *p; p++) if(!isdigit((unsigned char)*p)) return 0;
+    return 1;
+}
+// 数组按索引写入（自动扩容；中间空槽补 null）
+static void qs_arr_set_grow(Value* arr, int idx, Value v) {
+    if(arr->type != VAL_ARRAY) { *arr = val_array(idx + 1); }
+    else if(idx >= arr->v.array.len) {
+        Value nv = val_array(idx + 1);
+        /* val_clone：旧数组可能被 map_set 替换时 val_destroy，必须深拷贝 */
+        for(int k = 0; k < arr->v.array.len; k++) nv.v.array.items[k] = val_clone(&arr->v.array.items[k]);
+        *arr = nv;
+    }
+    arr->v.array.items[idx] = val_clone(&v);
+}
+static Value qs_child_get(Value container, const char* seg) {
+    if(seg_is_num(seg)) {
+        if(container.type == VAL_ARRAY) {
+            int idx = atoi(seg);
+            if(idx >= 0 && idx < container.v.array.len) return val_clone(&container.v.array.items[idx]);
+        }
+    } else if(container.type == VAL_MAP) {
+        Value k = lumin_make_string((char*)seg);
+        Value r = lumin_map_get(container, k);
+        /* 容器深拷贝：qs_child_set 替换父键时 lumin_map_set 会 val_destroy 旧值，
+           共享引用会 use-after-free */
+        if(r.type == VAL_MAP || r.type == VAL_ARRAY) return val_clone(&r);
+        return r;
+    }
+    return val_none();
+}
+static void qs_child_set(Value* container, const char* seg, Value child) {
+    if(seg_is_num(seg)) qs_arr_set_grow(container, atoi(seg), child);
+    else lumin_map_set(container, lumin_make_string((char*)seg), child);
+}
+static void qs_set_path(Value* container, char** segs, int i, int nseg, Value v) {
+    if(i == nseg - 1) {  // 叶子
+        if(seg_is_num(segs[i])) qs_arr_set_grow(container, atoi(segs[i]), v);
+        else lumin_map_set(container, lumin_make_string(segs[i]), v);
+        return;
+    }
+    const char* seg = segs[i];
+    Value child = qs_child_get(*container, seg);
+    if(child.type != VAL_MAP && child.type != VAL_ARRAY) {
+        _Bool next_arr = seg_is_num(segs[i + 1]);
+        child = next_arr ? val_array(0) : val_map();
+    }
+    qs_set_path(&child, segs, i + 1, nseg, v);
+    qs_child_set(container, seg, child);
+}
+Value lumin_qs_parse(const char* s) {
+    Value root = val_map();
+    if(!s || !*s) return root;
+    char* dup = strdup(s);
+    char* save = NULL;
+    for(char* pair = strtok_r(dup, "&", &save); pair; pair = strtok_r(NULL, "&", &save)) {
+        char* eq = strchr(pair, '=');
+        char* key = pair;
+        char* val = "";
+        if(eq) { *eq = 0; val = eq + 1; }
+        // 拆段：base[seg1][seg2]
+        char* segs[64]; int nseg = 0;
+        char* p = strchr(key, '[');
+        if(p) {
+            *p = 0;
+            segs[nseg++] = key;
+            while(p) {
+                char* q = strchr(p + 1, ']');
+                if(!q) break;
+                *q = 0;
+                segs[nseg++] = p + 1;
+                p = strchr(q + 1, '[');
+            }
+        } else {
+            segs[nseg++] = key;
+        }
+        if(nseg == 0) { free(dup); return root; }
+        // 每段 URL 解码（段指针指向 dup 副本，解码到新缓冲）
+        char* dec_segs[64];
+        for(int i = 0; i < nseg; i++) {
+            QSB d; qsb_init(&d); qs_decode(&d, segs[i]);
+            dec_segs[i] = d.s;
+        }
+        QSB vd; qsb_init(&vd); qs_decode(&vd, val);
+        Value v = lumin_make_string(vd.s);
+        qs_set_path(&root, dec_segs, 0, nseg, v);
+        for(int i = 0; i < nseg; i++) free(dec_segs[i]);
+        free(vd.s);
+    }
+    free(dup);
+    return root;
+}

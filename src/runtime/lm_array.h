@@ -24,3 +24,6 @@ Value lumin_array_last(Value arr);                // 尾元素，空 → null
 
 Value lumin_map_add(Value m, Value k, Value v);  // 字典设键值，返回 m（m.add(k,v)）
 Value lumin_array_clear(Value v);                // 清空容器：数组→[]，字典→{}
+
+// 数组/字典扁平化：展开嵌套数组（深度 depth，默认 1；负数 → 无限展开）
+Value lumin_array_flat(Value v, int depth);

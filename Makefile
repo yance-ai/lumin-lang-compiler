@@ -66,6 +66,7 @@ C_SRCS += $(SRC_DIR)/runtime/lm_lock.c
 C_SRCS += $(SRC_DIR)/runtime/lm_tls.c
 C_SRCS += $(SRC_DIR)/runtime/lm_http.c
 C_SRCS += $(SRC_DIR)/runtime/lm_json.c
+C_SRCS += $(SRC_DIR)/runtime/lm_qs.c
 
 OBJS := $(C_SRCS:.c=.o)
 

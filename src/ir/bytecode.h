@@ -125,6 +125,8 @@ typedef enum {
     BUILTIN_ARRAY_FIRST,  // first(arr)：首元素（空 → null）
     BUILTIN_ARRAY_LAST,   // last(arr)：尾元素（空 → null）
     BUILTIN_MAP_HAS,      // has(m, k)：键是否存在（m.has(k) 方法链）
+    BUILTIN_ARRAY_FLAT,   // flat(arr, depth?)：数组/字典扁平化（.flat() 方法链）
+    BUILTIN_QS,           // qs(v)：字典/数组 → 查询字符串；字符串 → 解析为字典/数组
     BUILTIN_COUNT
 } BuiltinId;
 

@@ -11,6 +11,7 @@
 #include "runtime/lm_tls.h"
 #include "runtime/lm_http.h"
 #include "runtime/lm_json.h"
+#include "runtime/lm_qs.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -595,6 +596,27 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = r;
                         break;
                     }
+                    case BUILTIN_ARRAY_FLAT: {
+                        Value depth = lumin_make_int(1);
+                        Value v;
+                        if(in.b >= 2) { depth = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_array_flat(v, lumin_extract_int(depth));
+                        break;
+                    }
+                    case BUILTIN_QS: {
+                        Value v = stack[--sp];
+                        if(v.type == VAL_MAP || v.type == VAL_ARRAY) {
+                            char* q = lumin_qs_stringify(v);
+                            stack[sp++] = lumin_make_string(q);
+                            free(q);
+                        } else if(v.type == VAL_STRING) {
+                            stack[sp++] = lumin_qs_parse(v.v.s);
+                        } else {
+                            runtime_error("qs() 参数必须是字典/数组（序列化）或字符串（解析）");
+                        }
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -676,6 +698,27 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = r;
                         break;
                     }
+                    case BUILTIN_ARRAY_FLAT: {
+                        Value depth = lumin_make_int(1);
+                        Value v;
+                        if(in.b >= 2) { depth = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_array_flat(v, lumin_extract_int(depth));
+                        break;
+                    }
+                    case BUILTIN_QS: {
+                        Value v = stack[--sp];
+                        if(v.type == VAL_MAP || v.type == VAL_ARRAY) {
+                            char* q = lumin_qs_stringify(v);
+                            stack[sp++] = lumin_make_string(q);
+                            free(q);
+                        } else if(v.type == VAL_STRING) {
+                            stack[sp++] = lumin_qs_parse(v.v.s);
+                        } else {
+                            runtime_error("qs() 参数必须是字典/数组（序列化）或字符串（解析）");
+                        }
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
                             case BUILTIN_HTTP_HEAD:   m = "HEAD"; break;
                             case BUILTIN_HTTP_PATCH:  m = "PATCH"; break;
@@ -695,6 +738,21 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value fn, arr, init = val_none();
                         if(argc == 3) { init = stack[--sp]; fn = stack[--sp]; arr = stack[--sp]; }
                         else { fn = stack[--sp]; arr = stack[--sp]; }
+                        if(arr.type == VAL_MAP && in.a == BUILTIN_MAP) {
+                            /* 字典 map：fn(value, key) → 新字典（键不变值映射） */
+                            if(fn.type != VAL_FUNC) runtime_error("map() 第二个参数必须是函数");
+                            RuntimeFunc* mrf = fn.v.func.func_obj;
+                            Value mout = val_map();
+                            for(int i = 0; i < arr.v.map->len; i++) {
+                                Value a2[2];
+                                a2[0] = val_clone(&arr.v.map->values[i]);
+                                a2[1] = lumin_make_string(arr.v.map->keys[i]);
+                                Value r = vm_call_rf(mrf, a2, 2, frame, ctx);
+                                lumin_map_set(&mout, lumin_make_string(arr.v.map->keys[i]), val_clone(&r));
+                            }
+                            stack[sp++] = mout;
+                            break;
+                        }
                         if(arr.type != VAL_ARRAY) runtime_error("map()/filter()/reduce() 第一个参数必须是数组");
                         if(fn.type != VAL_FUNC) runtime_error("map()/filter()/reduce() 第二个参数必须是函数");
                         RuntimeFunc* rf = fn.v.func.func_obj;
