@@ -39,6 +39,8 @@ typedef enum {
     CAST_UINT16,
     CAST_UINT32,
     CAST_UINT64,
+    CAST_LONG,       // long：平台相关，lm 统一 64 位
+    CAST_LONGLONG,   // long long：64 位（= int 默认）
 } CastKind;
 
 // 值类型：语言支持的数据类型

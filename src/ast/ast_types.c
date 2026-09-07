@@ -80,6 +80,7 @@ ValueType castkind_to_valtype(int ck)
         case CAST_BYTE: return VAL_BYTE;
         case CAST_INT8: case CAST_INT16: case CAST_INT32: case CAST_INT64:
         case CAST_UINT8: case CAST_UINT16: case CAST_UINT32: case CAST_UINT64:
+        case CAST_LONG: case CAST_LONGLONG:
             return VAL_INT;
         default: return VAL_NONE;
     }

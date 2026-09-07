@@ -73,6 +73,8 @@ static int is_expr_end(int t)
 "uint32"        { LEX_RET(TOK_UINT32); }
 "uint64"        { LEX_RET(TOK_UINT64); }
 "uint"          { LEX_RET(TOK_UINT); }
+"long long"     { LEX_RET(TOK_LONGLONG); }
+"long"          { LEX_RET(TOK_LONG); }
 
 "..."           { fprintf(stderr,"[LEX] ELLIPSIS\n"); LEX_RET(ELLIPSIS); }
 

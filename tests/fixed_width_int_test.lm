@@ -49,4 +49,23 @@ p = Pixel(200, 128, 64);
 print(p.r);  // 200
 print(p.g);  // 128
 print(p.__classname__);  // Pixel
+print("== 12. long / long long ==");
+print((long)3.14);       // 3
+print((long long)3.14);  // 3
+print((long)"42");       // 42
+print("== 13. <T>value 单值声明语法 ==");
+a = <int>8;
+b = <long>8;
+c = <int16>127;
+d = <long long>100;
+e = <uint8>200;
+f = <int8>200;
+g = <int32>(100 + 200);
+print(a);  // 8
+print(b);  // 8
+print(c);  // 127
+print(d);  // 100
+print(e);  // 200
+print(f);  // -56（截断）
+print(g);  // 300
 print("== done ==");

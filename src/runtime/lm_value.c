@@ -856,3 +856,5 @@ Value lumin_cast_uint8(Value v)  { return cast_int_width(v, 8, 0); }
 Value lumin_cast_uint16(Value v) { return cast_int_width(v, 16, 0); }
 Value lumin_cast_uint32(Value v) { return cast_int_width(v, 32, 0); }
 Value lumin_cast_uint64(Value v) { return cast_int_width(v, 64, 0); }
+Value lumin_cast_long(Value v)     { return lumin_cast_int(v); }  // long → 64 位
+Value lumin_cast_longlong(Value v) { return lumin_cast_int(v); }  // long long → 64 位

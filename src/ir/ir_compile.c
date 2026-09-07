@@ -440,6 +440,8 @@ static int fold_const(Ctx* c, AstNode* node, Value* out)
                 case CAST_UINT16: *out = lumin_cast_uint16(v); return 1;
                 case CAST_UINT32: *out = lumin_cast_uint32(v); return 1;
                 case CAST_UINT64: *out = lumin_cast_uint64(v); return 1;
+                case CAST_LONG: *out = lumin_cast_long(v); return 1;
+                case CAST_LONGLONG: *out = lumin_cast_longlong(v); return 1;
                 default: return 0;
             }
         }
@@ -566,6 +568,7 @@ static void c_expr(Ctx* c, AstNode* node)
                 [CAST_INT32] = OPC_CAST_INT32, [CAST_INT64] = OPC_CAST_INT64,
                 [CAST_UINT8] = OPC_CAST_UINT8, [CAST_UINT16] = OPC_CAST_UINT16,
                 [CAST_UINT32] = OPC_CAST_UINT32, [CAST_UINT64] = OPC_CAST_UINT64,
+                [CAST_LONG] = OPC_CAST_LONG, [CAST_LONGLONG] = OPC_CAST_LONGLONG,
             };
             emit(c, cmap[node->u.cast.cast_type], 0, 0);
             break;
