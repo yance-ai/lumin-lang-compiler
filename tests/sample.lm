@@ -60,11 +60,11 @@ for(ch='A'; ch <= 'Z'; ch = ch + 1) {
     print("A-Z:"+ch);
 }
 print("test-");
-print((ASCII)'A');
+print((ascii)'A');
 for(ch='A'; ch <= 'z'; ch ++) {
-    print("A-z:"+ch+"(int)"+(int)ch+(ASCII)ch);
-    print("A-z2:"+ch+"(int)"+(int)ch+"ASCII-"+(ASCII)ch);
-    print("ASCII=>"+(ASCII)ch);
+    print("A-z:"+ch+"(int)"+(int)ch+(ascii)ch);
+    print("A-z2:"+ch+"(int)"+(int)ch+"ASCII-"+(ascii)ch);
+    print("ASCII=>"+(ascii)ch);
 }
 for(ch='z'; ch >= 90; ch --) {
     print("z-A:"+ch+(int)ch+((ch>100)?true:false));

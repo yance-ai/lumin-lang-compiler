@@ -163,7 +163,7 @@ print((string)true);         // true
 print((bool)1);              // true
 print((bool)0);              // false
 print((char)65);             // A
-print((ASCII)'a');           // 97
+print((ascii)'a');           // 97
 print((int)'5');             // 53
 print((int)"42");            // 42
 print((int)"  42  ");        // 42

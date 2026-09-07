@@ -62,7 +62,7 @@ static int is_expr_end(int t)
 "char"          { LEX_RET(TOK_CHAR); }
 "string"        { LEX_RET(TOK_STRING); }
 "bool"          { LEX_RET(TOK_BOOL); }
-"ASCII"         { LEX_RET(TOK_ASCII); }
+"ascii"         { LEX_RET(TOK_ASCII); }
 "byte"          { LEX_RET(TOK_BYTE); }
 "int8"          { LEX_RET(TOK_INT8); }
 "int16"         { LEX_RET(TOK_INT16); }
