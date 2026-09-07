@@ -123,4 +123,15 @@ gm = <string,uint8>{"a": 100};
 gm["b"] = 300;
 print(gm["b"]);  // 300（下标赋值不做强转）
 
+print("== 13. float 单精度浮点 ==");
+print(<float>3.14159265358979);  // float 精度截断
+print((float)3.14159265358979);  // 强转同样截断
+print((float)"1.5");             // 1.5
+print((float)42);                // 42
+fa = <float>[3.14159, 2.71828];
+print(fa[0]); print(fa[1]);      // 3.14159, 2.71828
+fm = <string,float>{"pi": 3.14159265};
+print(fm["pi"]);                 // 3.14159
+print(<float>(1.0 / 3.0));       // 0.333333
+
 print("== done ==");

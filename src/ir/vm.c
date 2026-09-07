@@ -306,6 +306,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_CAST_UINT64: { Value v = stack[--sp]; stack[sp++] = lumin_cast_uint64(v); break; }
             case OPC_CAST_LONG: { Value v = stack[--sp]; stack[sp++] = lumin_cast_long(v); break; }
             case OPC_CAST_LONGLONG: { Value v = stack[--sp]; stack[sp++] = lumin_cast_longlong(v); break; }
+            case OPC_CAST_FLOAT: { Value v = stack[--sp]; stack[sp++] = lumin_cast_float(v); break; }
             case OPC_LOGIC_NOT:   { Value v = stack[--sp]; stack[sp++] = lumin_logic_not(v); break; }
             case OPC_ARRAY_LIT: {
                 int n = in.b;

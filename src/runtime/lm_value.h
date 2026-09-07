@@ -80,6 +80,7 @@ Value lumin_cast_uint32(Value v);
 Value lumin_cast_uint64(Value v);
 Value lumin_cast_long(Value v);
 Value lumin_cast_longlong(Value v);
+Value lumin_cast_float(Value v);
 
 int lumin_extract_int(Value v);
 

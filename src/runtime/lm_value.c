@@ -858,3 +858,31 @@ Value lumin_cast_uint32(Value v) { return cast_int_width(v, 32, 0); }
 Value lumin_cast_uint64(Value v) { return cast_int_width(v, 64, 0); }
 Value lumin_cast_long(Value v)     { return lumin_cast_int(v); }  // long → 64 位
 Value lumin_cast_longlong(Value v) { return lumin_cast_int(v); }  // long long → 64 位
+// float：32 位单精度截断（运行时仍存 double）
+static Value cast_float_rec(Value v) {
+    if(v.type == VAL_ARRAY) {
+        Value r = val_array(v.v.array.len);
+        for(int i = 0; i < v.v.array.len; i++)
+            r.v.array.items[i] = cast_float_rec(v.v.array.items[i]);
+        return r;
+    }
+    if(v.type == VAL_MAP) {
+        Value r = val_map();
+        for(int i = 0; i < v.v.map->len; i++)
+            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]),
+                          cast_float_rec(v.v.map->values[i]));
+        return r;
+    }
+    double d;
+    switch(v.type) {
+        case VAL_DOUBLE: d = v.v.d; break;
+        case VAL_INT: case VAL_BYTE: d = (double)v.v.i; break;
+        case VAL_BOOL: d = v.v.b ? 1.0 : 0.0; break;
+        case VAL_CHAR: d = (double)(unsigned char)v.v.c; break;
+        case VAL_STRING: d = atof(v.v.s ? v.v.s : "0"); break;
+        case VAL_NONE: d = 0.0; break;
+        default: runtime_error("(float) 强转: 不支持的类型"); return val_none();
+    }
+    return lumin_make_double((double)(float)d);
+}
+Value lumin_cast_float(Value v) { return cast_float_rec(v); }

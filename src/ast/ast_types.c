@@ -82,6 +82,8 @@ ValueType castkind_to_valtype(int ck)
         case CAST_UINT8: case CAST_UINT16: case CAST_UINT32: case CAST_UINT64:
         case CAST_LONG: case CAST_LONGLONG:
             return VAL_INT;
+        case CAST_FLOAT:
+            return VAL_DOUBLE;
         default: return VAL_NONE;
     }
 }

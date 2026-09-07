@@ -478,6 +478,7 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
                 case CAST_UINT32: return make_int((long long)(uint32_t)(unsigned long long)subv.v.i);
                 case CAST_UINT64: return make_int((long long)(uint64_t)(unsigned long long)subv.v.i);
                 case CAST_LONG: case CAST_LONGLONG: return make_int(subv.v.i);
+                case CAST_FLOAT: return make_double((double)(float)(subv.type == VAL_DOUBLE ? subv.v.d : (double)subv.v.i));
                 default: {
                     return make_int(0);
                 }

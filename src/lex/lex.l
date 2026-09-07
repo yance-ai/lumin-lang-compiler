@@ -75,6 +75,7 @@ static int is_expr_end(int t)
 "uint"          { LEX_RET(TOK_UINT); }
 "long long"     { LEX_RET(TOK_LONGLONG); }
 "long"          { LEX_RET(TOK_LONG); }
+"float"         { LEX_RET(TOK_FLOAT); }
 
 "..."           { fprintf(stderr,"[LEX] ELLIPSIS\n"); LEX_RET(ELLIPSIS); }
 

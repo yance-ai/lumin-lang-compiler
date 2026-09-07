@@ -41,6 +41,7 @@ typedef enum {
     CAST_UINT64,
     CAST_LONG,       // long：平台相关，lm 统一 64 位
     CAST_LONGLONG,   // long long：64 位（= int 默认）
+    CAST_FLOAT,      // float：32 位单精度，运行时 double 存储，强转时截断精度
 } CastKind;
 
 // 值类型：语言支持的数据类型
