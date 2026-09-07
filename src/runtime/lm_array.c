@@ -5,6 +5,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#include <limits.h>
 
 // sort_cmp 排序方向（lumin_sort 设置后调用 qsort）
 static _Thread_local int g_sort_numeric = 0;   /* TLS：多线程 sort 互不干扰 */
@@ -22,7 +23,9 @@ Value lumin_range_n(Value* args, int n) {
     long long len = 0;
     if(span > 0) len = (long long)((span + (step > 0 ? step : -step) - 1) / (step > 0 ? step : -step));
     if(len < 0) len = 0;
-    if(len > 100000000LL) runtime_error("range() 元素数过多");
+    /* 无人为上限：与 C 一致，数组长度受 int 类型与内存共同约束
+       （INT_MAX 仅为类型上限，防止 (int) 截断；实际先受 malloc 失败约束） */
+    if(len > INT_MAX) runtime_error("range() 元素数超出数组长度上限（INT_MAX）");
     Value arr = val_array((int)len);
     for(long long i = 0; i < len; i++) {
         Value item = lumin_make_int(a + i * step);
@@ -153,7 +156,8 @@ Value lumin_map_add(Value m, Value k, Value v)
     return m;
 }
 
-// clear 容器：原地清空，返回自身（链式）；数组 → 空数组；字典 → 空字典
+// clear 容器：数组值语义 → 返回新空数组（与 add/remove 一致）；
+// 字典引用语义 → 原地清空，返回自身（链式）
 // 只读 __classname__ 不被清理：type 构造对象 clear 后类名属性保留
 Value lumin_array_clear(Value v)
 {
@@ -167,7 +171,7 @@ Value lumin_array_clear(Value v)
         if(cn) { lumin_map_set(&v, lumin_make_string(cn), cnv); free(cn); }
         return v;
     }
-    if(v.type == VAL_ARRAY) { v.v.array.len = 0; return v; }
+    if(v.type == VAL_ARRAY) return val_array(0);
     runtime_error("clear() 参数必须是数组或字典");
     return v;
 }

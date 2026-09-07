@@ -97,11 +97,19 @@ plain.clear();
 print(len(plain.keys()));      // 0
 print(plain == {});            // true
 a = [1, 2, 3];
-a.clear();                     // 数组 clear 原地
+a = a.clear();                 // 数组值语义：clear 返回新空数组（与 add/remove 一致）
 print(len(a));                 // 0
 print(a == []);                // true
+print(len([9, 8].clear()));    // 0（链式：clear 结果直接用）
 // clear 链式：构造 → clear → 读类名
 print(Product(7, 1.5).clear().__classname__);  // Product
+
+print("== range 无 1 亿上限 ==");
+// 旧版 range() 有 100000000LL 安全阀；已移除，长度只受内存与 INT_MAX 约束
+// （range(100000001) 1.6GB 已双通道临时验证）
+print(len(range(5000000)));        // 5000000（5 百万，80MB）
+print(range(5000000 - 1, 5000000)[0]);  // 4999999（跨旧上限区间验证）
+print(len(range(0, 0, 1)));        // 0（空 range 正常）
 
 print("== 类型构造参数错误（语义检查） ==");
 // Person("only one")  单参非 map → 位置构造（name=only one，age 缺省 null）

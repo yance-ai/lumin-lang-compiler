@@ -188,6 +188,7 @@ Value val_array(int len) {
     r.v.array.len = len;
     if(len > 0) {
         r.v.array.items = (Value*)malloc(sizeof(Value) * len);
+        if(!r.v.array.items) runtime_error("内存不足：数组分配失败");
         for(int i = 0; i < len; i++) {
             r.v.array.items[i] = val_none();
         }
