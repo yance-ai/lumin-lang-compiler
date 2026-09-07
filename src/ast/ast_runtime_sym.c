@@ -35,7 +35,7 @@ static int sym_lookup(const char* n) {
 void sym_set(const char* n, Value v) {
     int idx = sym_lookup(n);
     if(idx >= 0) {
-        if(sym_vals[idx].type == VAL_STRING) {
+        if(sym_vals[idx].type == VAL_STRING && !sym_vals[idx].str_inline) {
             free(sym_vals[idx].v.s);
         }
         sym_vals[idx] = v;
@@ -91,7 +91,7 @@ int value_equal(Value a, Value b) {
         case VAL_DOUBLE:  return a.v.d == b.v.d;
         case VAL_BOOL:    return a.v.b == b.v.b;
         case VAL_CHAR:    return a.v.c == b.v.c;
-        case VAL_STRING:  return strcmp(a.v.s, b.v.s) == 0;
+        case VAL_STRING:  return strcmp(lumin_str_cstr(&a), lumin_str_cstr(&b)) == 0;
         default: return 0;
     }
 }

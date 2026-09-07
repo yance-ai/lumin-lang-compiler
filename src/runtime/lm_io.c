@@ -11,7 +11,7 @@
 Value lumin_read_file(Value* args, int n) {
     if(n < 1 || args[0].type != VAL_STRING)
         runtime_error("read_file() 参数必须是文件路径字符串");
-    const char* path = args[0].v.s;
+    const char* path = lumin_str_cstr(&args[0]);
     FILE* f = fopen(path, "rb");
     if(!f) {
         char buf[512];
@@ -37,7 +37,7 @@ Value lumin_read_file(Value* args, int n) {
 Value lumin_write_file(Value* args, int n) {
     if(n < 2 || args[0].type != VAL_STRING)
         runtime_error("write_file() 需要 (路径, 内容) 两个参数");
-    const char* path = args[0].v.s;
+    const char* path = lumin_str_cstr(&args[0]);
     char* text = value_to_str(args[1]);
     FILE* f = fopen(path, "wb");
     if(!f) {
@@ -59,7 +59,7 @@ Value lumin_write_file(Value* args, int n) {
 Value lumin_file_exists(Value* args, int n) {
     if(n < 1 || args[0].type != VAL_STRING)
         runtime_error("file_exists() 参数必须是文件路径字符串");
-    FILE* f = fopen(args[0].v.s, "rb");
+    FILE* f = fopen(lumin_str_cstr(&args[0]), "rb");
     if(f) { fclose(f); return val_bool(1); }
     return val_bool(0);
 }

@@ -10,7 +10,7 @@
 
 Value lumin_substr(Value s, Value start, Value n) {
     if(s.type != VAL_STRING) runtime_error("substr() 第一个参数必须是字符串");
-    long long slen = (long long)strlen(s.v.s);
+    long long slen = (long long)strlen(lumin_str_cstr(&s));
     long long i = array_index_of(start);
     long long cnt = array_index_of(n);
     if(i < 0 || i > slen) runtime_error("substr() 起始越界");
@@ -18,7 +18,7 @@ Value lumin_substr(Value s, Value start, Value n) {
     if(i + cnt > slen) cnt = slen - i;
     char* out = (char*)malloc(cnt + 1);
     if(!out) { perror("lumin_substr"); exit(EXIT_FAILURE); }
-    memcpy(out, s.v.s + i, cnt);
+    memcpy(out, lumin_str_cstr(&s) + i, cnt);
     out[cnt] = '\0';
     Value r = lumin_make_string(out);
     free(out);
@@ -30,9 +30,9 @@ Value lumin_substr(Value s, Value start, Value n) {
 static Value str_case(Value s, int upper)
 {
     if(s.type != VAL_STRING) runtime_error("参数必须是字符串");
-    char* out = (char*)malloc(strlen(s.v.s) + 1);
+    char* out = (char*)malloc(strlen(lumin_str_cstr(&s)) + 1);
     if(!out) { perror("str_case"); exit(EXIT_FAILURE); }
-    const unsigned char* p = (const unsigned char*)s.v.s;
+    const unsigned char* p = (const unsigned char*)lumin_str_cstr(&s);
     char* q = out;
     while(*p) {
         if(upper && *p >= 'a' && *p <= 'z') *q = *p - 'a' + 'A';
@@ -56,9 +56,9 @@ Value lumin_split(Value s, Value sep)
 {
     if(s.type != VAL_STRING || sep.type != VAL_STRING)
         runtime_error("split() 参数必须是字符串");
-    if(sep.v.s[0] == '\0') runtime_error("split() 分隔符不能为空");
-    const char* p = s.v.s;
-    const char* sp = sep.v.s;
+    if(lumin_str_cstr(&sep)[0] == '\0') runtime_error("split() 分隔符不能为空");
+    const char* p = lumin_str_cstr(&s);
+    const char* sp = lumin_str_cstr(&sep);
     size_t splen = strlen(sp);
     int count = 1;
     for(const char* t = p; (t = strstr(t, sp)) != NULL; t += splen) count++;
@@ -92,14 +92,14 @@ Value lumin_join(Value arr, Value sep)
     for(int i = 0; i < arr.v.array->len; i++) {
         char* t = value_to_str(arr.v.array->items[i]);
         total += strlen(t);
-        if(i < arr.v.array->len - 1) total += strlen(sep.v.s);
+        if(i < arr.v.array->len - 1) total += strlen(lumin_str_cstr(&sep));
         free(t);
     }
     char* out = (char*)malloc(total);
     if(!out) { perror("join"); exit(EXIT_FAILURE); }
     out[0] = '\0';
     for(int i = 0; i < arr.v.array->len; i++) {
-        if(i > 0) strcat(out, sep.v.s);
+        if(i > 0) strcat(out, lumin_str_cstr(&sep));
         char* t = value_to_str(arr.v.array->items[i]);
         strcat(out, t);
         free(t);
@@ -115,7 +115,7 @@ Value lumin_contains(Value hay, Value needle)
 {
     if(hay.type == VAL_STRING) {
         if(needle.type != VAL_STRING) runtime_error("contains() 字符串查找需要字符串参数");
-        return lumin_make_bool(strstr(hay.v.s, needle.v.s) != NULL);
+        return lumin_make_bool(strstr(lumin_str_cstr(&hay), lumin_str_cstr(&needle)) != NULL);
     }
     if(hay.type == VAL_ARRAY) {
         for(int i = 0; i < hay.v.array->len; i++) {
@@ -140,12 +140,12 @@ Value lumin_repeat(Value s, Value n)
     if(n.type != VAL_INT) runtime_error("repeat() 次数必须是整数");
     long long k = n.v.i;
     if(k < 0) runtime_error("repeat() 次数不能为负数");
-    size_t len = strlen(s.v.s);
+    size_t len = strlen(lumin_str_cstr(&s));
     if(k > 0 && len > (size_t)((1ULL << 40) / k)) runtime_error("repeat() 结果过大");
     size_t total = len * (size_t)k;
     char* out = (char*)malloc(total + 1);
     if(!out) { perror("repeat"); exit(EXIT_FAILURE); }
-    for(long long i = 0; i < k; i++) memcpy(out + len * (size_t)i, s.v.s, len);
+    for(long long i = 0; i < k; i++) memcpy(out + len * (size_t)i, lumin_str_cstr(&s), len);
     out[total] = '\0';
     Value r = lumin_make_string(out);
     free(out);
@@ -158,10 +158,10 @@ Value lumin_replace(Value s, Value from, Value to)
 {
     if(s.type != VAL_STRING || from.type != VAL_STRING || to.type != VAL_STRING)
         runtime_error("replace() 三个参数都必须是字符串");
-    if(from.v.s[0] == '\0') runtime_error("replace() 被替换串不能为空");
-    const char* p = s.v.s;
-    const char* f = from.v.s;
-    const char* t = to.v.s;
+    if(lumin_str_cstr(&from)[0] == '\0') runtime_error("replace() 被替换串不能为空");
+    const char* p = lumin_str_cstr(&s);
+    const char* f = lumin_str_cstr(&from);
+    const char* t = lumin_str_cstr(&to);
     size_t flen = strlen(f), tlen = strlen(t), slen = strlen(p);
     int count = 0;
     for(const char* q = p; (q = strstr(q, f)) != NULL; q += flen) count++;
@@ -191,7 +191,7 @@ Value lumin_replace(Value s, Value from, Value to)
 
 Value lumin_format(Value* args, int n) {
     if(n < 1 || args[0].type != VAL_STRING) runtime_error("format() 第一个参数必须是格式串");
-    const char* fmt = args[0].v.s;
+    const char* fmt = lumin_str_cstr(&args[0]);
     int nargs = n - 1;
     int placeholders = 0;
     const char* scan = fmt;
@@ -242,7 +242,7 @@ Value lumin_format(Value* args, int n) {
 Value lumin_strip(Value s)
 {
     if(s.type != VAL_STRING) runtime_error("strip() 参数必须是字符串");
-    const char* p = s.v.s;
+    const char* p = lumin_str_cstr(&s);
     while(*p && isspace((unsigned char)*p)) p++;
     size_t len = strlen(p);
     while(len > 0 && isspace((unsigned char)p[len - 1])) len--;
@@ -261,16 +261,16 @@ Value lumin_startswith(Value s, Value prefix)
 {
     if(s.type != VAL_STRING || prefix.type != VAL_STRING)
         runtime_error("startswith() 两个参数都必须是字符串");
-    size_t sl = strlen(s.v.s), pl = strlen(prefix.v.s);
-    return lumin_make_bool(pl <= sl && strncmp(s.v.s, prefix.v.s, pl) == 0);
+    size_t sl = strlen(lumin_str_cstr(&s)), pl = strlen(lumin_str_cstr(&prefix));
+    return lumin_make_bool(pl <= sl && strncmp(lumin_str_cstr(&s), lumin_str_cstr(&prefix), pl) == 0);
 }
 
 Value lumin_endswith(Value s, Value suffix)
 {
     if(s.type != VAL_STRING || suffix.type != VAL_STRING)
         runtime_error("endswith() 两个参数都必须是字符串");
-    size_t sl = strlen(s.v.s), fl = strlen(suffix.v.s);
-    return lumin_make_bool(fl <= sl && strcmp(s.v.s + sl - fl, suffix.v.s) == 0);
+    size_t sl = strlen(lumin_str_cstr(&s)), fl = strlen(lumin_str_cstr(&suffix));
+    return lumin_make_bool(fl <= sl && strcmp(lumin_str_cstr(&s) + sl - fl, lumin_str_cstr(&suffix)) == 0);
 }
 
 

@@ -84,7 +84,7 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
 
     // 1. URL + 查询串
     Buf full_url = {0};
-    buf_append(&full_url, url.v.s, strlen(url.v.s));
+    buf_append(&full_url, lumin_str_cstr(&url), strlen(lumin_str_cstr(&url)));
     Buf qs = {0};
     if(params.type == VAL_MAP) {
         MapIter pit; map_iter_init(&pit, params.v.map);
@@ -109,10 +109,10 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
             else buf_append(&full_url, "&", 1);
             buf_append(&full_url, qs.data, qs.len);
         }
-    } else if(params.type == VAL_STRING && params.v.s && params.v.s[0]) {
+    } else if(params.type == VAL_STRING && lumin_str_cstr(&params) && lumin_str_cstr(&params)[0]) {
         if(strchr(full_url.data, '?') == NULL) buf_append(&full_url, "?", 1);
         else buf_append(&full_url, "&", 1);
-        buf_append(&full_url, params.v.s, strlen(params.v.s));
+        buf_append(&full_url, lumin_str_cstr(&params), strlen(lumin_str_cstr(&params)));
     }
     free(qs.data);
 
@@ -151,8 +151,8 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
 
     // 3. 请求体
     if(body.type == VAL_STRING) {
-        curl_easy_setopt(h, CURLOPT_POSTFIELDS, body.v.s);
-        curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, (long)strlen(body.v.s));
+        curl_easy_setopt(h, CURLOPT_POSTFIELDS, lumin_str_cstr(&body));
+        curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, (long)strlen(lumin_str_cstr(&body)));
     }
 
     // 4. 执行

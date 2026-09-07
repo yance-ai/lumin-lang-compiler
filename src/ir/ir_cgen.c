@@ -109,7 +109,7 @@ static void emit_const(FILE* f, const Value* v)
         case VAL_BOOL:   fprintf(f, "lumin_make_bool(%d)", v->v.b ? 1 : 0); break;
         case VAL_CHAR:   fprintf(f, "lumin_make_char("); emit_c_char_lit(f, v->v.c); fprintf(f, ")"); break;
         case VAL_BYTE:   fprintf(f, "lumin_make_byte(%d)", (int)(v->v.i & 0xFF)); break;
-        case VAL_STRING: fprintf(f, "lumin_make_string("); emit_c_string_lit(f, v->v.s); fprintf(f, ")"); break;
+        case VAL_STRING: fprintf(f, "lumin_make_string("); emit_c_string_lit(f, lumin_str_cstr(v)); fprintf(f, ")"); break;
         default:         fprintf(f, "val_none()"); break;
     }
 }
@@ -438,10 +438,10 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __ms = __stk[--__sp]; Value __lk = __stk[--__sp]; Value __cd = __stk[--__sp]; if(__ms.type != VAL_INT) runtime_error(\"cond_wait_timeout() 超时参数必须是整数毫秒\"); if(__lk.type != VAL_INT) runtime_error(\"cond_wait_timeout() 锁参数必须是锁id（整数）\"); if(__cd.type != VAL_INT) runtime_error(\"cond_wait_timeout() 条件参数必须是条件id（整数）\"); __stk[__sp++] = lumin_make_bool(lumin_cond_timedwait((int)__cd.v.i, (int)__lk.v.i, __ms.v.i)); }\n");
                         break;
                     case BUILTIN_THREADLOCAL_GET:
-                        fprintf(out, "    { Value __n = __stk[--__sp]; if(__n.type != VAL_STRING) runtime_error(\"threadlocal_get() 名字参数必须是字符串\"); __stk[__sp++] = lumin_tls_get(__n.v.s); }\n");
+                        fprintf(out, "    { Value __n = __stk[--__sp]; if(__n.type != VAL_STRING) runtime_error(\"threadlocal_get() 名字参数必须是字符串\"); __stk[__sp++] = lumin_tls_get(lumin_str_cstr(&__n)); }\n");
                         break;
                     case BUILTIN_THREADLOCAL_SET:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __n = __stk[--__sp]; if(__n.type != VAL_STRING) runtime_error(\"threadlocal_set() 名字参数必须是字符串\"); lumin_tls_set(__n.v.s, __v); __stk[__sp++] = __v; }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __n = __stk[--__sp]; if(__n.type != VAL_STRING) runtime_error(\"threadlocal_set() 名字参数必须是字符串\"); lumin_tls_set(lumin_str_cstr(&__n), __v); __stk[__sp++] = __v; }\n");
                         break;
                     case BUILTIN_HTTP_GET:
                     case BUILTIN_HTTP_POST:
@@ -478,9 +478,9 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_JSON:
                         if(in.b >= 2)
-                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(__v.v.s, __e); }\n");
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(lumin_str_cstr(&__v), __e); }\n");
                         else
-                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(__v.v.s, val_none()); }\n");
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(lumin_str_cstr(&__v), val_none()); }\n");
                         break;
                     case BUILTIN_STRINGIFY:
                         if(in.b >= 2)
@@ -496,9 +496,9 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_QS:
                         if(in.b >= 2)
-                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, __e); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, __e); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, __e); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(lumin_str_cstr(&__v), __e); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
                         else
-                            fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, val_none()); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, val_none()); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                            fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, val_none()); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(lumin_str_cstr(&__v), val_none()); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
                         break;
                     case BUILTIN_ARRAY_ADDALL:
                         fprintf(out, "    { Value __b = __stk[--__sp]; lumin_array_addall(&__stk[__sp-1], __b); }\n");
@@ -528,28 +528,28 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, val_none()); }\n");
                         break;
                     case BUILTIN_ENCODE_URL:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_encode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_encode(__v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_DECODE_URL:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_decode(__v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_MD5:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"; char* __r = lumin_md5_hex(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\"; char* __r = lumin_md5_hex(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_ENCODE_BASE64:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"; char* __r = lumin_base64_encode(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\"; char* __r = lumin_base64_encode(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_DECODE_BASE64:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; int __ol=0; char* __r = lumin_base64_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\", &__ol); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; int __ol=0; char* __r = lumin_base64_decode(__v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\", &__ol); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_REGEX_MATCH:
-                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_make_bool(lumin_regex_match(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\")); }\n");
+                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_make_bool(lumin_regex_match(__s.type==VAL_STRING?(lumin_str_cstr(&__s)?lumin_str_cstr(&__s):\"\"):\"\", __p.type==VAL_STRING?(lumin_str_cstr(&__p)?lumin_str_cstr(&__p):\"\"):\"\")); }\n");
                         break;
                     case BUILTIN_REGEX_SEARCH:
-                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_regex_search(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\"); }\n");
+                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_regex_search(__s.type==VAL_STRING?(lumin_str_cstr(&__s)?lumin_str_cstr(&__s):\"\"):\"\", __p.type==VAL_STRING?(lumin_str_cstr(&__p)?lumin_str_cstr(&__p):\"\"):\"\"); }\n");
                         break;
                     case BUILTIN_REGEX_REPLACE:
-                        fprintf(out, "    { Value __r=__stk[--__sp]; Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; char* __o=lumin_regex_replace(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\", __r.type==VAL_STRING?(__r.v.s?__r.v.s:\"\"):\"\"); __stk[__sp++]=lumin_make_string(__o); free(__o); }\n");
+                        fprintf(out, "    { Value __r=__stk[--__sp]; Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; char* __o=lumin_regex_replace(__s.type==VAL_STRING?(lumin_str_cstr(&__s)?lumin_str_cstr(&__s):\"\"):\"\", __p.type==VAL_STRING?(lumin_str_cstr(&__p)?lumin_str_cstr(&__p):\"\"):\"\", __r.type==VAL_STRING?(lumin_str_cstr(&__r)?lumin_str_cstr(&__r):\"\"):\"\"); __stk[__sp++]=lumin_make_string(__o); free(__o); }\n");
                         break;
                     case BUILTIN_NOW:
                         fprintf(out, "    __stk[__sp++] = lumin_now();\n");
@@ -574,9 +574,9 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_FORMAT_TIME:
                         if(in.b >= 2)
-                            fprintf(out, "    { Value __t=__stk[--__sp]; Value __f=__stk[--__sp]; double __ts=__t.type==VAL_DOUBLE?__t.v.d:(double)lumin_extract_int(__t); char* __r=lumin_format_time(__f.type==VAL_STRING?(__f.v.s?__f.v.s:\"\"):\"\", __ts); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                            fprintf(out, "    { Value __t=__stk[--__sp]; Value __f=__stk[--__sp]; double __ts=__t.type==VAL_DOUBLE?__t.v.d:(double)lumin_extract_int(__t); char* __r=lumin_format_time(__f.type==VAL_STRING?(lumin_str_cstr(&__f)?lumin_str_cstr(&__f):\"\"):\"\", __ts); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
                         else
-                            fprintf(out, "    { Value __f=__stk[--__sp]; char* __r=lumin_format_time(__f.type==VAL_STRING?(__f.v.s?__f.v.s:\"\"):\"\", -1.0); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                            fprintf(out, "    { Value __f=__stk[--__sp]; char* __r=lumin_format_time(__f.type==VAL_STRING?(lumin_str_cstr(&__f)?lumin_str_cstr(&__f):\"\"):\"\", -1.0); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_LOG_DEBUG:
                     case BUILTIN_LOG_INFO:
@@ -636,9 +636,9 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_JSON:
                         if(in.b >= 2)
-                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(__v.v.s, __e); }\n");
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(lumin_str_cstr(&__v), __e); }\n");
                         else
-                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(__v.v.s, val_none()); }\n");
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(lumin_str_cstr(&__v), val_none()); }\n");
                         break;
                     case BUILTIN_STRINGIFY:
                         if(in.b >= 2)
@@ -654,9 +654,9 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_QS:
                         if(in.b >= 2)
-                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, __e); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, __e); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, __e); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(lumin_str_cstr(&__v), __e); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
                         else
-                            fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, val_none()); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, val_none()); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                            fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, val_none()); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(lumin_str_cstr(&__v), val_none()); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
                         break;
                     case BUILTIN_ARRAY_ADDALL:
                         fprintf(out, "    { Value __b = __stk[--__sp]; lumin_array_addall(&__stk[__sp-1], __b); }\n");
@@ -686,28 +686,28 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, val_none()); }\n");
                         break;
                     case BUILTIN_ENCODE_URL:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_encode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_encode(__v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_DECODE_URL:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_decode(__v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_MD5:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"; char* __r = lumin_md5_hex(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\"; char* __r = lumin_md5_hex(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_ENCODE_BASE64:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"; char* __r = lumin_base64_encode(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\"; char* __r = lumin_base64_encode(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_DECODE_BASE64:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; int __ol=0; char* __r = lumin_base64_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\", &__ol); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        fprintf(out, "    { Value __v = __stk[--__sp]; int __ol=0; char* __r = lumin_base64_decode(__v.type==VAL_STRING?(lumin_str_cstr(&__v)?lumin_str_cstr(&__v):\"\"):\"\", &__ol); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_REGEX_MATCH:
-                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_make_bool(lumin_regex_match(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\")); }\n");
+                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_make_bool(lumin_regex_match(__s.type==VAL_STRING?(lumin_str_cstr(&__s)?lumin_str_cstr(&__s):\"\"):\"\", __p.type==VAL_STRING?(lumin_str_cstr(&__p)?lumin_str_cstr(&__p):\"\"):\"\")); }\n");
                         break;
                     case BUILTIN_REGEX_SEARCH:
-                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_regex_search(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\"); }\n");
+                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_regex_search(__s.type==VAL_STRING?(lumin_str_cstr(&__s)?lumin_str_cstr(&__s):\"\"):\"\", __p.type==VAL_STRING?(lumin_str_cstr(&__p)?lumin_str_cstr(&__p):\"\"):\"\"); }\n");
                         break;
                     case BUILTIN_REGEX_REPLACE:
-                        fprintf(out, "    { Value __r=__stk[--__sp]; Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; char* __o=lumin_regex_replace(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\", __r.type==VAL_STRING?(__r.v.s?__r.v.s:\"\"):\"\"); __stk[__sp++]=lumin_make_string(__o); free(__o); }\n");
+                        fprintf(out, "    { Value __r=__stk[--__sp]; Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; char* __o=lumin_regex_replace(__s.type==VAL_STRING?(lumin_str_cstr(&__s)?lumin_str_cstr(&__s):\"\"):\"\", __p.type==VAL_STRING?(lumin_str_cstr(&__p)?lumin_str_cstr(&__p):\"\"):\"\", __r.type==VAL_STRING?(lumin_str_cstr(&__r)?lumin_str_cstr(&__r):\"\"):\"\"); __stk[__sp++]=lumin_make_string(__o); free(__o); }\n");
                         break;
                     case BUILTIN_NOW:
                         fprintf(out, "    __stk[__sp++] = lumin_now();\n");
@@ -732,9 +732,9 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_FORMAT_TIME:
                         if(in.b >= 2)
-                            fprintf(out, "    { Value __t=__stk[--__sp]; Value __f=__stk[--__sp]; double __ts=__t.type==VAL_DOUBLE?__t.v.d:(double)lumin_extract_int(__t); char* __r=lumin_format_time(__f.type==VAL_STRING?(__f.v.s?__f.v.s:\"\"):\"\", __ts); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                            fprintf(out, "    { Value __t=__stk[--__sp]; Value __f=__stk[--__sp]; double __ts=__t.type==VAL_DOUBLE?__t.v.d:(double)lumin_extract_int(__t); char* __r=lumin_format_time(__f.type==VAL_STRING?(lumin_str_cstr(&__f)?lumin_str_cstr(&__f):\"\"):\"\", __ts); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
                         else
-                            fprintf(out, "    { Value __f=__stk[--__sp]; char* __r=lumin_format_time(__f.type==VAL_STRING?(__f.v.s?__f.v.s:\"\"):\"\", -1.0); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                            fprintf(out, "    { Value __f=__stk[--__sp]; char* __r=lumin_format_time(__f.type==VAL_STRING?(lumin_str_cstr(&__f)?lumin_str_cstr(&__f):\"\"):\"\", -1.0); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_LOG_DEBUG:
                     case BUILTIN_LOG_INFO:
@@ -872,8 +872,8 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "      const char* __tp = \"Error\"; char* __msg = NULL;\n");
                 fprintf(out, "      if(__v.type == VAL_ERROR) { __tp = __v.v.err.type ? __v.v.err.type : \"Error\"; __msg = strdup(__v.v.err.message ? __v.v.err.message : \"\"); }\n");
                 fprintf(out, "      else if(__v.type == VAL_MAP) {\n");
-                fprintf(out, "        if(lumin_map_has(__v, lumin_make_string(\"type\"))) { Value __tv = lumin_map_get(__v, lumin_make_string(\"type\")); if(__tv.type == VAL_STRING) __tp = __tv.v.s; }\n");
-                fprintf(out, "        if(lumin_map_has(__v, lumin_make_string(\"message\"))) { Value __mv = lumin_map_get(__v, lumin_make_string(\"message\")); if(__mv.type == VAL_STRING) __msg = strdup(__mv.v.s); }\n");
+                fprintf(out, "        if(lumin_map_has(__v, lumin_make_string(\"type\"))) { Value __tv = lumin_map_get(__v, lumin_make_string(\"type\")); if(__tv.type == VAL_STRING) __tp = lumin_str_cstr(&__tv); }\n");
+                fprintf(out, "        if(lumin_map_has(__v, lumin_make_string(\"message\"))) { Value __mv = lumin_map_get(__v, lumin_make_string(\"message\")); if(__mv.type == VAL_STRING) __msg = strdup(lumin_str_cstr(&__mv)); }\n");
                 fprintf(out, "      }\n");
                 fprintf(out, "      if(!__msg) __msg = value_to_str(__v);\n");
                 fprintf(out, "      g_err_type_set(__tp);\n");

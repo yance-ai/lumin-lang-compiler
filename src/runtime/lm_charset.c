@@ -26,9 +26,9 @@ const char* lumin_charset_norm(const char* enc) {
 }
 
 const char* lumin_charset_from_value(Value enc) {
-    if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s))) return "UTF-8";
+    if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc)))) return "UTF-8";
     if(enc.type == VAL_STRING) {
-        const char* r = lumin_charset_norm(enc.v.s);
+        const char* r = lumin_charset_norm(lumin_str_cstr(&enc));
         if(r) return r;
     }
     runtime_error("不支持的字符编码（支持 utf-8/gbk/gb18030/big5/latin1/ascii/shift_jis 等）");
@@ -74,7 +74,7 @@ char* lumin_charset_convert(const char* from, const char* to,
 Value lumin_to_bytes(Value s, Value enc) {
     const char* e = lumin_charset_from_value(enc);
     if(s.type != VAL_STRING) runtime_error("bytes() 第一个参数必须是字符串");
-    const char* in = s.v.s ? s.v.s : "";
+    const char* in = lumin_str_cstr(&s) ? lumin_str_cstr(&s) : "";
     size_t inlen = strlen(in);
     char* buf;
     size_t len;

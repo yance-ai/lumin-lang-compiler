@@ -37,8 +37,8 @@ static void qs_decode(QSB* b, const char* s) {
 
 // ===== stringify（递归） =====
 static const char* qs_enc_str(Value enc) {
-    if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s))) return NULL;
-    return enc.type == VAL_STRING ? enc.v.s : NULL;
+    if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc)))) return NULL;
+    return enc.type == VAL_STRING ? lumin_str_cstr(&enc) : NULL;
 }
 static void qs_stringify_rec(QSB* b, const char* key, Value v, Value enc) {
     if(v.type == VAL_MAP) {

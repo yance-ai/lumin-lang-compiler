@@ -295,15 +295,15 @@ static void jq_stringify(SB* b, Value v, Value enc)
         }
         case VAL_CHAR: {
             char one[2] = { v.v.c, '\0' };
-            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s)))
+            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc))))
                 sb_json_string(b, one);
             else { char* t = lumin_utf8_to_text(one, enc); sb_json_string(b, t ? t : one); free(t); }
             break;
         }
         case VAL_STRING: {
-            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s)))
-                sb_json_string(b, v.v.s ? v.v.s : "");
-            else { char* t = lumin_utf8_to_text(v.v.s ? v.v.s : "", enc); sb_json_string(b, t ? t : ""); free(t); }
+            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc))))
+                sb_json_string(b, lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "");
+            else { char* t = lumin_utf8_to_text(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "", enc); sb_json_string(b, t ? t : ""); free(t); }
             break;
         }
         case VAL_ARRAY: {
@@ -323,7 +323,7 @@ static void jq_stringify(SB* b, Value v, Value enc)
                 if(!first) sb_putc(b, ',');
                 first = 0;
                 char* kstr = value_to_str(k);
-                if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s)))
+                if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc))))
                     sb_json_string(b, kstr);
                 else { char* t = lumin_utf8_to_text(kstr, enc); sb_json_string(b, t ? t : kstr); free(t); }
                 free(kstr);

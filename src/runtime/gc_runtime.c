@@ -146,7 +146,7 @@ void gc_mark(Value v)
 {
     switch (v.type) {
     case VAL_STRING: {
-        if (v.v.s) gc_mark_ptr(v.v.s);
+        if (!v.str_inline && v.v.s) gc_mark_ptr(v.v.s);  // 内联字符串无GCObject头，不标记
         break;
     }
     case VAL_ARRAY: {

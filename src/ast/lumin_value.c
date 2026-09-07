@@ -185,10 +185,22 @@ Value val_char(char v) {
 Value val_string(const char* s) {
     Value r;
     r.type = VAL_STRING;
-    size_t len = s ? strlen(s) : 0;
-    r.v.s = (char*)gc_alloc(len + 1, VAL_STRING);
-    if (len) memcpy(r.v.s, s, len);
-    r.v.s[len] = '\0';
+    r.str_inline = 0;
+    if (s == NULL) {
+        r.v.s = NULL;
+        return r;
+    }
+    size_t len = strlen(s);
+    if (len <= LUMIN_SSO_MAX) {
+        r.str_inline = 1;
+        r.v.sso.len = (uint8_t)len;
+        memcpy(r.v.sso.data, s, len);
+        r.v.sso.data[len] = '\0';
+    } else {
+        r.v.s = (char*)gc_alloc(len + 1, VAL_STRING);
+        memcpy(r.v.s, s, len);
+        r.v.s[len] = '\0';
+    }
     return r;
 }
 
@@ -267,7 +279,7 @@ void val_print(const Value* v) {
     case VAL_DOUBLE: printf("%g", v->v.d); break;
     case VAL_BOOL: printf("%s", v->v.b ? "true" : "false"); break;
     case VAL_CHAR: printf("'%c'", v->v.c); break;
-    case VAL_STRING: printf("\"%s\"", v->v.s); break;
+    case VAL_STRING: printf("\"%s\"", lumin_str_cstr(v)); break;
     case VAL_ERROR: printf("[error:%s] %s", v->v.err.type ? v->v.err.type : "", v->v.err.message ? v->v.err.message : ""); break;
     case VAL_FUNC: printf("<func>"); break;
     case VAL_ARRAY: {

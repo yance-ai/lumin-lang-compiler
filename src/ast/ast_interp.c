@@ -13,7 +13,7 @@
 Value make_int(long long i)      { Value v; v.type = VAL_INT; v.v.i = i; return v; }
 Value make_double(double d)      { Value v; v.type = VAL_DOUBLE; v.v.d = d; return v; }
 Value make_bool(_Bool b)         { Value v; v.type = VAL_BOOL; v.v.b = b; return v; }
-Value make_string(const char* s) { Value v; v.type = VAL_STRING; v.v.s = strdup(s); return v; }
+Value make_string(const char* s) { Value v; v.type = VAL_STRING; v.str_inline = 0; if(s == NULL) { v.v.s = NULL; return v; } size_t len = strlen(s); if(len <= LUMIN_SSO_MAX) { v.str_inline = 1; v.v.sso.len = (uint8_t)len; memcpy(v.v.sso.data, s, len); v.v.sso.data[len] = '\0'; } else { v.v.s = strdup(s); } return v; }
 Value make_char(char ch)         { Value v; v.type = VAL_CHAR; v.v.c = ch; return v; }
 Value make_nil(void)             { Value v; v.type = VAL_NONE; return v; }
 
@@ -176,14 +176,14 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
                         if(llv->type == VAL_INT)      { snprintf(buf_l,sizeof(buf_l),"%lld", llv->v.i); sl = buf_l; }
                         else if(llv->type == VAL_DOUBLE){ snprintf(buf_l,sizeof(buf_l),"%g", llv->v.d); sl = buf_l; }
                         else if(llv->type == VAL_BOOL) { sl = llv->v.b ? "true":"false"; }
-                        else if(llv->type == VAL_STRING){ sl = llv->v.s; }
+                        else if(llv->type == VAL_STRING){ sl = lumin_str_cstr(llv); }
                         else if(llv->type == VAL_CHAR) { snprintf(buf_l,sizeof(buf_l),"%c", llv->v.c); sl = buf_l; }
                         else sl = "";
 
                         if(rrv->type == VAL_INT)      { snprintf(buf_r,sizeof(buf_r),"%lld", rrv->v.i); sr = buf_r; }
                         else if(rrv->type == VAL_DOUBLE){ snprintf(buf_r,sizeof(buf_r),"%g", rrv->v.d); sr = buf_r; }
                         else if(rrv->type == VAL_BOOL) { sr = rrv->v.b ? "true":"false"; }
-                        else if(rrv->type == VAL_STRING){ sr = rrv->v.s; }
+                        else if(rrv->type == VAL_STRING){ sr = lumin_str_cstr(rrv); }
                         else if(rrv->type == VAL_CHAR) { snprintf(buf_r,sizeof(buf_r),"%c", rrv->v.c); sr = buf_r; }
                         else sr = "";
 
@@ -240,7 +240,7 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
             else if(v.type == VAL_BOOL)
                 printf("%s\n", v.v.b ? "true":"false");
             else if(v.type == VAL_STRING)
-                printf("%s\n", v.v.s);
+                printf("%s\n", lumin_str_cstr(&v));
             else
                 printf("%g\n", v.v.d);
             return v;
@@ -418,7 +418,7 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
                     else if(subv.type == VAL_STRING)
                     {
                         char *endp;
-                        iv = strtoll(subv.v.s, &endp, 10);
+                        iv = strtoll(lumin_str_cstr(&subv), &endp, 10);
                     }
                     else iv = 0;
                     return make_int(iv);
@@ -455,7 +455,7 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
                     else if(subv.type == VAL_DOUBLE) snprintf(buf, sizeof(buf), "%g", subv.v.d);
                     else if(subv.type == VAL_CHAR) snprintf(buf, sizeof(buf), "%c", subv.v.c);
                     else if(subv.type == VAL_BOOL) strcpy(buf, subv.v.b ? "true":"false");
-                    else if(subv.type == VAL_STRING) return make_string(subv.v.s);
+                    else if(subv.type == VAL_STRING) return make_string(lumin_str_cstr(&subv));
                     else strcpy(buf,"");
                     return make_string(buf);
                 }

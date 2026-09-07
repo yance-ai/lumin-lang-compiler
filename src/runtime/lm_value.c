@@ -34,15 +34,23 @@ Value lumin_make_bool(_Bool b) {
 Value lumin_make_string(const char* s) {
     Value v;
     v.type = VAL_STRING;
+    v.str_inline = 0;
     if(s == NULL)
     {
         v.v.s = NULL;
         return v;
     }
     size_t len = strlen(s);
-    v.v.s = (char*)gc_alloc(len + 1, VAL_STRING);
-    memcpy(v.v.s, s, len);
-    v.v.s[len] = '\0';
+    if (len <= LUMIN_SSO_MAX) {
+        v.str_inline = 1;
+        v.v.sso.len = (uint8_t)len;
+        memcpy(v.v.sso.data, s, len);
+        v.v.sso.data[len] = '\0';
+    } else {
+        v.v.s = (char*)gc_alloc(len + 1, VAL_STRING);
+        memcpy(v.v.s, s, len);
+        v.v.s[len] = '\0';
+    }
     return v;
 }
 
@@ -94,9 +102,10 @@ char* value_to_str(Value v) {
             break;
         case VAL_STRING:
         {
-            size_t l = strlen(v.v.s);
+            const char* cs = lumin_str_cstr(&v);
+            size_t l = cs ? strlen(cs) : 0;
             char* p = (char*)malloc(l+1);
-            memcpy(p, v.v.s, l+1);
+            if (cs) memcpy(p, cs, l+1); else p[0] = '\0';
             return p;
         }
         case VAL_ERROR:
@@ -150,15 +159,25 @@ Value lumin_add(Value a, Value b) {
         char* sb = value_to_str(b);
         size_t la = strlen(sa);
         size_t lb = strlen(sb);
-        char* out = (char*)gc_alloc(la + lb + 1, VAL_STRING);
-        memcpy(out, sa, la);
-        memcpy(out+la, sb, lb);
-        out[la+lb] = '\0';
-        free(sa);
-        free(sb);
+        size_t total = la + lb;
         Value res;
         res.type = VAL_STRING;
-        res.v.s = out;
+        if (total <= LUMIN_SSO_MAX) {
+            res.str_inline = 1;
+            res.v.sso.len = (uint8_t)total;
+            memcpy(res.v.sso.data, sa, la);
+            memcpy(res.v.sso.data + la, sb, lb);
+            res.v.sso.data[total] = '\0';
+        } else {
+            res.str_inline = 0;
+            char* out = (char*)gc_alloc(total + 1, VAL_STRING);
+            memcpy(out, sa, la);
+            memcpy(out+la, sb, lb);
+            out[total] = '\0';
+            res.v.s = out;
+        }
+        free(sa);
+        free(sb);
         return res;
     }
     if(a.type == VAL_INT && b.type == VAL_INT)
@@ -238,7 +257,7 @@ Value lumin_array_get(Value arr, Value idx) {
 // len(x)：数组长度 / 字符串字符数
 Value lumin_len(Value v) {
     if(v.type == VAL_ARRAY) return lumin_make_int(v.v.array->len);
-    if(v.type == VAL_STRING) return lumin_make_int((long long)strlen(v.v.s));
+    if(v.type == VAL_STRING) return lumin_make_int((long long)lumin_str_len(&v));
     if(v.type == VAL_MAP) return lumin_make_int(v.v.map->len);
     runtime_error("len() 参数必须是数组、字符串或字典");
     return lumin_make_int(0);
@@ -251,9 +270,10 @@ Value lumin_index_get(Value c, Value idx) {
     }
     if(c.type == VAL_ERROR) {
         if(idx.type != VAL_STRING) runtime_error("错误对象下标必须是字符串键");
-        if(strcmp(idx.v.s, "type") == 0) return lumin_make_string(c.v.err.type ? c.v.err.type : "");
-        if(strcmp(idx.v.s, "message") == 0) return lumin_make_string(c.v.err.message ? c.v.err.message : "");
-        if(strcmp(idx.v.s, "stack") == 0) return lumin_make_string(c.v.err.stack ? c.v.err.stack : "");
+        const char* idxcs = lumin_str_cstr(&idx);
+        if(strcmp(idxcs, "type") == 0) return lumin_make_string(c.v.err.type ? c.v.err.type : "");
+        if(strcmp(idxcs, "message") == 0) return lumin_make_string(c.v.err.message ? c.v.err.message : "");
+        if(strcmp(idxcs, "stack") == 0) return lumin_make_string(c.v.err.stack ? c.v.err.stack : "");
         runtime_error("错误对象只有 type/message/stack 三个字段");
         return val_none();
     }
@@ -267,13 +287,14 @@ Value lumin_index_get(Value c, Value idx) {
         return c.v.array->items[i];
     }
     if(c.type == VAL_STRING) {
-        long long n = (long long)strlen(c.v.s);
+        const char* cs = lumin_str_cstr(&c);
+        long long n = cs ? (long long)strlen(cs) : 0;
         if(i < 0 || i >= n) {
             char buf[128];
             snprintf(buf, sizeof(buf), "字符串下标越界: %lld (长度 %lld)", i, n);
             runtime_error(buf);
         }
-        return lumin_make_char(c.v.s[i]);
+        return lumin_make_char(cs ? cs[i] : '\0');
     }
     runtime_error("下标访问的对象不是数组、字符串或字典");
     return val_none();
@@ -333,7 +354,7 @@ long long range_to_ll(Value v) {
 // 只读属性检查：type 构造对象的 __classname__ 不可写/删（map 写路径统一拦截）
 void lumin_check_classname_ro(Value arr, Value idx, const char* op)
 {
-    if(arr.type == VAL_MAP && idx.type == VAL_STRING && strcmp(idx.v.s, "__classname__") == 0) {
+    if(arr.type == VAL_MAP && idx.type == VAL_STRING && strcmp(lumin_str_cstr(&idx), "__classname__") == 0) {
         char b[96];
         snprintf(b, sizeof b, "只读属性 __classname__ 不能%s", op);
         runtime_error(b);
@@ -414,9 +435,11 @@ Value lumin_le(Value a, Value b) {
 // == 弱相等：一边字符串，全部转字符串比较；两边字符串strcmp；其余数值比较
 Value lumin_eq(Value a, Value b) {
     if (a.type == VAL_STRING && b.type == VAL_STRING) {
-        if (a.v.s == NULL && b.v.s == NULL) return lumin_make_bool(1);
-        if (a.v.s == NULL || b.v.s == NULL) return lumin_make_bool(0);
-        return lumin_make_bool(strcmp(a.v.s, b.v.s) == 0);
+        const char* sa = lumin_str_cstr(&a);
+        const char* sb = lumin_str_cstr(&b);
+        if (sa == NULL && sb == NULL) return lumin_make_bool(1);
+        if (sa == NULL || sb == NULL) return lumin_make_bool(0);
+        return lumin_make_bool(strcmp(sa, sb) == 0);
     }
     if (is_string(a,b)) {
         char *sa = value_to_str(a);
@@ -432,8 +455,8 @@ Value lumin_eq(Value a, Value b) {
             int mm = strcmp(a.v.err.message ? a.v.err.message : "", b.v.err.message ? b.v.err.message : "");
             return lumin_make_bool(tm == 0 && mm == 0);
         }
-        const char* am = (a.type == VAL_ERROR) ? a.v.err.message : (a.type == VAL_STRING ? a.v.s : NULL);
-        const char* bm = (b.type == VAL_ERROR) ? b.v.err.message : (b.type == VAL_STRING ? b.v.s : NULL);
+        const char* am = (a.type == VAL_ERROR) ? a.v.err.message : (a.type == VAL_STRING ? lumin_str_cstr(&a) : NULL);
+        const char* bm = (b.type == VAL_ERROR) ? b.v.err.message : (b.type == VAL_STRING ? lumin_str_cstr(&b) : NULL);
         if(a.type == VAL_ERROR && b.type == VAL_MAP && lumin_map_has(b, lumin_make_string("message"))) {
             Value mv = lumin_map_get(b, lumin_make_string("message"));
             if(mv.type != VAL_STRING) return lumin_make_bool(0);
@@ -441,11 +464,11 @@ Value lumin_eq(Value a, Value b) {
             if(a.v.err.type) {
                 if(lumin_map_has(b, lumin_make_string("type"))) {
                     Value tv = lumin_map_get(b, lumin_make_string("type"));
-                    if(tv.type == VAL_STRING) tm = tv.v.s;
+                    if(tv.type == VAL_STRING) tm = lumin_str_cstr(&tv);
                 }
                 if(tm && strcmp(tm, a.v.err.type) != 0) return lumin_make_bool(0);
             }
-            return lumin_make_bool(strcmp(a.v.err.message, mv.v.s) == 0);
+            return lumin_make_bool(strcmp(a.v.err.message, lumin_str_cstr(&mv)) == 0);
         }
         if(!am || !bm) return lumin_make_bool(0);
         return lumin_make_bool(strcmp(am, bm) == 0);
@@ -502,13 +525,15 @@ Value lumin_cast_char(Value v) {
         case VAL_CHAR:
             cv = v.v.c;
             break;
-        case VAL_STRING:
-            if(v.v.s == NULL || v.v.s[0] == '\0'){
+        case VAL_STRING: {
+            const char* cs = lumin_str_cstr(&v);
+            if(cs == NULL || cs[0] == '\0'){
                 cv = '\0';
             }else{
-                cv = v.v.s[0];
+                cv = cs[0];
             }
             break;
+        }
 case VAL_ARRAY: {
     Value r = val_array(v.v.array->len);
     for(int i = 0; i < v.v.array->len; i++)
@@ -549,7 +574,7 @@ Value lumin_cast_byte(Value v) {
             bv = (unsigned long long)(v.v.i & 0xFF);
             break;
         case VAL_STRING:
-            bv = (unsigned long long)atoll(v.v.s) & 0xFFULL;
+            bv = (unsigned long long)atoll(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "0") & 0xFFULL;
             break;
         case VAL_NONE:
             bv = 0;
@@ -633,7 +658,8 @@ Value lumin_cast_int(Value v) {
             iv = v.v.i & 0xFF;
             break;
         case VAL_STRING: {
-            const char* t = v.v.s;
+            const char* t = lumin_str_cstr(&v);
+            if(!t) { iv = 0; break; }
             while(*t && isspace((unsigned char)*t)) t++;
             char* end = NULL;
             long long r = strtoll(t, &end, 10);
@@ -692,7 +718,8 @@ Value lumin_cast_double(Value v) {
             dv = (double)(v.v.i & 0xFF);
             break;
         case VAL_STRING: {
-            const char* t = v.v.s;
+            const char* t = lumin_str_cstr(&v);
+            if(!t) { dv = 0.0; break; }
             while(*t && isspace((unsigned char)*t)) t++;
             char* end = NULL;
             double d = strtod(t, &end);
@@ -785,7 +812,7 @@ void lumin_print(Value v) {
             printf("%s\n", v.v.b ? "true" : "false");
             break;
         case VAL_STRING:
-            printf("%s\n", v.v.s ? v.v.s : "(null)");
+            printf("%s\n", lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "(null)");
             break;
         case VAL_CHAR:
             printf("%c\n", v.v.c);
@@ -823,7 +850,7 @@ static long long value_to_ll(Value v) {
         case VAL_DOUBLE: return (long long)v.v.d;
         case VAL_BOOL: return v.v.b ? 1 : 0;
         case VAL_CHAR: return (long long)(unsigned char)v.v.c;
-        case VAL_STRING: return atoll(v.v.s ? v.v.s : "0");
+        case VAL_STRING: return atoll(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "0");
         case VAL_NONE: return 0;
         default: runtime_error("整数强转: 不支持的类型"); return 0;
     }
@@ -834,7 +861,7 @@ static unsigned long long value_to_ull(Value v) {
         case VAL_DOUBLE: return (unsigned long long)v.v.d;
         case VAL_BOOL: return v.v.b ? 1ULL : 0ULL;
         case VAL_CHAR: return (unsigned long long)(unsigned char)v.v.c;
-        case VAL_STRING: return strtoull(v.v.s ? v.v.s : "0", NULL, 10);
+        case VAL_STRING: return strtoull(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "0", NULL, 10);
         case VAL_NONE: return 0;
         default: runtime_error("整数强转: 不支持的类型"); return 0;
     }
@@ -900,7 +927,7 @@ static Value cast_float_rec(Value v) {
         case VAL_INT: case VAL_BYTE: d = (double)v.v.i; break;
         case VAL_BOOL: d = v.v.b ? 1.0 : 0.0; break;
         case VAL_CHAR: d = (double)(unsigned char)v.v.c; break;
-        case VAL_STRING: d = atof(v.v.s ? v.v.s : "0"); break;
+        case VAL_STRING: d = atof(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "0"); break;
         case VAL_NONE: d = 0.0; break;
         default: runtime_error("(float) 强转: 不支持的类型"); return val_none();
     }

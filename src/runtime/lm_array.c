@@ -236,7 +236,7 @@ static int sort_cmp(const void* pa, const void* pb)
         double x = value_as_number(*a), y = value_as_number(*b);
         return (x > y) - (x < y);
     }
-    return strcmp(a->v.s, b->v.s);
+    return strcmp(lumin_str_cstr(a), lumin_str_cstr(b));
 }
 
 Value lumin_sort(Value arr) {

@@ -529,14 +529,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_THREADLOCAL_GET: {
                         Value nm = stack[--sp];
                         if(nm.type != VAL_STRING) runtime_error("threadlocal_get() 名字参数必须是字符串");
-                        stack[sp++] = lumin_tls_get(nm.v.s);
+                        stack[sp++] = lumin_tls_get(lumin_str_cstr(&nm));
                         break;
                     }
                     case BUILTIN_THREADLOCAL_SET: {
                         Value v = stack[--sp];
                         Value nm = stack[--sp];
                         if(nm.type != VAL_STRING) runtime_error("threadlocal_set() 名字参数必须是字符串");
-                        lumin_tls_set(nm.v.s, v);
+                        lumin_tls_set(lumin_str_cstr(&nm), v);
                         stack[sp++] = v;    // 压回原值（表达式值）
                         break;
                     }
@@ -604,7 +604,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_json_parse_enc(v.v.s, enc);
+                        stack[sp++] = lumin_json_parse_enc(lumin_str_cstr(&v), enc);
                         break;
                     }
                     case BUILTIN_STRINGIFY: {
@@ -636,7 +636,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             stack[sp++] = lumin_make_string(q);
                             free(q);
                         } else if(v.type == VAL_STRING) {
-                            stack[sp++] = lumin_qs_parse_enc(v.v.s, enc);
+                            stack[sp++] = lumin_qs_parse_enc(lumin_str_cstr(&v), enc);
                         } else {
                             runtime_error("qs() 参数必须是字典/数组（序列化）或字符串（解析）");
                         }
@@ -681,21 +681,21 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_ENCODE_URL: {
                         Value v = stack[--sp];
-                        char* r = lumin_url_encode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "");
+                        char* r = lumin_url_encode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "");
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_DECODE_URL: {
                         Value v = stack[--sp];
-                        char* r = lumin_url_decode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "");
+                        char* r = lumin_url_decode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "");
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_MD5: {
                         Value v = stack[--sp];
-                        const char* inp = v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "";
+                        const char* inp = v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "";
                         char* r = lumin_md5_hex(inp, (int)strlen(inp));
                         stack[sp++] = lumin_make_string(r);
                         free(r);
@@ -703,7 +703,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_ENCODE_BASE64: {
                         Value v = stack[--sp];
-                        const char* inp = v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "";
+                        const char* inp = v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "";
                         char* r = lumin_base64_encode(inp, (int)strlen(inp));
                         stack[sp++] = lumin_make_string(r);
                         free(r);
@@ -712,7 +712,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_DECODE_BASE64: {
                         Value v = stack[--sp];
                         int olen = 0;
-                        char* r = lumin_base64_decode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "", &olen);
+                        char* r = lumin_base64_decode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "", &olen);
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
@@ -721,16 +721,16 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
                         stack[sp++] = lumin_make_bool(lumin_regex_match(
-                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
-                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : ""));
+                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : ""));
                         break;
                     }
                     case BUILTIN_REGEX_SEARCH: {
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
                         stack[sp++] = lumin_regex_search(
-                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
-                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : "");
+                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : "");
                         break;
                     }
                     case BUILTIN_REGEX_REPLACE: {
@@ -738,9 +738,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
                         char* r = lumin_regex_replace(
-                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
-                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : "",
-                            repl.type == VAL_STRING ? (repl.v.s ? repl.v.s : "") : "");
+                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : "",
+                            repl.type == VAL_STRING ? (lumin_str_cstr(&repl) ? lumin_str_cstr(&repl) : "") : "");
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
@@ -787,7 +787,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(in.b >= 2) { ts = stack[--sp]; fmt = stack[--sp]; }
                         else { fmt = stack[--sp]; }
                         double tsv = (ts.type == VAL_NONE) ? -1.0 : (ts.type == VAL_DOUBLE ? ts.v.d : (double)lumin_extract_int(ts));
-                        char* r = lumin_format_time(fmt.type == VAL_STRING ? (fmt.v.s ? fmt.v.s : "") : "", tsv);
+                        char* r = lumin_format_time(fmt.type == VAL_STRING ? (lumin_str_cstr(&fmt) ? lumin_str_cstr(&fmt) : "") : "", tsv);
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
@@ -890,7 +890,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_json_parse_enc(v.v.s, enc);
+                        stack[sp++] = lumin_json_parse_enc(lumin_str_cstr(&v), enc);
                         break;
                     }
                     case BUILTIN_STRINGIFY: {
@@ -922,7 +922,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             stack[sp++] = lumin_make_string(q);
                             free(q);
                         } else if(v.type == VAL_STRING) {
-                            stack[sp++] = lumin_qs_parse_enc(v.v.s, enc);
+                            stack[sp++] = lumin_qs_parse_enc(lumin_str_cstr(&v), enc);
                         } else {
                             runtime_error("qs() 参数必须是字典/数组（序列化）或字符串（解析）");
                         }
@@ -967,21 +967,21 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_ENCODE_URL: {
                         Value v = stack[--sp];
-                        char* r = lumin_url_encode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "");
+                        char* r = lumin_url_encode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "");
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_DECODE_URL: {
                         Value v = stack[--sp];
-                        char* r = lumin_url_decode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "");
+                        char* r = lumin_url_decode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "");
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_MD5: {
                         Value v = stack[--sp];
-                        const char* inp = v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "";
+                        const char* inp = v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "";
                         char* r = lumin_md5_hex(inp, (int)strlen(inp));
                         stack[sp++] = lumin_make_string(r);
                         free(r);
@@ -989,7 +989,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_ENCODE_BASE64: {
                         Value v = stack[--sp];
-                        const char* inp = v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "";
+                        const char* inp = v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "";
                         char* r = lumin_base64_encode(inp, (int)strlen(inp));
                         stack[sp++] = lumin_make_string(r);
                         free(r);
@@ -998,7 +998,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_DECODE_BASE64: {
                         Value v = stack[--sp];
                         int olen = 0;
-                        char* r = lumin_base64_decode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "", &olen);
+                        char* r = lumin_base64_decode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "", &olen);
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
@@ -1007,16 +1007,16 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
                         stack[sp++] = lumin_make_bool(lumin_regex_match(
-                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
-                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : ""));
+                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : ""));
                         break;
                     }
                     case BUILTIN_REGEX_SEARCH: {
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
                         stack[sp++] = lumin_regex_search(
-                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
-                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : "");
+                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : "");
                         break;
                     }
                     case BUILTIN_REGEX_REPLACE: {
@@ -1024,9 +1024,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
                         char* r = lumin_regex_replace(
-                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
-                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : "",
-                            repl.type == VAL_STRING ? (repl.v.s ? repl.v.s : "") : "");
+                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : "",
+                            repl.type == VAL_STRING ? (lumin_str_cstr(&repl) ? lumin_str_cstr(&repl) : "") : "");
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
@@ -1073,7 +1073,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(in.b >= 2) { ts = stack[--sp]; fmt = stack[--sp]; }
                         else { fmt = stack[--sp]; }
                         double tsv = (ts.type == VAL_NONE) ? -1.0 : (ts.type == VAL_DOUBLE ? ts.v.d : (double)lumin_extract_int(ts));
-                        char* r = lumin_format_time(fmt.type == VAL_STRING ? (fmt.v.s ? fmt.v.s : "") : "", tsv);
+                        char* r = lumin_format_time(fmt.type == VAL_STRING ? (lumin_str_cstr(&fmt) ? lumin_str_cstr(&fmt) : "") : "", tsv);
                         stack[sp++] = lumin_make_string(r);
                         free(r);
                         break;
@@ -1228,11 +1228,11 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 } else if(v.type == VAL_MAP) {
                     if(lumin_map_has(v, lumin_make_string("type"))) {
                         Value tv = lumin_map_get(v, lumin_make_string("type"));
-                        if(tv.type == VAL_STRING) type = tv.v.s;
+                        if(tv.type == VAL_STRING) type = lumin_str_cstr(&tv);
                     }
                     if(lumin_map_has(v, lumin_make_string("message"))) {
                         Value mv = lumin_map_get(v, lumin_make_string("message"));
-                        if(mv.type == VAL_STRING) msg = strdup(mv.v.s);
+                        if(mv.type == VAL_STRING) msg = strdup(lumin_str_cstr(&mv));
                     }
                 }
                 if(!msg) msg = value_to_str(v);

@@ -49,7 +49,7 @@ static int const_equal(Value a, Value b)
         case VAL_DOUBLE: return a.v.d == b.v.d;
         case VAL_BOOL:   return a.v.b == b.v.b;
         case VAL_CHAR:   return a.v.c == b.v.c;
-        case VAL_STRING: return strcmp(a.v.s, b.v.s) == 0;
+        case VAL_STRING: return strcmp(lumin_str_cstr(&a), lumin_str_cstr(&b)) == 0;
         default:         return 0;
     }
 }
@@ -65,8 +65,8 @@ int bf_const(BytecodeFunc* fn, Value v)
         if(!fn->consts) { perror("bf_const"); exit(EXIT_FAILURE); }
     }
     fn->consts[fn->const_cnt] = val_clone(&v);   // 常量池浅拷贝持有（GC 引用语义）
-    /* 钉住字符串常量：常量表不是 GC 根，需防止被 sweep */
-    if (v.type == VAL_STRING && v.v.s) gc_pin(v.v.s);
+    /* 钉住字符串常量：常量表不是 GC 根，需防止被 sweep；内联字符串无需钉住 */
+    if (v.type == VAL_STRING && !v.str_inline && v.v.s) gc_pin(v.v.s);
     return fn->const_cnt++;
 }
 
@@ -324,7 +324,7 @@ static void const_to_text(Value v, char* buf, int cap)
         case VAL_DOUBLE: snprintf(buf, cap, "%.17g", v.v.d); break;
         case VAL_BOOL:   snprintf(buf, cap, "%s", v.v.b ? "true" : "false"); break;
         case VAL_CHAR:   snprintf(buf, cap, "'%c'", v.v.c); break;
-        case VAL_STRING: snprintf(buf, cap, "\"%s\"", v.v.s); break;
+        case VAL_STRING: snprintf(buf, cap, "\"%s\"", lumin_str_cstr(&v)); break;
         default:         snprintf(buf, cap, "nil"); break;
     }
 }

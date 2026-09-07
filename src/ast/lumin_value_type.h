@@ -84,15 +84,24 @@ typedef struct {
     RuntimeFunc* func_obj;
 } ValueFunc;
 
-// 运行时带标签的值（支持多类型，字符串堆分配）
+// SSO 最大内联字符数（按字节算，不含 \0）
+#define LUMIN_SSO_MAX 22
+
+// 运行时带标签的值（支持多类型，字符串支持 SSO 内联优化）
 struct Value {
-    ValueType type;
-    union {
+    ValueType type;          // 4字节，偏移0
+    uint8_t str_inline;      // 1字节，偏移4：仅VAL_STRING时有效，1=内联，0=堆
+    // 偏移5-7：3字节填充（编译器自动对齐）
+    union {                  // 24字节，偏移8
         long long i;
         double d;
         _Bool b;
         char c;
-        char* s;   // VAL_STRING：堆上字符串
+        char* s;             // VAL_STRING：堆上字符串（str_inline=0时有效）
+        struct {             // SSO内联字符串（str_inline=1时有效）
+            uint8_t len;     // 字符串长度（不含\0），最大22
+            char data[23];   // 内联数据，含\0，最多存22字符
+        } sso;
         ValueFunc func;        // VAL_FUNC
         ValueArray* array;     // VAL_ARRAY（堆指针，引用语义，与 ValueMap* 一致）
         ValueMap* map;         // VAL_MAP：堆上共享对象（原地改语义与数组 items 一致）
@@ -142,5 +151,19 @@ typedef struct StackFrame {
     pthread_rwlock_t rw;   // 共享帧（全局帧）读写锁；私有帧不使用
     _Bool shared;          // 1 = 全局共享帧（main 顶层帧），多线程可见
 } StackFrame;
+
+#include <string.h>
+
+// 获取字符串的C指针（内联返回sso.data，堆返回v.s），非字符串返回NULL
+static inline const char* lumin_str_cstr(const Value* v) {
+    if (v->type != VAL_STRING) return NULL;
+    return v->str_inline ? v->v.sso.data : v->v.s;
+}
+
+// 获取字符串长度（内联用sso.len，堆用strlen）
+static inline int lumin_str_len(const Value* v) {
+    if (v->type != VAL_STRING) return 0;
+    return v->str_inline ? (int)v->v.sso.len : (int)(v->v.s ? strlen(v->v.s) : 0);
+}
 
 #endif //LUMIN_VALUE_TYPE_H

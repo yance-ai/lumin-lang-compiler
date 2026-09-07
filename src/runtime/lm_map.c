@@ -38,7 +38,7 @@ static uint32_t value_hash(Value v) {
             h ^= (uint32_t)(unsigned char)v.v.c;
             break;
         case VAL_STRING: {
-            const char* s = v.v.s ? v.v.s : "";
+            const char* s = lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "";
             uint32_t hh = 5381;
             while(*s) hh = ((hh << 5) + hh) + (unsigned char)*s++;
             h ^= hh;
@@ -84,7 +84,7 @@ static int key_compare(Value a, Value b) {
             return ((unsigned char)a.v.c > (unsigned char)b.v.c) -
                    ((unsigned char)a.v.c < (unsigned char)b.v.c);
         case VAL_STRING: {
-            int c = strcmp(a.v.s ? a.v.s : "", b.v.s ? b.v.s : "");
+            int c = strcmp(lumin_str_cstr(&a) ? lumin_str_cstr(&a) : "", lumin_str_cstr(&b) ? lumin_str_cstr(&b) : "");
             return (c > 0) - (c < 0);
         }
         case VAL_MAP: {
@@ -112,7 +112,7 @@ static int key_eq(Value a, Value b) {
         case VAL_DOUBLE: return a.v.d == b.v.d;
         case VAL_BOOL: return a.v.b == b.v.b;
         case VAL_CHAR: return a.v.c == b.v.c;
-        case VAL_STRING: return strcmp(a.v.s ? a.v.s : "", b.v.s ? b.v.s : "") == 0;
+        case VAL_STRING: return strcmp(lumin_str_cstr(&a) ? lumin_str_cstr(&a) : "", lumin_str_cstr(&b) ? lumin_str_cstr(&b) : "") == 0;
         case VAL_MAP: {
             if(a.v.map->len != b.v.map->len) return 0;
             MapIter it; map_iter_init(&it, a.v.map);
