@@ -58,6 +58,21 @@ print(u.name);            // u1
 print(u.tag.name);        // vip
 print(u.tag.add("id", 7).id);  // 7（链式深入）
 
+print("== __classname__ 只读属性 ==");
+print(p.__classname__);              // Person（构造自动注入）
+print(p["__classname__"]);           // Person
+print(p.__classname__ == "Person");  // true
+q = {"a": 1};
+print(q.__classname__ == null);      // true（普通 map 无此属性）
+print(p.name);                       // 张三（原属性不受影响）
+// 只读拦截（编译期/运行期）：
+//   t.__classname__ = "x";           → 语义错误（编译期）
+//   t["__classname__"] = "x";        → 语义错误（编译期）
+//   t.set("__classname__", "x");     → Runtime Error（方法链）
+//   t.add("__classname__", "x");     → Runtime Error（方法链）
+//   t.remove("__classname__");       → Runtime Error（只读不可删）
+//   k = "__classname__"; t[k] = "x"; → Runtime Error（动态键兜底）
+
 print("== 类型构造参数错误（语义检查） ==");
 // Person("only one")  单参非 map → 位置构造（name=only one，age 缺省 null）
 p4 = Person("only one");

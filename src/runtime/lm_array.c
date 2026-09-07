@@ -35,6 +35,7 @@ Value lumin_del(Value arr, Value idx)
 {
     if(arr.type == VAL_MAP) {
         if(idx.type != VAL_STRING) runtime_error("del() 字典键必须是字符串");
+        lumin_check_classname_ro(arr, idx, "删除");
         return lumin_map_del(arr, idx.v.s);
     }
     if(arr.type != VAL_ARRAY) runtime_error("del() 第一个参数必须是数组或字典");
@@ -109,6 +110,7 @@ Value lumin_array_set_method(Value arr, Value idx, Value val)
 {
     if(arr.type == VAL_MAP) {
         if(idx.type != VAL_STRING) runtime_error("set() 字典键必须是字符串");
+        lumin_check_classname_ro(arr, idx, "赋值");
         lumin_map_set(&arr, idx, val);
         return arr;
     }
@@ -146,6 +148,7 @@ Value lumin_map_add(Value m, Value k, Value v)
 {
     if(m.type != VAL_MAP) runtime_error("add() 第一个参数必须是数组或字典");
     if(k.type != VAL_STRING) runtime_error("add() 字典键必须是字符串");
+    lumin_check_classname_ro(m, k, "赋值");
     lumin_map_set(&m, k, v);
     return m;
 }

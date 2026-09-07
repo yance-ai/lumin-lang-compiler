@@ -38,6 +38,7 @@ Value lumin_logic_not(Value v);
 // ===== 数组 =====
 Value lumin_array_get(Value arr, Value idx);
 Value lumin_array_set(Value arr, Value idx, Value val);
+void lumin_check_classname_ro(Value arr, Value idx, const char* op); // 只读 __classname__ 拦截
 Value lumin_len(Value v);           // 数组/字符串/字典长度
 Value lumin_index_get(Value c, Value idx);  // 数组元素 / 字符串字符 / 字典键
 
