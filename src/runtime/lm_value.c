@@ -759,9 +759,8 @@ Value lumin_cast_string(Value v) {
         return r;
     }
     char *s = value_to_str(v);
-    Value res;
-    res.type = VAL_STRING;
-    res.v.s = s;
+    Value res = lumin_make_string(s);  // 转为 gc_alloc 字符串（GC 要求所有 Value 字符串都是 gc_alloc）
+    free(s);                            // value_to_str 返回普通 malloc，需释放
     return res;
 }
 

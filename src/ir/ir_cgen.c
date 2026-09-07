@@ -588,6 +588,15 @@ static void emit_insns(BytecodeFunc* fn)
                         else
                             fprintf(out, "    { Value __m=__stk[--__sp]; char* __s=value_to_str(__m); lumin_log(%d, __s); free(__s); __stk[__sp++]=val_none(); }\n", in.a - BUILTIN_LOG_DEBUG);
                         break;
+                    case BUILTIN_GC_COUNT:
+                        fprintf(out, "    __stk[__sp++] = lumin_make_int((long long)gc_count());\n");
+                        break;
+                    case BUILTIN_GC_BYTES:
+                        fprintf(out, "    __stk[__sp++] = lumin_make_int((long long)gc_bytes());\n");
+                        break;
+                    case BUILTIN_GC_COLLECT:
+                        fprintf(out, "    { gc_collect_now(); __stk[__sp++] = val_none(); }\n");
+                        break;
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {

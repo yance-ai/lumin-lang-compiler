@@ -112,9 +112,8 @@ static Value jp_parse_string(JP* j)
         if(len + 8 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); }
     }
     buf[len] = '\0';
-    Value v;
-    v.type = VAL_STRING;
-    v.v.s = buf;
+    Value v = lumin_make_string(buf);  // 转为 gc_alloc 字符串
+    free(buf);                          // 释放普通 malloc 缓冲区
     return v;
 }
 

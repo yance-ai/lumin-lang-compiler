@@ -119,12 +119,24 @@ void* gc_realloc(void* ptr, size_t new_size)
  * 标记原始 GC 指针（buckets/tree/MapEntry 等内部缓冲区）
  * 不递归 Value，仅标记该 GCObject 不被 sweep
  * ============================================================ */
-void gc_mark_ptr(void* ptr)
+/* 标记原始 GC 指针（buckets/tree/MapEntry 等内部缓冲区）
+ * 不递归 Value，仅标记该 GCObject 不被 sweep。
+ * 返回 1 表示新标记（需要递归子对象），0 表示已标记/永生/空 */
+int gc_mark_ptr(void* ptr)
+{
+    if (!ptr) return 0;
+    GCObject* obj = ptr_to_obj(ptr);
+    if (obj->marked) return 0;  /* 已标记或永生 */
+    obj->marked = 1;
+    return 1;
+}
+
+/* 钉住对象：marked=2 表示永生，sweep 永不回收，mark 跳过 */
+void gc_pin(void* ptr)
 {
     if (!ptr) return;
     GCObject* obj = ptr_to_obj(ptr);
-    if (obj->marked) return;
-    obj->marked = 1;
+    obj->marked = 2;
 }
 
 /* ============================================================
@@ -139,7 +151,7 @@ void gc_mark(Value v)
     }
     case VAL_ARRAY: {
         if (!v.v.array) break;
-        gc_mark_ptr(v.v.array);          /* 标记 ValueArray* 本身 */
+        if (!gc_mark_ptr(v.v.array)) break;  /* 已标记，跳过递归（循环引用检测） */
         if (v.v.array->items) {
             gc_mark_ptr(v.v.array->items);
             for (int i = 0; i < v.v.array->len; i++) {
@@ -151,7 +163,7 @@ void gc_mark(Value v)
     case VAL_MAP: {
         ValueMap* m = v.v.map;
         if (!m) break;
-        gc_mark_ptr(m);
+        if (!gc_mark_ptr(m)) break;  /* 已标记，跳过递归 */
         if (m->buckets) gc_mark_ptr(m->buckets);
         if (m->tree) gc_mark_ptr(m->tree);
         /* 遍历所有桶的 entry */
@@ -238,7 +250,10 @@ void gc_sweep(void)
     GCObject** pp = &g_gc_objects;
     while (*pp) {
         GCObject* cur = *pp;
-        if (!cur->marked) {
+        if (cur->marked == 2) {
+            /* 永生对象：跳过，不清除标记 */
+            pp = &cur->next;
+        } else if (!cur->marked) {
             *pp = cur->next;
             free(cur);  /* 内部子对象（buckets/entries/strings）是独立 GC 对象，各自 sweep */
         } else {
@@ -306,6 +321,13 @@ void gc_set_roots(Value* stack, int* sp_ptr, StackFrame* frame)
     tls_stack = stack;
     tls_sp = sp_ptr;
     tls_frame = frame;
+}
+
+void gc_get_roots(Value** stack, int** sp_ptr, StackFrame** frame)
+{
+    if (stack) *stack = tls_stack;
+    if (sp_ptr) *sp_ptr = tls_sp;
+    if (frame) *frame = tls_frame;
 }
 
 /* 手动触发（使用当前注册的根） */

@@ -1,4 +1,5 @@
 #include "bytecode.h"
+#include "../runtime/gc_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,7 +64,9 @@ int bf_const(BytecodeFunc* fn, Value v)
         fn->consts = (Value*)realloc(fn->consts, sizeof(Value) * fn->const_cap);
         if(!fn->consts) { perror("bf_const"); exit(EXIT_FAILURE); }
     }
-    fn->consts[fn->const_cnt] = val_clone(&v);   // 常量池深拷贝持有
+    fn->consts[fn->const_cnt] = val_clone(&v);   // 常量池浅拷贝持有（GC 引用语义）
+    /* 钉住字符串常量：常量表不是 GC 根，需防止被 sweep */
+    if (v.type == VAL_STRING && v.v.s) gc_pin(v.v.s);
     return fn->const_cnt++;
 }
 

@@ -33,8 +33,9 @@ void* gc_realloc(void* ptr, size_t new_size);
 /* 如果 v 是堆类型，标记其 GCObject，然后递归标记内部引用 */
 void gc_mark(Value v);
 
-/* 标记原始 GC 指针（用于 buckets/tree/MapEntry 等内部缓冲区，不递归 Value） */
-void gc_mark_ptr(void* ptr);
+/* 标记原始 GC 指针（用于 buckets/tree/MapEntry 等内部缓冲区，不递归 Value）
+ * 返回 1=新标记（需递归子对象），0=已标记/永生/空 */
+int gc_mark_ptr(void* ptr);
 
 /* 遍历 VM 栈 stack[0..sp-1]、当前帧及父帧链的局部变量 */
 void gc_mark_roots(Value* stack, int sp, StackFrame* frame);
@@ -50,6 +51,9 @@ void gc_collect(Value* stack, int sp, StackFrame* frame);
 /* VM 执行循环入口调用，注册当前线程的栈/帧；退出时置 NULL */
 void gc_set_roots(Value* stack, int* sp_ptr, StackFrame* frame);
 
+/* 获取当前注册的根（用于嵌套 vm_run 保存/恢复） */
+void gc_get_roots(Value** stack, int** sp_ptr, StackFrame** frame);
+
 /* ---- GC 暂停/恢复（构造复合对象时防止中间态被 sweep） ---- */
 /* 暂停自动 GC（计数器可嵌套）；构造多个 GC 对象期间调用，
    避免第一个对象尚未被根引用时，第二个对象的分配触发 GC 将其回收 */
@@ -59,6 +63,9 @@ void gc_enable(void);
 
 /* 手动触发一次 GC（使用当前注册的根） */
 void gc_collect_now(void);
+
+/* 钉住对象：标记为永生，GC 永不回收（用于常量表中的字符串/数组等） */
+void gc_pin(void* ptr);
 
 /* 统计 */
 size_t gc_bytes(void);

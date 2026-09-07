@@ -205,7 +205,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
     int sp = 0;
     int pc = 0;
-    /* 注册 GC 根：当前线程的 VM 栈与帧链，供 gc_alloc 自动触发回收时扫描 */
+    /* 注册 GC 根：保存旧根（嵌套调用恢复用），设置当前线程的栈与帧 */
+    Value* old_gc_stack; int* old_gc_sp; StackFrame* old_gc_frame;
+    gc_get_roots(&old_gc_stack, &old_gc_sp, &old_gc_frame);
     gc_set_roots(stack, &sp, frame);
     /* 函数边界隔离 try 状态：进入保存，所有退出点恢复（try 内 return 不能泄漏） */
     int saved_depth = vm_depth;
@@ -805,6 +807,19 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = val_none();
                         break;
                     }
+                    case BUILTIN_GC_COUNT: {
+                        stack[sp++] = lumin_make_int((long long)gc_count());
+                        break;
+                    }
+                    case BUILTIN_GC_BYTES: {
+                        stack[sp++] = lumin_make_int((long long)gc_bytes());
+                        break;
+                    }
+                    case BUILTIN_GC_COLLECT: {
+                        gc_collect_now();
+                        stack[sp++] = val_none();
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -1252,7 +1267,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     Value v = vm_pend_val;
                     vm_depth = saved_depth;
                     g_err_jmp = saved_gj;
-                    gc_set_roots(NULL, NULL, NULL);
+                    gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
                     free(stack);
                     return v;
                 } else {
@@ -1382,7 +1397,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
-                gc_set_roots(NULL, NULL, NULL);
+                gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
                 free(stack);
                 return v;
             }
@@ -1390,14 +1405,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
-                gc_set_roots(NULL, NULL, NULL);
+                gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
                 free(stack);
                 return val_none();
             case OPC_HALT:
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
-                gc_set_roots(NULL, NULL, NULL);
+                gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
                 free(stack);
                 return val_none();
             default:

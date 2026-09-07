@@ -156,6 +156,9 @@ typedef enum {
     BUILTIN_LOG_WARN,       // warn(msg) / log.warn(msg)
     BUILTIN_LOG_ERROR,      // error(msg) / log.error(msg)
     BUILTIN_LOG_FATAL,      // fatal(msg) / log.fatal(msg)
+    BUILTIN_GC_COUNT,       // gc_count()：当前 GC 管理对象数
+    BUILTIN_GC_BYTES,       // gc_bytes()：当前 GC 管理字节数（近似）
+    BUILTIN_GC_COLLECT,     // gc_collect()：手动触发一次 GC
     BUILTIN_COUNT
 } BuiltinId;
 
