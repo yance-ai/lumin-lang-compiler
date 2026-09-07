@@ -4,6 +4,7 @@
 // parse：    "user[name]=john&tags[0]=a" → {user:{name:"john"}, tags:["a"]}
 // 注意：数组空段追加语法 tags[]= 暂不支持（须用显式索引 tags[0]=）
 #include "lm_qs.h"
+#include "lm_charset.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,33 +35,45 @@ static void qs_decode(QSB* b, const char* s) {
 }
 
 // ===== stringify（递归） =====
-static void qs_stringify_rec(QSB* b, const char* key, Value v) {
+static const char* qs_enc_str(Value enc) {
+    if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s))) return NULL;
+    return enc.type == VAL_STRING ? enc.v.s : NULL;
+}
+static void qs_stringify_rec(QSB* b, const char* key, Value v, Value enc) {
     if(v.type == VAL_MAP) {
         for(int i = 0; i < v.v.map->len; i++) {
             char* sub;
             if(*key) { sub = malloc(strlen(key) + strlen(v.v.map->keys[i]) + 4); sprintf(sub, "%s[%s]", key, v.v.map->keys[i]); }
             else     { sub = malloc(strlen(v.v.map->keys[i]) + 2); sprintf(sub, "%s", v.v.map->keys[i]); }
-            qs_stringify_rec(b, sub, v.v.map->values[i]);
+            qs_stringify_rec(b, sub, v.v.map->values[i], enc);
             free(sub);
         }
     } else if(v.type == VAL_ARRAY) {
         for(int i = 0; i < v.v.array.len; i++) {
             char* sub = malloc(strlen(key) + 32);
             sprintf(sub, "%s[%d]", key, i);
-            qs_stringify_rec(b, sub, v.v.array.items[i]);
+            qs_stringify_rec(b, sub, v.v.array.items[i], enc);
             free(sub);
         }
     } else {
         if(b->len) qsb_ch(b, '&');
-        qsb_str(b, key); qsb_ch(b, '=');
+        const char* e = qs_enc_str(enc);
+        if(e) { char* kt = lumin_utf8_to_text(key, enc); qsb_str(b, kt ? kt : key); free(kt); }
+        else qsb_str(b, key);
+        qsb_ch(b, '=');
         char* sv = value_to_str(v);
-        qs_encode(b, sv); free(sv);
+        if(e) { char* vt = lumin_utf8_to_text(sv, enc); qs_encode(b, vt ? vt : sv); free(vt); }
+        else qs_encode(b, sv);
+        free(sv);
     }
 }
-char* lumin_qs_stringify(Value v) {
+char* lumin_qs_stringify_enc(Value v, Value enc) {
     QSB b; qsb_init(&b);
-    qs_stringify_rec(&b, "", v);
+    qs_stringify_rec(&b, "", v, enc);
     return b.s;
+}
+char* lumin_qs_stringify(Value v) {
+    return lumin_qs_stringify_enc(v, val_none());
 }
 
 // ===== parse =====
@@ -115,7 +128,7 @@ static void qs_set_path(Value* container, char** segs, int i, int nseg, Value v)
     qs_set_path(&child, segs, i + 1, nseg, v);
     qs_child_set(container, seg, child);
 }
-Value lumin_qs_parse(const char* s) {
+Value lumin_qs_parse_enc(const char* s, Value enc) {
     Value root = val_map();
     if(!s || !*s) return root;
     char* dup = strdup(s);
@@ -146,9 +159,17 @@ Value lumin_qs_parse(const char* s) {
         char* dec_segs[64];
         for(int i = 0; i < nseg; i++) {
             QSB d; qsb_init(&d); qs_decode(&d, segs[i]);
+            if(qs_enc_str(enc)) {
+                char* u = lumin_text_to_utf8(d.s, d.len, enc);
+                if(u) { free(d.s); d.s = u; d.len = (int)strlen(u); }
+            }
             dec_segs[i] = d.s;
         }
         QSB vd; qsb_init(&vd); qs_decode(&vd, val);
+        if(qs_enc_str(enc)) {
+            char* u = lumin_text_to_utf8(vd.s, vd.len, enc);
+            if(u) { free(vd.s); vd.s = u; vd.len = (int)strlen(u); }
+        }
         Value v = lumin_make_string(vd.s);
         qs_set_path(&root, dec_segs, 0, nseg, v);
         for(int i = 0; i < nseg; i++) free(dec_segs[i]);
@@ -156,4 +177,8 @@ Value lumin_qs_parse(const char* s) {
     }
     free(dup);
     return root;
+}
+
+Value lumin_qs_parse(const char* s) {
+    return lumin_qs_parse_enc(s, val_none());
 }

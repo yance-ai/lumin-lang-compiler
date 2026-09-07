@@ -66,6 +66,7 @@ C_SRCS += $(SRC_DIR)/runtime/lm_lock.c
 C_SRCS += $(SRC_DIR)/runtime/lm_tls.c
 C_SRCS += $(SRC_DIR)/runtime/lm_http.c
 C_SRCS += $(SRC_DIR)/runtime/lm_json.c
+C_SRCS += $(SRC_DIR)/runtime/lm_charset.c
 C_SRCS += $(SRC_DIR)/runtime/lm_qs.c
 
 OBJS := $(C_SRCS:.c=.o)
@@ -124,7 +125,7 @@ $(OBJS): $(RT_EMBED_GEN)
 
 $(BIN_LOCAL): $(OBJS)
 	mkdir -p $(BIN_DIR)
-	$(CC) $(CFLAGS) $(OBJS) -lcurl -o $@
+	$(CC) $(CFLAGS) $(OBJS) -lcurl -liconv -o $@
 
 # ---------- 单元测试：栈帧 CRUD ----------
 TEST_STACKFRAME := $(TEST_DIR)/stackframe_test

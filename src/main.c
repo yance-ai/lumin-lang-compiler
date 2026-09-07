@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
 
                 if(!only_emit_c) {
                     char cmd[PATH_MAX * 2];
-                    snprintf(cmd, sizeof(cmd), "gcc -std=gnu11 %s -o %s -lcurl", c_path, exe_path);
+                    snprintf(cmd, sizeof(cmd), "gcc -std=gnu11 %s -o %s -lcurl -liconv", c_path, exe_path);
                     int sys_ret = system(cmd);
 
                     if(sys_ret == 0) {

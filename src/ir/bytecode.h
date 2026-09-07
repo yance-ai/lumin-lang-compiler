@@ -128,6 +128,8 @@ typedef enum {
     BUILTIN_ARRAY_FLAT,   // flat(arr, depth?)：数组/字典扁平化（.flat() 方法链）
     BUILTIN_QS,           // qs(v)：字典/数组 → 查询字符串；字符串 → 解析为字典/数组
     BUILTIN_ARRAY_ADDALL, // addAll(a, b)：数组追加全部元素 / 字典合并全部键值
+    BUILTIN_BYTES,        // bytes(s, enc?)：字符串 → 字节数组（按编码，默认 UTF-8）
+    BUILTIN_STR,          // str(arr, enc?)：字节数组 → 字符串（按编码，默认 UTF-8）
     BUILTIN_COUNT
 } BuiltinId;
 

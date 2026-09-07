@@ -12,6 +12,7 @@
 #include "runtime/lm_http.h"
 #include "runtime/lm_json.h"
 #include "runtime/lm_qs.h"
+#include "runtime/lm_charset.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -584,13 +585,19 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_JSON: {
-                        Value v = stack[--sp];
-                        stack[sp++] = lumin_json_parse(v.v.s);
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_json_parse_enc(v.v.s, enc);
                         break;
                     }
                     case BUILTIN_STRINGIFY: {
-                        Value v = stack[--sp];
-                        char* js = lumin_json_stringify(v);
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        char* js = lumin_json_stringify_enc(v, enc);
                         Value r = lumin_make_string(js);
                         free(js);
                         stack[sp++] = r;
@@ -605,13 +612,16 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_QS: {
-                        Value v = stack[--sp];
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
                         if(v.type == VAL_MAP || v.type == VAL_ARRAY) {
-                            char* q = lumin_qs_stringify(v);
+                            char* q = lumin_qs_stringify_enc(v, enc);
                             stack[sp++] = lumin_make_string(q);
                             free(q);
                         } else if(v.type == VAL_STRING) {
-                            stack[sp++] = lumin_qs_parse(v.v.s);
+                            stack[sp++] = lumin_qs_parse_enc(v.v.s, enc);
                         } else {
                             runtime_error("qs() 参数必须是字典/数组（序列化）或字符串（解析）");
                         }
@@ -621,6 +631,22 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value b = stack[--sp];
                         Value a = stack[--sp];
                         stack[sp++] = lumin_array_addall(a, b);
+                        break;
+                    }
+                    case BUILTIN_BYTES: {
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_to_bytes(v, enc);
+                        break;
+                    }
+                    case BUILTIN_STR: {
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_from_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_HTTP_DELETE:
@@ -692,13 +718,19 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_JSON: {
-                        Value v = stack[--sp];
-                        stack[sp++] = lumin_json_parse(v.v.s);
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_json_parse_enc(v.v.s, enc);
                         break;
                     }
                     case BUILTIN_STRINGIFY: {
-                        Value v = stack[--sp];
-                        char* js = lumin_json_stringify(v);
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        char* js = lumin_json_stringify_enc(v, enc);
                         Value r = lumin_make_string(js);
                         free(js);
                         stack[sp++] = r;
@@ -713,13 +745,16 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_QS: {
-                        Value v = stack[--sp];
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
                         if(v.type == VAL_MAP || v.type == VAL_ARRAY) {
-                            char* q = lumin_qs_stringify(v);
+                            char* q = lumin_qs_stringify_enc(v, enc);
                             stack[sp++] = lumin_make_string(q);
                             free(q);
                         } else if(v.type == VAL_STRING) {
-                            stack[sp++] = lumin_qs_parse(v.v.s);
+                            stack[sp++] = lumin_qs_parse_enc(v.v.s, enc);
                         } else {
                             runtime_error("qs() 参数必须是字典/数组（序列化）或字符串（解析）");
                         }
@@ -729,6 +764,22 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value b = stack[--sp];
                         Value a = stack[--sp];
                         stack[sp++] = lumin_array_addall(a, b);
+                        break;
+                    }
+                    case BUILTIN_BYTES: {
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_to_bytes(v, enc);
+                        break;
+                    }
+                    case BUILTIN_STR: {
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_from_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_HTTP_DELETE: m = "DELETE"; break;

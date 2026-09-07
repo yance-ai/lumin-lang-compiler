@@ -8,6 +8,7 @@
 #include "ast/lumin_types.h"
 #include "runtime/lm_qs.h"
 #include "runtime/lm_array.h"
+#include "runtime/lm_charset.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -462,10 +463,16 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(__k.type == VAL_STRING && lumin_map_has(__m, __k.v.s)); }\n");
                         break;
                     case BUILTIN_JSON:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse(__v.v.s); }\n");
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(__v.v.s, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(__v.v.s, val_none()); }\n");
                         break;
                     case BUILTIN_STRINGIFY:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __js = lumin_json_stringify(__v); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; char* __js = lumin_json_stringify_enc(__v, __e); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; char* __js = lumin_json_stringify_enc(__v, val_none()); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
                         break;
                     case BUILTIN_ARRAY_FLAT:
                         if(in.b >= 2)
@@ -474,10 +481,25 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_array_flat(__v, 1); }\n");
                         break;
                     case BUILTIN_QS:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify(__v); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse(__v.v.s); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, __e); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, __e); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, val_none()); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, val_none()); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
                         break;
                     case BUILTIN_ARRAY_ADDALL:
                         fprintf(out, "    { Value __b = __stk[--__sp]; Value __a = __stk[--__sp]; __stk[__sp++] = lumin_array_addall(__a, __b); }\n");
+                        break;
+                    case BUILTIN_BYTES:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_to_bytes(__v, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_to_bytes(__v, val_none()); }\n");
+                        break;
+                    case BUILTIN_STR:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, val_none()); }\n");
                         break;
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
@@ -517,10 +539,16 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(__k.type == VAL_STRING && lumin_map_has(__m, __k.v.s)); }\n");
                         break;
                     case BUILTIN_JSON:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse(__v.v.s); }\n");
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(__v.v.s, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_json_parse_enc(__v.v.s, val_none()); }\n");
                         break;
                     case BUILTIN_STRINGIFY:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __js = lumin_json_stringify(__v); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; char* __js = lumin_json_stringify_enc(__v, __e); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; char* __js = lumin_json_stringify_enc(__v, val_none()); Value __r = lumin_make_string(__js); free(__js); __stk[__sp++] = __r; }\n");
                         break;
                     case BUILTIN_ARRAY_FLAT:
                         if(in.b >= 2)
@@ -529,10 +557,25 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_array_flat(__v, 1); }\n");
                         break;
                     case BUILTIN_QS:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify(__v); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse(__v.v.s); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, __e); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, __e); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, val_none()); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, val_none()); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
                         break;
                     case BUILTIN_ARRAY_ADDALL:
                         fprintf(out, "    { Value __b = __stk[--__sp]; Value __a = __stk[--__sp]; __stk[__sp++] = lumin_array_addall(__a, __b); }\n");
+                        break;
+                    case BUILTIN_BYTES:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_to_bytes(__v, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_to_bytes(__v, val_none()); }\n");
+                        break;
+                    case BUILTIN_STR:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, val_none()); }\n");
                         break;
                     case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
                             case BUILTIN_HTTP_HEAD:   m = "HEAD"; break;

@@ -6,7 +6,9 @@
 // qs(string)       → 解析查询字符串为嵌套 map/数组
 #include "lm_value.h"
 
-char* lumin_qs_stringify(Value v);  // malloc，调用方 free
+char* lumin_qs_stringify_enc(Value v, Value enc);  // enc：UTF-8/GBK/...（空=默认 UTF-8）；malloc，调用方 free
+char* lumin_qs_stringify(Value v);
+Value lumin_qs_parse_enc(const char* s, Value enc);
 Value lumin_qs_parse(const char* s);
 
 #endif //LM_QS_H

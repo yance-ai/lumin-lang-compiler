@@ -2,6 +2,7 @@
 // 递归下降 JSON 解析器 + 值序列化器
 // 双通道共享（VM 与 C 编译通道都调用本模块）
 #include "lm_value.h"
+#include "lm_charset.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -202,16 +203,24 @@ static Value jp_parse_value(JP* j)
     return val_none();
 }
 
-Value lumin_json_parse(const char* s)
+Value lumin_json_parse_enc(const char* s, Value enc)
 {
     if(!s) { runtime_error("json(): input is null"); return val_none(); }
+    char* conv = lumin_text_to_utf8(s, strlen(s), enc);
+    if(!conv) { runtime_error("json() 字符编码转换失败"); return val_none(); }
     JP j;
-    j.p = s;
-    j.end = s + strlen(s);
+    j.p = conv;
+    j.end = conv + strlen(conv);
     Value v = jp_parse_value(&j);
     jp_ws(&j);
     if(j.p != j.end) { runtime_error("json parse error: trailing data"); return val_none(); }
+    if(conv != s) free(conv);
     return v;
+}
+
+Value lumin_json_parse(const char* s)
+{
+    return lumin_json_parse_enc(s, val_none());
 }
 
 /* ========== 序列化 ========== */
@@ -262,7 +271,7 @@ static void sb_json_string(SB* b, const char* s)
     sb_putc(b, '"');
 }
 
-static void jq_stringify(SB* b, Value v)
+static void jq_stringify(SB* b, Value v, Value enc)
 {
     switch(v.type) {
         case VAL_NONE: sb_puts(b, "null"); break;
@@ -287,15 +296,22 @@ static void jq_stringify(SB* b, Value v)
         }
         case VAL_CHAR: {
             char one[2] = { v.v.c, '\0' };
-            sb_json_string(b, one);
+            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s)))
+                sb_json_string(b, one);
+            else { char* t = lumin_utf8_to_text(one, enc); sb_json_string(b, t ? t : one); free(t); }
             break;
         }
-        case VAL_STRING: sb_json_string(b, v.v.s ? v.v.s : ""); break;
+        case VAL_STRING: {
+            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s)))
+                sb_json_string(b, v.v.s ? v.v.s : "");
+            else { char* t = lumin_utf8_to_text(v.v.s ? v.v.s : "", enc); sb_json_string(b, t ? t : ""); free(t); }
+            break;
+        }
         case VAL_ARRAY: {
             sb_putc(b, '[');
             for(int i = 0; i < v.v.array.len; i++) {
                 if(i > 0) sb_putc(b, ',');
-                jq_stringify(b, v.v.array.items[i]);
+                jq_stringify(b, v.v.array.items[i], enc);
             }
             sb_putc(b, ']');
             break;
@@ -304,9 +320,11 @@ static void jq_stringify(SB* b, Value v)
             sb_putc(b, '{');
             for(int i = 0; i < v.v.map->len; i++) {
                 if(i > 0) sb_putc(b, ',');
-                sb_json_string(b, v.v.map->keys[i]);
+                if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s)))
+                    sb_json_string(b, v.v.map->keys[i]);
+                else { char* t = lumin_utf8_to_text(v.v.map->keys[i], enc); sb_json_string(b, t ? t : v.v.map->keys[i]); free(t); }
                 sb_putc(b, ':');
-                jq_stringify(b, v.v.map->values[i]);
+                jq_stringify(b, v.v.map->values[i], enc);
             }
             sb_putc(b, '}');
             break;
@@ -315,13 +333,18 @@ static void jq_stringify(SB* b, Value v)
     }
 }
 
-char* lumin_json_stringify(Value v)
+char* lumin_json_stringify_enc(Value v, Value enc)
 {
     SB b;
     b.buf = NULL;
     b.len = 0;
     b.cap = 0;
-    jq_stringify(&b, v);
+    jq_stringify(&b, v, enc);
     sb_putc(&b, '\0');
     return b.buf;
+}
+
+char* lumin_json_stringify(Value v)
+{
+    return lumin_json_stringify_enc(v, val_none());
 }
