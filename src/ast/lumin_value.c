@@ -1,4 +1,5 @@
 #include "lumin_value.h"
+#include "../runtime/lm_map.h"
 #include <string.h>
 
 /* 错误机制全部动态化，无硬上限：
@@ -203,9 +204,9 @@ Value val_map(void) {
     r.type = VAL_MAP;
     r.v.map = (ValueMap*)malloc(sizeof(ValueMap));
     r.v.map->len = 0;
-    r.v.map->cap = 0;
-    r.v.map->keys = NULL;
-    r.v.map->values = NULL;
+    r.v.map->cap = 16;
+    r.v.map->buckets = (MapEntry**)calloc(16, sizeof(MapEntry*));
+    r.v.map->tree = (unsigned char*)calloc(16, sizeof(unsigned char));
     return r;
 }
 
@@ -229,12 +230,26 @@ void val_destroy(Value* v) {
     case VAL_MAP: {
         ValueMap* m = v->v.map;
         if(m) {
-            for(int i = 0; i < m->len; i++) {
-                val_destroy(&m->keys[i]);
-                val_destroy(&m->values[i]);
+            for(int i = 0; i < m->cap; i++) {
+                if(m->tree[i]) {
+                    // 红黑树递归释放
+                    MapEntry* stack[256];
+                    int top = 0;
+                    MapEntry* cur = m->buckets[i];
+                    while(cur || top > 0) {
+                        while(cur) { stack[top++] = cur; cur = cur->left; }
+                        cur = stack[--top];
+                        MapEntry* right = cur->right;
+                        entry_free(cur);
+                        cur = right;
+                    }
+                } else {
+                    MapEntry* e = m->buckets[i];
+                    while(e) { MapEntry* next = e->next; entry_free(e); e = next; }
+                }
             }
-            free(m->keys);
-            free(m->values);
+            free(m->buckets);
+            free(m->tree);
             free(m);
             v->v.map = NULL;
         }
@@ -293,17 +308,24 @@ Value val_clone(const Value* src) {
     case VAL_MAP: {
         ValueMap* srcm = src->v.map;
         dst = val_map();
-        ValueMap* dm = dst.v.map;
-        for(int i = 0; i < srcm->len; i++) {
-            if(dm->len >= dm->cap) {
-                int ncap = dm->cap ? dm->cap * 2 : 8;
-                dm->keys = (Value*)realloc(dm->keys, sizeof(Value) * ncap);
-                dm->values = (Value*)realloc(dm->values, sizeof(Value) * ncap);
-                dm->cap = ncap;
+        for(int i = 0; i < srcm->cap; i++) {
+            MapEntry* e = srcm->buckets[i];
+            if(srcm->tree[i]) {
+                MapEntry* stack[256];
+                int top = 0;
+                MapEntry* cur = e;
+                while(cur || top > 0) {
+                    while(cur) { stack[top++] = cur; cur = cur->left; }
+                    cur = stack[--top];
+                    lumin_map_set(&dst, cur->key, cur->value);
+                    cur = cur->right;
+                }
+            } else {
+                while(e) {
+                    lumin_map_set(&dst, e->key, e->value);
+                    e = e->next;
+                }
             }
-            dm->keys[dm->len] = val_clone(&srcm->keys[i]);
-            dm->values[dm->len] = val_clone(&srcm->values[i]);
-            dm->len++;
         }
         break;
     }

@@ -769,10 +769,12 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "            if(__fn.type != VAL_FUNC) runtime_error(\"map() 第二个参数必须是函数\");\n");
                             fprintf(out, "            Value (*__cfm)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
                             fprintf(out, "            Value __mout = val_map();\n");
-                            fprintf(out, "            for(int __i = 0; __i < __arr.v.map->len; __i++) {\n");
-                            fprintf(out, "                Value __a2[2]; __a2[0] = val_clone(&__arr.v.map->values[__i]); __a2[1] = val_clone(&__arr.v.map->keys[__i]);\n");
+                            fprintf(out, "            MapIter __it; map_iter_init(&__it, __arr.v.map);\n");
+                            fprintf(out, "            Value __mk, __mv;\n");
+                            fprintf(out, "            while(map_iter_next(&__it, &__mk, &__mv)) {\n");
+                            fprintf(out, "                Value __a2[2]; __a2[0] = val_clone(&__mv); __a2[1] = val_clone(&__mk);\n");
                             fprintf(out, "                Value __r = __cfm(__a2, 2);\n");
-                            fprintf(out, "                lumin_map_set(&__mout, val_clone(&__arr.v.map->keys[__i]), val_clone(&__r));\n");
+                            fprintf(out, "                lumin_map_set(&__mout, val_clone(&__mk), val_clone(&__r));\n");
                             fprintf(out, "            }\n");
                             fprintf(out, "            __stk[__sp++] = __mout;\n");
                             fprintf(out, "        } else {\n");

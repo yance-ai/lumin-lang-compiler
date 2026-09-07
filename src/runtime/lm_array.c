@@ -96,8 +96,7 @@ Value lumin_index_of(Value arr, Value x)
 Value lumin_array_get_safe(Value arr, Value idx)
 {
     if(arr.type == VAL_MAP) {
-        int i = lumin_map_find(arr.v.map, idx);
-        return i < 0 ? val_none() : arr.v.map->values[i];
+        return lumin_map_get(arr, idx);
     }
     if(arr.type != VAL_ARRAY) return val_none();
     if(idx.type != VAL_INT) return val_none();
@@ -130,15 +129,24 @@ Value lumin_array_set_method(Value arr, Value idx, Value val)
 // first(arr) / last(arr)：首/尾元素（空数组 → null）
 Value lumin_array_first(Value arr)
 {
-    if(arr.type == VAL_MAP)
-        return arr.v.map->len == 0 ? val_none() : arr.v.map->values[0];
+    if(arr.type == VAL_MAP) {
+        if(arr.v.map->len == 0) return val_none();
+        MapIter it; map_iter_init(&it, arr.v.map);
+        Value k, vv; map_iter_next(&it, &k, &vv);
+        return val_clone(&vv);
+    }
     if(arr.type != VAL_ARRAY || arr.v.array.len == 0) return val_none();
     return arr.v.array.items[0];
 }
 Value lumin_array_last(Value arr)
 {
-    if(arr.type == VAL_MAP)
-        return arr.v.map->len == 0 ? val_none() : arr.v.map->values[arr.v.map->len - 1];
+    if(arr.type == VAL_MAP) {
+        if(arr.v.map->len == 0) return val_none();
+        MapIter it; map_iter_init(&it, arr.v.map);
+        Value k, vv, lastv;
+        while(map_iter_next(&it, &k, &vv)) lastv = vv;
+        return val_clone(&lastv);
+    }
     if(arr.type != VAL_ARRAY || arr.v.array.len == 0) return val_none();
     return arr.v.array.items[arr.v.array.len - 1];
 }
@@ -159,12 +167,30 @@ Value lumin_array_clear(Value v)
 {
     if(v.type == VAL_MAP) {
         ValueMap* m = v.v.map;
-        Value cnk = val_none(); Value cnv = val_none();
-        int i = lumin_map_find(m, lumin_make_string("__classname__"));
-        if(i >= 0) { cnk = val_clone(&m->keys[i]); cnv = val_clone(&m->values[i]); }
-        for(int k = 0; k < m->len; k++) { val_destroy(&m->keys[k]); val_destroy(&m->values[k]); }
+        Value cnv = val_none();
+        if(lumin_map_has(v, lumin_make_string("__classname__")))
+            cnv = lumin_map_get(v, lumin_make_string("__classname__"));
+        // 清空所有桶
+        for(int bi = 0; bi < m->cap; bi++) {
+            if(m->tree[bi]) {
+                MapEntry* stk[256]; int top = 0;
+                MapEntry* cur = m->buckets[bi];
+                while(cur || top > 0) {
+                    while(cur) { stk[top++] = cur; cur = cur->left; }
+                    cur = stk[--top];
+                    MapEntry* r = cur->right;
+                    entry_free(cur);
+                    cur = r;
+                }
+            } else {
+                MapEntry* e = m->buckets[bi];
+                while(e) { MapEntry* nx = e->next; entry_free(e); e = nx; }
+            }
+            m->buckets[bi] = NULL;
+            m->tree[bi] = 0;
+        }
         m->len = 0;
-        if(cnk.type != VAL_NONE) { lumin_map_set(&v, cnk, cnv); val_destroy(&cnk); val_destroy(&cnv); }
+        if(cnv.type != VAL_NONE) { lumin_map_set(&v, lumin_make_string("__classname__"), cnv); val_destroy(&cnv); }
         return v;
     }
     if(v.type == VAL_ARRAY) return val_array(0);
@@ -305,9 +331,10 @@ Value lumin_array_addall(Value a, Value b) {
     }
     if(a.type == VAL_MAP && b.type == VAL_MAP) {
         /* 引用语义：原地合并，返回 a（与 set/clear 一致） */
-        for(int i = 0; i < b.v.map->len; i++) {
-            lumin_map_set(&a, val_clone(&b.v.map->keys[i]), b.v.map->values[i]);
-        }
+        MapIter it; map_iter_init(&it, b.v.map);
+        Value k, vv;
+        while(map_iter_next(&it, &k, &vv))
+            lumin_map_set(&a, k, vv);
         return a;
     }
     runtime_error("addAll() 参数类型不匹配：数组+数组 或 字典+字典");

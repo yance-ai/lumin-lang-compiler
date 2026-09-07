@@ -2,9 +2,12 @@
 #define LUMIN_VALUE_TYPE_H
 
 #include <pthread.h>
+#include <stdint.h>
 
 typedef struct Value Value;
 typedef struct EvalCtx EvalCtx;
+typedef struct MapEntry MapEntry;
+typedef struct ValueMap ValueMap;
 // ✅ 新增前置声明：FuncEntry 参数需要 StackFrame*，此时还没完整定义 StackFrame
 typedef struct StackFrame StackFrame;
 
@@ -65,14 +68,6 @@ typedef struct {
     int len;
 } ValueArray;
 
-// 字典运行时对象，VAL_MAP 使用（线性探测哈希：字符串键 → 值）
-typedef struct {
-    Value* keys;     // 键（任意类型，Value 克隆）
-    Value* values;   // 值（与 keys 同序）
-    int len;         // 当前键数
-    int cap;         // 容量
-} ValueMap;
-
 // 错误对象，VAL_ERROR 使用（type 为错误类别，message 为消息，stack 为调用栈回溯）
 typedef struct {
     char* type;      // 错误类型名（"RuntimeError" / throw 自定义）
@@ -99,6 +94,26 @@ struct Value {
         ValueMap* map;         // VAL_MAP：堆上共享对象（原地改语义与数组 items 一致）
         ValueError err;        // VAL_ERROR：错误对象（type/message/stack，堆上字符串）
     } v;
+};
+
+// 哈希表条目（同时作为链表节点和红黑树节点）
+struct MapEntry {
+    Value key;
+    Value value;
+    uint32_t hash;
+    struct MapEntry* next;    // 链表指针
+    struct MapEntry* left;    // 红黑树左子
+    struct MapEntry* right;   // 红黑树右子
+    struct MapEntry* parent;  // 红黑树父
+    int color;                // 红黑树颜色：0=红, 1=黑
+};
+
+// 字典运行时对象，VAL_MAP 使用（哈希表 + 红黑树自适应，Java HashMap 策略）
+struct ValueMap {
+    MapEntry** buckets;   // 桶数组（每桶是链表或红黑树根）
+    unsigned char* tree;  // 桶类型标记：0=链表, 1=红黑树
+    int len;              // 元素数
+    int cap;              // 桶数（2的幂）
 };
 
 // 解释器执行上下文：只负责控制流 break/continue/return，不存局部变量

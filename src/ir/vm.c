@@ -1109,12 +1109,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             if(fn.type != VAL_FUNC) runtime_error("map() 第二个参数必须是函数");
                             RuntimeFunc* mrf = fn.v.func.func_obj;
                             Value mout = val_map();
-                            for(int i = 0; i < arr.v.map->len; i++) {
+                            MapIter it; map_iter_init(&it, arr.v.map);
+                            Value mk, mv;
+                            while(map_iter_next(&it, &mk, &mv)) {
                                 Value a2[2];
-                                a2[0] = val_clone(&arr.v.map->values[i]);
-                                a2[1] = val_clone(&arr.v.map->keys[i]);
+                                a2[0] = val_clone(&mv);
+                                a2[1] = val_clone(&mk);
                                 Value r = vm_call_rf(mrf, a2, 2, frame, ctx);
-                                lumin_map_set(&mout, val_clone(&arr.v.map->keys[i]), val_clone(&r));
+                                lumin_map_set(&mout, val_clone(&mk), val_clone(&r));
                             }
                             stack[sp++] = mout;
                             break;

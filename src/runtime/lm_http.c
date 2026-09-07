@@ -1,6 +1,7 @@
 // lm_http.c —— HTTP 客户端（libcurl 实现；requests.get/post/... 内置的运行时支撑）
 #include "runtime/lm_http.h"
 #include "runtime/lm_map.h"
+#include "runtime/lm_value.h"
 #include <curl/curl.h>
 #include <pthread.h>
 #include <string.h>
@@ -86,12 +87,15 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
     buf_append(&full_url, url.v.s, strlen(url.v.s));
     Buf qs = {0};
     if(params.type == VAL_MAP) {
-        for(int i = 0; i < params.v.map->len; i++) {
-            if(i > 0) buf_append(&qs, "&", 1);
-            char* pkstr = value_to_str(params.v.map->keys[i]);
+        MapIter pit; map_iter_init(&pit, params.v.map);
+        Value pk, pv; int pfirst = 1;
+        while(map_iter_next(&pit, &pk, &pv)) {
+            if(!pfirst) buf_append(&qs, "&", 1);
+            pfirst = 0;
+            char* pkstr = value_to_str(pk);
             char* ek = curl_easy_escape(h, pkstr, 0);
             free(pkstr);
-            char* sv = value_to_str(params.v.map->values[i]);
+            char* sv = value_to_str(pv);
             char* ev = curl_easy_escape(h, sv, 0);
             free(sv);
             buf_append(&qs, ek, strlen(ek));
@@ -119,9 +123,11 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
         if(lumin_map_has(config, lumin_make_string("headers"))) {
             Value hv = lumin_map_get(config, lumin_make_string("headers"));
             if(hv.type != VAL_MAP) { curl_easy_cleanup(h); free(full_url.data); runtime_error("requests: config.headers 必须是字典"); }
-            for(int i = 0; i < hv.v.map->len; i++) {
-                char* sv = value_to_str(hv.v.map->values[i]);
-                char* hkstr = value_to_str(hv.v.map->keys[i]);
+            MapIter hit; map_iter_init(&hit, hv.v.map);
+            Value hk, hv2;
+            while(map_iter_next(&hit, &hk, &hv2)) {
+                char* sv = value_to_str(hv2);
+                char* hkstr = value_to_str(hk);
                 size_t klen = strlen(hkstr), vlen = strlen(sv);
                 char* entry = (char*)malloc(klen + vlen + 3);
                 memcpy(entry, hkstr, klen);

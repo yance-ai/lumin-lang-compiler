@@ -133,8 +133,8 @@ $(BIN_LOCAL): $(OBJS)
 # ---------- 单元测试：栈帧 CRUD ----------
 TEST_STACKFRAME := $(TEST_DIR)/stackframe_test
 
-$(TEST_STACKFRAME): src/ast/stackframe.c src/ast/lumin_value.c tests/stackframe_test.c
-	$(CC) $(CFLAGS) src/ast/stackframe.c src/ast/lumin_value.c tests/stackframe_test.c -o $@
+$(TEST_STACKFRAME): $(OBJS) tests/stackframe_test.c
+	$(CC) $(CFLAGS) $(filter-out src/main.o,$(OBJS)) tests/stackframe_test.c -lcurl -liconv -o $@
 
 .PHONY: test
 test: $(TEST_STACKFRAME)
