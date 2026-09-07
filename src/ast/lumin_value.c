@@ -1,5 +1,6 @@
 #include "lumin_value.h"
 #include "../runtime/lm_map.h"
+#include "../runtime/gc_runtime.h"
 #include <string.h>
 
 /* 错误机制全部动态化，无硬上限：
@@ -113,13 +114,20 @@ void runtime_error(const char* msg) {
     exit(EXIT_FAILURE);
 }
 
-// 错误对象构造：type/message/stack（stack 可为空，内部复制）
+// 错误对象构造：type/message/stack（stack 可为空，内部复制；字符串由 GC 管理）
 Value lumin_make_error(const char* type, const char* msg, const char* stack) {
     Value v;
     v.type = VAL_ERROR;
-    v.v.err.type = strdup(type ? type : "Error");
-    v.v.err.message = strdup(msg ? msg : "");
-    v.v.err.stack = strdup(stack ? stack : "");
+    const char* t = type ? type : "Error";
+    const char* m = msg ? msg : "";
+    const char* s = stack ? stack : "";
+    size_t tl = strlen(t), ml = strlen(m), sl = strlen(s);
+    v.v.err.type = (char*)gc_alloc(tl + 1, VAL_STRING);
+    memcpy(v.v.err.type, t, tl + 1);
+    v.v.err.message = (char*)gc_alloc(ml + 1, VAL_STRING);
+    memcpy(v.v.err.message, m, ml + 1);
+    v.v.err.stack = (char*)gc_alloc(sl + 1, VAL_STRING);
+    memcpy(v.v.err.stack, s, sl + 1);
     return v;
 }
 
@@ -177,7 +185,10 @@ Value val_char(char v) {
 Value val_string(const char* s) {
     Value r;
     r.type = VAL_STRING;
-    r.v.s = strdup(s);
+    size_t len = s ? strlen(s) : 0;
+    r.v.s = (char*)gc_alloc(len + 1, VAL_STRING);
+    if (len) memcpy(r.v.s, s, len);
+    r.v.s[len] = '\0';
     return r;
 }
 
@@ -186,155 +197,50 @@ Value val_string(const char* s) {
 Value val_array(int len) {
     Value r;
     r.type = VAL_ARRAY;
-    r.v.array.len = len;
+    /* GC 安全：构造期间暂停自动 GC，避免中间分配触发 sweep */
+    gc_disable();
+    Value* items = NULL;
     if(len > 0) {
-        r.v.array.items = (Value*)malloc(sizeof(Value) * len);
-        if(!r.v.array.items) runtime_error("内存不足：数组分配失败");
+        items = (Value*)gc_alloc(sizeof(Value) * len, VAL_ARRAY);
         for(int i = 0; i < len; i++) {
-            r.v.array.items[i] = val_none();
+            items[i] = val_none();
         }
-    } else {
-        r.v.array.items = NULL;
     }
+    r.v.array = (ValueArray*)gc_alloc(sizeof(ValueArray), VAL_ARRAY);
+    r.v.array->items = items;
+    r.v.array->len = len;
+    r.v.array->cap = len > 0 ? len : 0;
+    gc_enable();
     return r;
 }
 
 Value val_map(void) {
     Value r;
     r.type = VAL_MAP;
-    r.v.map = (ValueMap*)malloc(sizeof(ValueMap));
+    /* GC 安全：构造期间暂停自动 GC */
+    gc_disable();
+    MapEntry** buckets = (MapEntry**)gc_alloc(16 * sizeof(MapEntry*), VAL_MAP);
+    memset(buckets, 0, 16 * sizeof(MapEntry*));
+    unsigned char* tree = (unsigned char*)gc_alloc(16 * sizeof(unsigned char), VAL_MAP);
+    memset(tree, 0, 16 * sizeof(unsigned char));
+    r.v.map = (ValueMap*)gc_alloc(sizeof(ValueMap), VAL_MAP);
     r.v.map->len = 0;
     r.v.map->cap = 16;
-    r.v.map->buckets = (MapEntry**)calloc(16, sizeof(MapEntry*));
-    r.v.map->tree = (unsigned char*)calloc(16, sizeof(unsigned char));
+    r.v.map->buckets = buckets;
+    r.v.map->tree = tree;
+    gc_enable();
     return r;
 }
 
-// -------- 销毁 --------
+// -------- 销毁（引用语义 + GC：空操作，由 GC 统一回收） --------
 void val_destroy(Value* v) {
     if(!v) return;
-    switch(v->type) {
-    case VAL_STRING:
-        free(v->v.s);
-        v->v.s = NULL;
-        break;
-    case VAL_ARRAY: {
-        for(int i = 0; i < v->v.array.len; i++) {
-            val_destroy(&v->v.array.items[i]);
-        }
-        free(v->v.array.items);
-        v->v.array.items = NULL;
-        v->v.array.len = 0;
-        break;
-    }
-    case VAL_MAP: {
-        ValueMap* m = v->v.map;
-        if(m) {
-            for(int i = 0; i < m->cap; i++) {
-                if(m->tree[i]) {
-                    // 红黑树递归释放
-                    MapEntry* stack[256];
-                    int top = 0;
-                    MapEntry* cur = m->buckets[i];
-                    while(cur || top > 0) {
-                        while(cur) { stack[top++] = cur; cur = cur->left; }
-                        cur = stack[--top];
-                        MapEntry* right = cur->right;
-                        entry_free(cur);
-                        cur = right;
-                    }
-                } else {
-                    MapEntry* e = m->buckets[i];
-                    while(e) { MapEntry* next = e->next; entry_free(e); e = next; }
-                }
-            }
-            free(m->buckets);
-            free(m->tree);
-            free(m);
-            v->v.map = NULL;
-        }
-        break;
-    }
-    case VAL_FUNC: {
-        // 释放运行时函数对象
-        RuntimeFunc* f = v->v.func.func_obj;
-        if(f) {
-            // 销毁捕获变量
-            for(int i = 0; i < f->capture_count; ++i) {
-                val_destroy(&f->captures[i]);
-            }
-            free(f->captures);
-            free(f);
-        }
-        break;
-    }
-    default:
-        break;
-    }
-    v->type = VAL_NONE;
+    v->type = VAL_NONE;  /* 仅标记，不 free */
 }
 
-// -------- 深度拷贝 --------
+// -------- 浅拷贝（引用语义：直接复制 Value 结构体，不分配新内存） --------
 Value val_clone(const Value* src) {
-    Value dst;
-    dst.type = src->type;
-    switch(src->type) {
-    case VAL_INT:    dst.v.i = src->v.i; break;
-    case VAL_DOUBLE: dst.v.d = src->v.d; break;
-    case VAL_BOOL:   dst.v.b = src->v.b; break;
-    case VAL_CHAR:   dst.v.c = src->v.c; break;
-    case VAL_BYTE:   dst.v.i = src->v.i; break;
-    case VAL_STRING: dst.v.s = strdup(src->v.s); break;
-
-    case VAL_FUNC:
-        // 函数对象是引用语义，只复制指针，不复制整个RuntimeFunc
-        dst.v.func.func_obj = src->v.func.func_obj;
-        break;
-
-    case VAL_ARRAY: {
-        int n = src->v.array.len;
-        dst = val_array(n);
-        for(int i = 0; i < n; i++) {
-            dst.v.array.items[i] = val_clone(&src->v.array.items[i]);
-        }
-        break;
-    }
-    case VAL_ERROR:
-        dst.v.err.type = strdup(src->v.err.type ? src->v.err.type : "");
-        dst.v.err.message = strdup(src->v.err.message ? src->v.err.message : "");
-        dst.v.err.stack = strdup(src->v.err.stack ? src->v.err.stack : "");
-        break;
-
-    case VAL_MAP: {
-        ValueMap* srcm = src->v.map;
-        dst = val_map();
-        for(int i = 0; i < srcm->cap; i++) {
-            MapEntry* e = srcm->buckets[i];
-            if(srcm->tree[i]) {
-                MapEntry* stack[256];
-                int top = 0;
-                MapEntry* cur = e;
-                while(cur || top > 0) {
-                    while(cur) { stack[top++] = cur; cur = cur->left; }
-                    cur = stack[--top];
-                    lumin_map_set(&dst, cur->key, cur->value);
-                    cur = cur->right;
-                }
-            } else {
-                while(e) {
-                    lumin_map_set(&dst, e->key, e->value);
-                    e = e->next;
-                }
-            }
-        }
-        break;
-    }
-    case VAL_NONE:
-    default:
-        dst = val_none();
-        break;
-    }
-    return dst;
+    return *src;
 }
 
 // -------- debug打印 --------
@@ -366,9 +272,9 @@ void val_print(const Value* v) {
     case VAL_FUNC: printf("<func>"); break;
     case VAL_ARRAY: {
         printf("[");
-        for(int i=0;i<v->v.array.len;i++){
+        for(int i=0;i<v->v.array->len;i++){
             if(i>0)printf(",");
-            val_print(&v->v.array.items[i]);
+            val_print(&v->v.array->items[i]);
         }
         printf("]");
         break;

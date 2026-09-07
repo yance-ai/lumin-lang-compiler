@@ -100,7 +100,7 @@ darr = del(mixed, 1);
 print(len(darr));              // 5
 print(darr[1]);                // null
 iarr = insert(mixed, 1, "mid");
-print(len(iarr));              // 7
+print(len(iarr));              // 6（引用语义：del 已原地缩短 mixed 为 5，insert 后为 6）
 print(iarr[1]);                // mid
 md = [[1, 2], [3, 4], [5, 6]];
 print(md[0][1]);               // 2

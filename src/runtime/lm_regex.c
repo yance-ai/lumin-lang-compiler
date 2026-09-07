@@ -71,7 +71,7 @@ Value lumin_regex_search(const char* s, const char* pattern) {
             char* sub = malloc(len + 1);
             memcpy(sub, s + m[i].rm_so, len);
             sub[len] = 0;
-            arr = lumin_array_add(arr, lumin_make_string(sub));
+            lumin_array_add(&arr, lumin_make_string(sub));
             free(sub);
         }
     }

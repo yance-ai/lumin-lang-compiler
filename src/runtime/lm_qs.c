@@ -54,10 +54,10 @@ static void qs_stringify_rec(QSB* b, const char* key, Value v, Value enc) {
             free(sub);
         }
     } else if(v.type == VAL_ARRAY) {
-        for(int i = 0; i < v.v.array.len; i++) {
+        for(int i = 0; i < v.v.array->len; i++) {
             char* sub = malloc(strlen(key) + 32);
             sprintf(sub, "%s[%d]", key, i);
-            qs_stringify_rec(b, sub, v.v.array.items[i], enc);
+            qs_stringify_rec(b, sub, v.v.array->items[i], enc);
             free(sub);
         }
     } else {
@@ -90,19 +90,19 @@ static _Bool seg_is_num(const char* s) {
 // 数组按索引写入（自动扩容；中间空槽补 null）
 static void qs_arr_set_grow(Value* arr, int idx, Value v) {
     if(arr->type != VAL_ARRAY) { *arr = val_array(idx + 1); }
-    else if(idx >= arr->v.array.len) {
+    else if(idx >= arr->v.array->len) {
         Value nv = val_array(idx + 1);
         /* val_clone：旧数组可能被 map_set 替换时 val_destroy，必须深拷贝 */
-        for(int k = 0; k < arr->v.array.len; k++) nv.v.array.items[k] = val_clone(&arr->v.array.items[k]);
+        for(int k = 0; k < arr->v.array->len; k++) nv.v.array->items[k] = val_clone(&arr->v.array->items[k]);
         *arr = nv;
     }
-    arr->v.array.items[idx] = val_clone(&v);
+    arr->v.array->items[idx] = val_clone(&v);
 }
 static Value qs_child_get(Value container, const char* seg) {
     if(seg_is_num(seg)) {
         if(container.type == VAL_ARRAY) {
             int idx = atoi(seg);
-            if(idx >= 0 && idx < container.v.array.len) return val_clone(&container.v.array.items[idx]);
+            if(idx >= 0 && idx < container.v.array->len) return val_clone(&container.v.array->items[idx]);
         }
     } else if(container.type == VAL_MAP) {
         Value k = lumin_make_string((char*)seg);

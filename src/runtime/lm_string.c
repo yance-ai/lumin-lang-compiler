@@ -73,12 +73,12 @@ Value lumin_split(Value s, Value sep)
         piece[len] = '\0';
         Value item = lumin_make_string(piece);
         free(piece);
-        arr.v.array.items[idx++] = val_clone(&item);
+        arr.v.array->items[idx++] = item;
         start = hit + splen;
         hit = strstr(start, sp);
     }
     Value item = lumin_make_string(start);
-    arr.v.array.items[idx++] = val_clone(&item);
+    arr.v.array->items[idx++] = item;
     return arr;
 }
 
@@ -89,18 +89,18 @@ Value lumin_join(Value arr, Value sep)
     if(arr.type != VAL_ARRAY) runtime_error("join() 第一个参数必须是数组");
     if(sep.type != VAL_STRING) runtime_error("join() 分隔符必须是字符串");
     size_t total = 1;
-    for(int i = 0; i < arr.v.array.len; i++) {
-        char* t = value_to_str(arr.v.array.items[i]);
+    for(int i = 0; i < arr.v.array->len; i++) {
+        char* t = value_to_str(arr.v.array->items[i]);
         total += strlen(t);
-        if(i < arr.v.array.len - 1) total += strlen(sep.v.s);
+        if(i < arr.v.array->len - 1) total += strlen(sep.v.s);
         free(t);
     }
     char* out = (char*)malloc(total);
     if(!out) { perror("join"); exit(EXIT_FAILURE); }
     out[0] = '\0';
-    for(int i = 0; i < arr.v.array.len; i++) {
+    for(int i = 0; i < arr.v.array->len; i++) {
         if(i > 0) strcat(out, sep.v.s);
-        char* t = value_to_str(arr.v.array.items[i]);
+        char* t = value_to_str(arr.v.array->items[i]);
         strcat(out, t);
         free(t);
     }
@@ -118,8 +118,8 @@ Value lumin_contains(Value hay, Value needle)
         return lumin_make_bool(strstr(hay.v.s, needle.v.s) != NULL);
     }
     if(hay.type == VAL_ARRAY) {
-        for(int i = 0; i < hay.v.array.len; i++) {
-            Value eq = lumin_eq(hay.v.array.items[i], needle);
+        for(int i = 0; i < hay.v.array->len; i++) {
+            Value eq = lumin_eq(hay.v.array->items[i], needle);
             if(eq.v.b) return lumin_make_bool(1);
         }
         return lumin_make_bool(0);

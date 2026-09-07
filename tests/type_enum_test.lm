@@ -97,7 +97,7 @@ plain.clear();
 print(len(plain.keys()));      // 0
 print(plain == {});            // true
 a = [1, 2, 3];
-a = a.clear();                 // 数组值语义：clear 返回新空数组（与 add/remove 一致）
+a = a.clear();                 // 引用语义：clear 原地清空（与 add/remove 一致）
 print(len(a));                 // 0
 print(a == []);                // true
 print(len([9, 8].clear()));    // 0（链式：clear 结果直接用）

@@ -52,7 +52,7 @@ t4a = thread(work_a); t4b = thread(work_b);
 thread_join(t4a); thread_join(t4b);
 print("two-locks: " + ga[0] + " " + gb[0]);     // 3000 2000
 
-// 5. 锁作为参数在调用链传递（锁 id 是 int，标量值传递；数组为深拷贝不可共享）
+// 5. 锁作为参数在调用链传递（锁 id 是 int，标量值传递）
 g5 = [0];
 func guarded(lockid) {
     lock(lockid);

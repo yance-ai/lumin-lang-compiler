@@ -1,11 +1,11 @@
 // addall_multi_test.lm —— addAll 合并 / 8 维数组 flat / 多线程容器并发
 func dbl(x) { return x * 2; }
-print("== 1. addAll 数组（值语义：新数组） ==");
+print("== 1. addAll 数组（引用语义：原地合并） ==");
 a = [1, 2, 3];
 b = a.addAll([4, 5]);
 print(b.join(","));               // 1,2,3,4,5
 print(len(b));                    // 5
-print(a.len());                   // 3（原数组不变）
+print(a.len());                   // 5（引用语义：addAll 原地修改 a）
 print([].addAll([1]).join(","));  // 1（空数组 + 1）
 print([1, 2].addAll([]).join(","));  // 1,2（加空）
 print([].addAll([]).len());       // 0（空 + 空）

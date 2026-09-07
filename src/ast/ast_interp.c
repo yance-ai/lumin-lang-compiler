@@ -556,7 +556,7 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
                     if(rest < 0) rest = 0;
                     Value arr = val_array(rest);
                     for(int k = 0; k < rest; k++) {
-                        arr.v.array.items[k] = val_clone(&eval_args[i + k]);
+                        arr.v.array->items[k] = val_clone(&eval_args[i + k]);
                     }
                     stackframe_bind(callee, vname, arr);
                 }

@@ -62,13 +62,17 @@ typedef enum {
     VAL_BYTE       // 8 位无符号整数（0-255，C 风格截断；算术/比较按数值类型处理）
 } ValueType;
 
-// 数组运行时对象，VAL_ARRAY 使用
+// 数组运行时对象，VAL_ARRAY 使用（原地修改语义，cap 预分配容量）
+// GC 管理：ValueArray* 本身由 gc_alloc(vtype=VAL_ARRAY) 分配（堆指针，引用语义）；
+//          items 缓冲区也由 gc_alloc(vtype=VAL_ARRAY) 管理，扩容用 gc_realloc。
 typedef struct {
     Value* items;
     int len;
+    int cap;  // 预分配容量（>= len），add 时按需 2x 扩容
 } ValueArray;
 
 // 错误对象，VAL_ERROR 使用（type 为错误类别，message 为消息，stack 为调用栈回溯）
+// GC 管理：ValueError 内联在 Value 里；type/message/stack 字符串由 gc_alloc(vtype=VAL_STRING) 管理。
 typedef struct {
     char* type;      // 错误类型名（"RuntimeError" / throw 自定义）
     char* message;   // 错误消息
@@ -90,7 +94,7 @@ struct Value {
         char c;
         char* s;   // VAL_STRING：堆上字符串
         ValueFunc func;        // VAL_FUNC
-        ValueArray array;      // VAL_ARRAY
+        ValueArray* array;     // VAL_ARRAY（堆指针，引用语义，与 ValueMap* 一致）
         ValueMap* map;         // VAL_MAP：堆上共享对象（原地改语义与数组 items 一致）
         ValueError err;        // VAL_ERROR：错误对象（type/message/stack，堆上字符串）
     } v;
@@ -109,6 +113,8 @@ struct MapEntry {
 };
 
 // 字典运行时对象，VAL_MAP 使用（哈希表 + 红黑树自适应，Java HashMap 策略）
+// GC 管理：ValueMap* 本身由 gc_alloc(vtype=VAL_MAP) 管理；
+//          buckets/tree 数组及 MapEntry 节点也由 gc_alloc(vtype=VAL_MAP) 管理（独立 GC 对象，各自 sweep）。
 struct ValueMap {
     MapEntry** buckets;   // 桶数组（每桶是链表或红黑树根）
     unsigned char* tree;  // 桶类型标记：0=链表, 1=红黑树

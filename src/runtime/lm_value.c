@@ -1,5 +1,6 @@
 #include "lm_value.h"
 #include "lm_json.h"
+#include "gc_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,10 +40,9 @@ Value lumin_make_string(const char* s) {
         return v;
     }
     size_t len = strlen(s);
-    char* buf = (char*)malloc(len + 1);
-    memcpy(buf, s, len);
-    buf[len] = '\0';
-    v.v.s = buf;
+    v.v.s = (char*)gc_alloc(len + 1, VAL_STRING);
+    memcpy(v.v.s, s, len);
+    v.v.s[len] = '\0';
     return v;
 }
 
@@ -150,7 +150,7 @@ Value lumin_add(Value a, Value b) {
         char* sb = value_to_str(b);
         size_t la = strlen(sa);
         size_t lb = strlen(sb);
-        char* out = (char*)malloc(la + lb + 1);
+        char* out = (char*)gc_alloc(la + lb + 1, VAL_STRING);
         memcpy(out, sa, la);
         memcpy(out+la, sb, lb);
         out[la+lb] = '\0';
@@ -227,17 +227,17 @@ long long array_index_of(Value idx) {
 Value lumin_array_get(Value arr, Value idx) {
     if(arr.type != VAL_ARRAY) runtime_error("下标访问的对象不是数组");
     long long i = array_index_of(idx);
-    if(i < 0 || i >= arr.v.array.len) {
+    if(i < 0 || i >= arr.v.array->len) {
         char buf[128];
-        snprintf(buf, sizeof(buf), "数组下标越界: %lld (长度 %d)", i, arr.v.array.len);
+        snprintf(buf, sizeof(buf), "数组下标越界: %lld (长度 %d)", i, arr.v.array->len);
         runtime_error(buf);
     }
-    return arr.v.array.items[i];   // 返回数组持有值的引用（调用方如需长期持有需 clone）
+    return arr.v.array->items[i];   // 返回数组持有值的引用（调用方如需长期持有需 clone）
 }
 
 // len(x)：数组长度 / 字符串字符数
 Value lumin_len(Value v) {
-    if(v.type == VAL_ARRAY) return lumin_make_int(v.v.array.len);
+    if(v.type == VAL_ARRAY) return lumin_make_int(v.v.array->len);
     if(v.type == VAL_STRING) return lumin_make_int((long long)strlen(v.v.s));
     if(v.type == VAL_MAP) return lumin_make_int(v.v.map->len);
     runtime_error("len() 参数必须是数组、字符串或字典");
@@ -259,12 +259,12 @@ Value lumin_index_get(Value c, Value idx) {
     }
     long long i = array_index_of(idx);
     if(c.type == VAL_ARRAY) {
-        if(i < 0 || i >= c.v.array.len) {
+        if(i < 0 || i >= c.v.array->len) {
             char buf[128];
-            snprintf(buf, sizeof(buf), "数组下标越界: %lld (长度 %d)", i, c.v.array.len);
+            snprintf(buf, sizeof(buf), "数组下标越界: %lld (长度 %d)", i, c.v.array->len);
             runtime_error(buf);
         }
-        return c.v.array.items[i];
+        return c.v.array->items[i];
     }
     if(c.type == VAL_STRING) {
         long long n = (long long)strlen(c.v.s);
@@ -344,14 +344,13 @@ Value lumin_array_set(Value arr, Value idx, Value val) {
     if(arr.type == VAL_MAP) { lumin_check_classname_ro(arr, idx, "赋值"); lumin_map_set(&arr, idx, val); return val; }
     if(arr.type != VAL_ARRAY) runtime_error("下标访问的对象不是数组");
     long long i = array_index_of(idx);
-    if(i < 0 || i >= arr.v.array.len) {
+    if(i < 0 || i >= arr.v.array->len) {
         char buf[128];
-        snprintf(buf, sizeof(buf), "数组下标越界: %lld (长度 %d)", i, arr.v.array.len);
+        snprintf(buf, sizeof(buf), "数组下标越界: %lld (长度 %d)", i, arr.v.array->len);
         runtime_error(buf);
     }
-    Value* slot = &arr.v.array.items[i];
-    val_destroy(slot);
-    *slot = val_clone(&val);
+    Value* slot = &arr.v.array->items[i];
+    *slot = val;
     return val;
 }
 
@@ -511,9 +510,9 @@ Value lumin_cast_char(Value v) {
             }
             break;
 case VAL_ARRAY: {
-    Value r = val_array(v.v.array.len);
-    for(int i = 0; i < v.v.array.len; i++)
-        r.v.array.items[i] = lumin_cast_char(v.v.array.items[i]);
+    Value r = val_array(v.v.array->len);
+    for(int i = 0; i < v.v.array->len; i++)
+        r.v.array->items[i] = lumin_cast_char(v.v.array->items[i]);
     return r;
 }
 case VAL_MAP: {
@@ -521,7 +520,7 @@ case VAL_MAP: {
     MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, val_clone(&__k), lumin_cast_char(__v));
+            lumin_map_set(&r, __k, lumin_cast_char(__v));
     return r;
 }
         default:
@@ -556,9 +555,9 @@ Value lumin_cast_byte(Value v) {
             bv = 0;
             break;
 case VAL_ARRAY: {
-    Value r = val_array(v.v.array.len);
-    for(int i = 0; i < v.v.array.len; i++)
-        r.v.array.items[i] = lumin_cast_byte(v.v.array.items[i]);
+    Value r = val_array(v.v.array->len);
+    for(int i = 0; i < v.v.array->len; i++)
+        r.v.array->items[i] = lumin_cast_byte(v.v.array->items[i]);
     return r;
 }
 case VAL_MAP: {
@@ -566,7 +565,7 @@ case VAL_MAP: {
     MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, val_clone(&__k), lumin_cast_byte(__v));
+            lumin_map_set(&r, __k, lumin_cast_byte(__v));
     return r;
 }
         default:
@@ -579,9 +578,9 @@ case VAL_MAP: {
 // (ASCII)v：char ↔ int，0‑255范围校验
 Value lumin_cast_ascii(Value v) {
     if(v.type == VAL_ARRAY) {
-        Value r = val_array(v.v.array.len);
-        for(int i = 0; i < v.v.array.len; i++)
-            r.v.array.items[i] = lumin_cast_ascii(v.v.array.items[i]);
+        Value r = val_array(v.v.array->len);
+        for(int i = 0; i < v.v.array->len; i++)
+            r.v.array->items[i] = lumin_cast_ascii(v.v.array->items[i]);
         return r;
     }
     if(v.type == VAL_MAP) {
@@ -589,7 +588,7 @@ Value lumin_cast_ascii(Value v) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, val_clone(&__k), lumin_cast_ascii(__v));
+            lumin_map_set(&r, __k, lumin_cast_ascii(__v));
         return r;
     }
     if(v.type == VAL_CHAR)
@@ -653,9 +652,9 @@ Value lumin_cast_int(Value v) {
             break;
         }
 case VAL_ARRAY: {
-    Value r = val_array(v.v.array.len);
-    for(int i = 0; i < v.v.array.len; i++)
-        r.v.array.items[i] = lumin_cast_int(v.v.array.items[i]);
+    Value r = val_array(v.v.array->len);
+    for(int i = 0; i < v.v.array->len; i++)
+        r.v.array->items[i] = lumin_cast_int(v.v.array->items[i]);
     return r;
 }
 case VAL_MAP: {
@@ -663,7 +662,7 @@ case VAL_MAP: {
     MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, val_clone(&__k), lumin_cast_int(__v));
+            lumin_map_set(&r, __k, lumin_cast_int(__v));
     return r;
 }
         default:
@@ -704,9 +703,9 @@ Value lumin_cast_double(Value v) {
             break;
         }
 case VAL_ARRAY: {
-    Value r = val_array(v.v.array.len);
-    for(int i = 0; i < v.v.array.len; i++)
-        r.v.array.items[i] = lumin_cast_double(v.v.array.items[i]);
+    Value r = val_array(v.v.array->len);
+    for(int i = 0; i < v.v.array->len; i++)
+        r.v.array->items[i] = lumin_cast_double(v.v.array->items[i]);
     return r;
 }
 case VAL_MAP: {
@@ -714,7 +713,7 @@ case VAL_MAP: {
     MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, val_clone(&__k), lumin_cast_double(__v));
+            lumin_map_set(&r, __k, lumin_cast_double(__v));
     return r;
 }
         default:
@@ -726,9 +725,9 @@ case VAL_MAP: {
 // (bool)v 强转
 Value lumin_cast_bool(Value v) {
     if(v.type == VAL_ARRAY) {
-        Value r = val_array(v.v.array.len);
-        for(int i = 0; i < v.v.array.len; i++)
-            r.v.array.items[i] = lumin_cast_bool(v.v.array.items[i]);
+        Value r = val_array(v.v.array->len);
+        for(int i = 0; i < v.v.array->len; i++)
+            r.v.array->items[i] = lumin_cast_bool(v.v.array->items[i]);
         return r;
     }
     if(v.type == VAL_MAP) {
@@ -736,7 +735,7 @@ Value lumin_cast_bool(Value v) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, val_clone(&__k), lumin_cast_bool(__v));
+            lumin_map_set(&r, __k, lumin_cast_bool(__v));
         return r;
     }
     _Bool b = lumin_to_bool(v);
@@ -746,9 +745,9 @@ Value lumin_cast_bool(Value v) {
 // (string)v 强转
 Value lumin_cast_string(Value v) {
     if(v.type == VAL_ARRAY) {
-        Value r = val_array(v.v.array.len);
-        for(int i = 0; i < v.v.array.len; i++)
-            r.v.array.items[i] = lumin_cast_string(v.v.array.items[i]);
+        Value r = val_array(v.v.array->len);
+        for(int i = 0; i < v.v.array->len; i++)
+            r.v.array->items[i] = lumin_cast_string(v.v.array->items[i]);
         return r;
     }
     if(v.type == VAL_MAP) {
@@ -756,7 +755,7 @@ Value lumin_cast_string(Value v) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, val_clone(&__k), lumin_cast_string(__v));
+            lumin_map_set(&r, __k, lumin_cast_string(__v));
         return r;
     }
     char *s = value_to_str(v);
@@ -843,9 +842,9 @@ static unsigned long long value_to_ull(Value v) {
 }
 static Value cast_int_width(Value v, int bits, int is_signed) {
     if(v.type == VAL_ARRAY) {
-        Value r = val_array(v.v.array.len);
-        for(int i = 0; i < v.v.array.len; i++)
-            r.v.array.items[i] = cast_int_width(v.v.array.items[i], bits, is_signed);
+        Value r = val_array(v.v.array->len);
+        for(int i = 0; i < v.v.array->len; i++)
+            r.v.array->items[i] = cast_int_width(v.v.array->items[i], bits, is_signed);
         return r;
     }
     if(v.type == VAL_MAP) {
@@ -853,7 +852,7 @@ static Value cast_int_width(Value v, int bits, int is_signed) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v)) {
-            lumin_map_set(&r, val_clone(&__k),
+            lumin_map_set(&r, __k,
                           cast_int_width(__v, bits, is_signed));
         }
         return r;
@@ -881,9 +880,9 @@ Value lumin_cast_longlong(Value v) { return lumin_cast_int(v); }  // long long �
 // float：32 位单精度截断（运行时仍存 double）
 static Value cast_float_rec(Value v) {
     if(v.type == VAL_ARRAY) {
-        Value r = val_array(v.v.array.len);
-        for(int i = 0; i < v.v.array.len; i++)
-            r.v.array.items[i] = cast_float_rec(v.v.array.items[i]);
+        Value r = val_array(v.v.array->len);
+        for(int i = 0; i < v.v.array->len; i++)
+            r.v.array->items[i] = cast_float_rec(v.v.array->items[i]);
         return r;
     }
     if(v.type == VAL_MAP) {
@@ -891,7 +890,7 @@ static Value cast_float_rec(Value v) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v)) {
-            lumin_map_set(&r, val_clone(&__k),
+            lumin_map_set(&r, __k,
                           cast_float_rec(__v));
         }
         return r;

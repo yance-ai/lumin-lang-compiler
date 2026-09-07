@@ -54,7 +54,8 @@ C_SRCS := $(shell find $(SRC_DIR) \( -path $(SRC_DIR)/runtime -o -path $(BUILD_D
 C_SRCS += $(RT_EMBED_C_SRC) $(RT_EMBED_C_RT)
 C_SRCS += $(LEX_GEN) $(YACC_GEN_C)
 # 编译器本体链接语言运行时运算层（字节码 VM 解释器直接调用；generate 侧仍以 src/runtime/ 为源）
-# 按职责拆分：值核心 + 字符串/数组/数学/IO/字典（gc_runtime 与 lm_runtime 聚合不参与链接）
+# 按职责拆分：值核心 + 字符串/数组/数学/IO/字典 + GC（gc_runtime 参与链接，提供标记-清除回收）
+C_SRCS += $(SRC_DIR)/runtime/gc_runtime.c
 C_SRCS += $(SRC_DIR)/runtime/lm_value.c
 C_SRCS += $(SRC_DIR)/runtime/lm_string.c
 C_SRCS += $(SRC_DIR)/runtime/lm_array.c

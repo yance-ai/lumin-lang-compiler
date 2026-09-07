@@ -3,6 +3,7 @@
 #include "lm_map.h"
 #include "lm_value.h"
 #include "lm_json.h"
+#include "gc_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,27 +130,17 @@ static int key_eq(Value a, Value b) {
 
 // ============ Entry 管理 ============
 static MapEntry* entry_new(Value key, Value val, uint32_t hash) {
-    MapEntry* e = (MapEntry*)calloc(1, sizeof(MapEntry));
-    e->key = val_clone(&key);
-    e->value = val_clone(&val);
+    MapEntry* e = (MapEntry*)gc_alloc(sizeof(MapEntry), VAL_MAP);
+    e->key = key;
+    e->value = val;
     e->hash = hash;
     e->color = MAP_RED;
     return e;
 }
 
+// entry_free：引用语义 + GC，空操作（entry 节点由 GC 统一回收）
 void entry_free(MapEntry* e) {
-    if(!e) return;
-    val_destroy(&e->key);
-    val_destroy(&e->value);
-    free(e);
-}
-
-// 递归释放红黑树
-static void tree_free(MapEntry* node) {
-    if(!node) return;
-    tree_free(node->left);
-    tree_free(node->right);
-    entry_free(node);
+    (void)e;
 }
 
 // ============ 桶索引 ============
@@ -448,8 +439,8 @@ static void untreeify_bin(ValueMap* m, int idx) {
 static void map_resize(ValueMap* m) {
     int old_cap = m->cap;
     int new_cap = old_cap * 2;
-    MapEntry** new_buckets = (MapEntry**)calloc(new_cap, sizeof(MapEntry*));
-    unsigned char* new_tree = (unsigned char*)calloc(new_cap, sizeof(unsigned char));
+    MapEntry** new_buckets = (MapEntry**)gc_alloc(new_cap * sizeof(MapEntry*), VAL_MAP);
+    unsigned char* new_tree = (unsigned char*)gc_alloc(new_cap * sizeof(unsigned char), VAL_MAP);
     for(int i = 0; i < old_cap; i++) {
         MapEntry* e = m->buckets[i];
         if(!e) continue;
@@ -488,8 +479,6 @@ static void map_resize(ValueMap* m) {
             if(hi_head) new_buckets[i + old_cap] = hi_head;
         }
     }
-    free(m->buckets);
-    free(m->tree);
     m->buckets = new_buckets;
     m->tree = new_tree;
     m->cap = new_cap;
@@ -514,12 +503,12 @@ void lumin_map_set(Value* map, Value key, Value val) {
     int idx = bucket_idx(h, m->cap);
     if(m->tree[idx]) {
         MapEntry* e = tree_find(m->buckets[idx], key, h);
-        if(e) { val_destroy(&e->value); e->value = val_clone(&val); return; }
+        if(e) { e->value = val; return; }
         MapEntry* ne = entry_new(key, val, h);
         tree_insert(m, idx, ne);
     } else {
         MapEntry* e = list_find(m->buckets[idx], key, h);
-        if(e) { val_destroy(&e->value); e->value = val_clone(&val); return; }
+        if(e) { e->value = val; return; }
         MapEntry* ne = entry_new(key, val, h);
         ne->next = m->buckets[idx];
         m->buckets[idx] = ne;
@@ -550,34 +539,43 @@ int lumin_map_has(Value map, Value key) {
     return lumin_map_find(map.v.map, key) >= 0;
 }
 
-Value lumin_map_del(Value map, Value key) {
-    if(map.type != VAL_MAP) runtime_error("del() 参数必须是数组或字典");
-    ValueMap* src = map.v.map;
-    Value r = val_map();
-    // 遍历所有桶，复制除目标键外的所有条目
-    for(int i = 0; i < src->cap; i++) {
-        MapEntry* e = src->buckets[i];
-        if(src->tree[i]) {
-            // 红黑树中序遍历
-            MapEntry* stack[128];
-            int top = 0;
-            MapEntry* cur = e;
-            while(cur || top > 0) {
-                while(cur) { stack[top++] = cur; cur = cur->left; }
-                cur = stack[--top];
-                if(!key_eq(cur->key, key))
-                    lumin_map_set(&r, cur->key, cur->value);
-                cur = cur->right;
+Value lumin_map_del(Value* map, Value key) {
+    if(map->type != VAL_MAP) runtime_error("del() 参数必须是数组或字典");
+    ValueMap* m = map->v.map;
+    uint32_t h = value_hash(key);
+    int idx = h & (m->cap - 1);
+    if(m->tree[idx]) {
+        // 红黑树查找并删除
+        MapEntry* cur = m->buckets[idx];
+        while(cur) {
+            int cmp = key_compare(cur->key, key);
+            if(cmp == 0) {
+                tree_remove(m, idx, cur);
+                m->len--;
+                // 红黑树节点数 < 阈值 → 退化为链表
+                if(tree_count(m->buckets[idx]) < MAP_UNTREEIFY_THRESHOLD)
+                    untreeify_bin(m, idx);
+                return *map;
             }
-        } else {
-            while(e) {
-                if(!key_eq(e->key, key))
-                    lumin_map_set(&r, e->key, e->value);
-                e = e->next;
+            cur = (cmp < 0) ? cur->right : cur->left;
+        }
+    } else {
+        // 链表查找并删除
+        MapEntry* prev = NULL;
+        MapEntry* cur = m->buckets[idx];
+        while(cur) {
+            if(key_eq(cur->key, key)) {
+                if(prev) prev->next = cur->next;
+                else m->buckets[idx] = cur->next;
+                entry_free(cur);
+                m->len--;
+                return *map;
             }
+            prev = cur;
+            cur = cur->next;
         }
     }
-    return r;
+    return *map;  // 键不存在，无操作
 }
 
 Value lumin_map_keys(Value map) {
@@ -594,12 +592,12 @@ Value lumin_map_keys(Value map) {
             while(cur || top > 0) {
                 while(cur) { stack[top++] = cur; cur = cur->left; }
                 cur = stack[--top];
-                r.v.array.items[pos++] = val_clone(&cur->key);
+                r.v.array->items[pos++] = cur->key;
                 cur = cur->right;
             }
         } else {
             while(e) {
-                r.v.array.items[pos++] = val_clone(&e->key);
+                r.v.array->items[pos++] = e->key;
                 e = e->next;
             }
         }
@@ -621,12 +619,12 @@ Value lumin_map_values(Value map) {
             while(cur || top > 0) {
                 while(cur) { stack[top++] = cur; cur = cur->left; }
                 cur = stack[--top];
-                r.v.array.items[pos++] = val_clone(&cur->value);
+                r.v.array->items[pos++] = cur->value;
                 cur = cur->right;
             }
         } else {
             while(e) {
-                r.v.array.items[pos++] = val_clone(&e->value);
+                r.v.array->items[pos++] = e->value;
                 e = e->next;
             }
         }

@@ -178,7 +178,7 @@ static Value jp_parse_value(JP* j)
         size_t cap = 8, len = 0;
         Value* items = (Value*)malloc(cap * sizeof(Value));
         jp_ws(j);
-        if(j->p < j->end && *j->p == ']') { j->p++; Value r = val_array(len); for(size_t i = 0; i < len; i++) r.v.array.items[i] = items[i]; free(items); return r; }
+        if(j->p < j->end && *j->p == ']') { j->p++; Value r = val_array(len); for(size_t i = 0; i < len; i++) r.v.array->items[i] = items[i]; free(items); return r; }
         for(;;) {
             Value val = jp_parse_value(j);
             if(len >= cap) { cap *= 2; items = (Value*)realloc(items, cap * sizeof(Value)); }
@@ -190,7 +190,7 @@ static Value jp_parse_value(JP* j)
             break;
         }
         Value r = val_array(len);
-        for(size_t i = 0; i < len; i++) r.v.array.items[i] = items[i];
+        for(size_t i = 0; i < len; i++) r.v.array->items[i] = items[i];
         free(items);
         return r;
     }
@@ -309,9 +309,9 @@ static void jq_stringify(SB* b, Value v, Value enc)
         }
         case VAL_ARRAY: {
             sb_putc(b, '[');
-            for(int i = 0; i < v.v.array.len; i++) {
+            for(int i = 0; i < v.v.array->len; i++) {
                 if(i > 0) sb_putc(b, ',');
-                jq_stringify(b, v.v.array.items[i], enc);
+                jq_stringify(b, v.v.array->items[i], enc);
             }
             sb_putc(b, ']');
             break;

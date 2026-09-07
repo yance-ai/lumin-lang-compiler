@@ -85,7 +85,7 @@ Value lumin_to_bytes(Value s, Value enc) {
     }
     if(len > 0x7FFFFFFF) { free(buf); runtime_error("字节数过大"); }
     Value arr = val_array((int)len);
-    for(size_t i = 0; i < len; i++) arr.v.array.items[i] = lumin_make_byte((unsigned char)buf[i]);
+    for(size_t i = 0; i < len; i++) arr.v.array->items[i] = lumin_make_byte((unsigned char)buf[i]);
     free(buf);
     return arr;
 }
@@ -93,10 +93,10 @@ Value lumin_to_bytes(Value s, Value enc) {
 Value lumin_from_bytes(Value arr, Value enc) {
     const char* e = lumin_charset_from_value(enc);
     if(arr.type != VAL_ARRAY) runtime_error("str() 第一个参数必须是字节数组");
-    int n = arr.v.array.len;
+    int n = arr.v.array->len;
     char* tmp = malloc((size_t)n + 1);
     if(!tmp) runtime_error("内存不足");
-    for(int i = 0; i < n; i++) tmp[i] = (char)lumin_extract_int(arr.v.array.items[i]);
+    for(int i = 0; i < n; i++) tmp[i] = (char)lumin_extract_int(arr.v.array->items[i]);
     tmp[n] = 0;
     Value r;
     if(!strcmp(e, "UTF-8")) {

@@ -214,7 +214,7 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    __stk[__sp++] = %s;\n", cvar(nm));
                 break;
             case OPC_STORE_VAR:
-                fprintf(out, "    { Value __v = __stk[--__sp]; %s = val_clone(&__v); __stk[__sp++] = __v; }\n", cvar(nm));
+                fprintf(out, "    { Value __v = __stk[--__sp]; %s = __v; __stk[__sp++] = __v; }\n", cvar(nm));
                 break;
             case OPC_ADD: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_add(__l, __r); }\n"); break;
             case OPC_SUB: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_sub(__l, __r); }\n"); break;
@@ -257,7 +257,7 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    {\n");
                 fprintf(out, "        Value __arr = val_array(%d);\n", n);
                 for(int k = 0; k < n; k++)
-                    fprintf(out, "        __arr.v.array.items[%d] = val_clone(&__stk[__sp - %d + %d]);\n", k, n, k);
+                    fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
                 fprintf(out, "        __sp = __sp - %d + 1;\n", n);
                 fprintf(out, "        __stk[__sp - 1] = __arr;\n");
                 fprintf(out, "    }\n");
@@ -306,10 +306,10 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __sep = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_split(__s, __sep); }\n");
                         break;
                     case BUILTIN_DEL:
-                        fprintf(out, "    { Value __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
+                        fprintf(out, "    { Value __idx = __stk[--__sp]; lumin_del(&__stk[__sp-1], __idx); }\n");
                         break;
                     case BUILTIN_INSERT:
-                        fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_insert(__arr, __idx, __val); }\n");
+                        fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp]; lumin_insert(&__stk[__sp-1], __idx, __val); }\n");
                         break;
                     case BUILTIN_FLOOR:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_floor(__v); }\n");
@@ -450,10 +450,10 @@ static void emit_insns(BytecodeFunc* fn)
                         if(in.b == 3)
                             fprintf(out, "    { Value __v = __stk[--__sp]; Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_map_add(__m, __k, __v); }\n");
                         else
-                            fprintf(out, "    { Value __v = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_add(__arr, __v); }\n");
+                            fprintf(out, "    { Value __v = __stk[--__sp]; lumin_array_add(&__stk[__sp-1], __v); }\n");
                         break;
                     case BUILTIN_ARRAY_REMOVE:
-                        fprintf(out, "    { Value __idx = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
+                        fprintf(out, "    { Value __idx = __stk[--__sp]; lumin_del(&__stk[__sp-1], __idx); }\n");
                         break;
                     case BUILTIN_ARRAY_INDEXOF:
                         fprintf(out, "    { Value __x = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_index_of(__arr, __x); }\n");
@@ -471,7 +471,7 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_last(__arr); }\n");
                         break;
                     case BUILTIN_ARRAY_CLEAR:
-                        fprintf(out, "    { Value __c = __stk[--__sp]; __stk[__sp++] = lumin_array_clear(__c); }\n");
+                        fprintf(out, "    { lumin_array_clear(&__stk[__sp-1]); }\n");
                         break;
                     case BUILTIN_MAP_HAS:
                         fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(lumin_map_has(__m, __k)); }\n");
@@ -501,7 +501,7 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, val_none()); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, val_none()); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
                         break;
                     case BUILTIN_ARRAY_ADDALL:
-                        fprintf(out, "    { Value __b = __stk[--__sp]; Value __a = __stk[--__sp]; __stk[__sp++] = lumin_array_addall(__a, __b); }\n");
+                        fprintf(out, "    { Value __b = __stk[--__sp]; lumin_array_addall(&__stk[__sp-1], __b); }\n");
                         break;
                     case BUILTIN_BYTES:
                         if(in.b >= 2)
@@ -599,10 +599,10 @@ static void emit_insns(BytecodeFunc* fn)
                         if(in.b == 3)
                             fprintf(out, "    { Value __v = __stk[--__sp]; Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_map_add(__m, __k, __v); }\n");
                         else
-                            fprintf(out, "    { Value __v = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_add(__arr, __v); }\n");
+                            fprintf(out, "    { Value __v = __stk[--__sp]; lumin_array_add(&__stk[__sp-1], __v); }\n");
                         break;
                     case BUILTIN_ARRAY_REMOVE:
-                        fprintf(out, "    { Value __idx = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_del(__arr, __idx); }\n");
+                        fprintf(out, "    { Value __idx = __stk[--__sp]; lumin_del(&__stk[__sp-1], __idx); }\n");
                         break;
                     case BUILTIN_ARRAY_INDEXOF:
                         fprintf(out, "    { Value __x = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_index_of(__arr, __x); }\n");
@@ -620,7 +620,7 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_last(__arr); }\n");
                         break;
                     case BUILTIN_ARRAY_CLEAR:
-                        fprintf(out, "    { Value __c = __stk[--__sp]; __stk[__sp++] = lumin_array_clear(__c); }\n");
+                        fprintf(out, "    { lumin_array_clear(&__stk[__sp-1]); }\n");
                         break;
                     case BUILTIN_MAP_HAS:
                         fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(lumin_map_has(__m, __k)); }\n");
@@ -650,7 +650,7 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "    { Value __v = __stk[--__sp]; if(__v.type == VAL_MAP || __v.type == VAL_ARRAY) { char* __q = lumin_qs_stringify_enc(__v, val_none()); __stk[__sp++] = lumin_make_string(__q); free(__q); } else if(__v.type == VAL_STRING) { __stk[__sp++] = lumin_qs_parse_enc(__v.v.s, val_none()); } else runtime_error(\"qs() 参数必须是字典/数组（序列化）或字符串（解析）\"); }\n");
                         break;
                     case BUILTIN_ARRAY_ADDALL:
-                        fprintf(out, "    { Value __b = __stk[--__sp]; Value __a = __stk[--__sp]; __stk[__sp++] = lumin_array_addall(__a, __b); }\n");
+                        fprintf(out, "    { Value __b = __stk[--__sp]; lumin_array_addall(&__stk[__sp-1], __b); }\n");
                         break;
                     case BUILTIN_BYTES:
                         if(in.b >= 2)
@@ -772,9 +772,9 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "            MapIter __it; map_iter_init(&__it, __arr.v.map);\n");
                             fprintf(out, "            Value __mk, __mv;\n");
                             fprintf(out, "            while(map_iter_next(&__it, &__mk, &__mv)) {\n");
-                            fprintf(out, "                Value __a2[2]; __a2[0] = val_clone(&__mv); __a2[1] = val_clone(&__mk);\n");
+                            fprintf(out, "                Value __a2[2]; __a2[0] = __mv; __a2[1] = __mk;\n");
                             fprintf(out, "                Value __r = __cfm(__a2, 2);\n");
-                            fprintf(out, "                lumin_map_set(&__mout, val_clone(&__mk), val_clone(&__r));\n");
+                            fprintf(out, "                lumin_map_set(&__mout, __mk, __r);\n");
                             fprintf(out, "            }\n");
                             fprintf(out, "            __stk[__sp++] = __mout;\n");
                             fprintf(out, "        } else {\n");
@@ -782,28 +782,28 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "        if(__arr.type != VAL_ARRAY) runtime_error(\"map()/filter()/reduce() 第一个参数必须是数组\");\n");
                         fprintf(out, "        if(__fn.type != VAL_FUNC) runtime_error(\"map()/filter()/reduce() 第二个参数必须是函数\");\n");
                         fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
-                        fprintf(out, "        int __n = __arr.v.array.len;\n");
+                        fprintf(out, "        int __n = __arr.v.array->len;\n");
                         if(in.a == BUILTIN_MAP) {
                             fprintf(out, "        Value __out = val_array(__n);\n");
                             fprintf(out, "        for(int __i = 0; __i < __n; __i++) {\n");
-                            fprintf(out, "            Value __a1[1]; __a1[0] = val_clone(&__arr.v.array.items[__i]);\n");
+                            fprintf(out, "            Value __a1[1]; __a1[0] = __arr.v.array->items[__i];\n");
                             fprintf(out, "            Value __r = __cf(__a1, 1);\n");
-                            fprintf(out, "            __out.v.array.items[__i] = val_clone(&__r);\n");
+                            fprintf(out, "            __out.v.array->items[__i] = __r;\n");
                             fprintf(out, "        }\n");
                             fprintf(out, "        __stk[__sp++] = __out;\n");
                         } else if(in.a == BUILTIN_FILTER) {
                             fprintf(out, "        Value __out = val_array(__n); int __cnt = 0;\n");
                             fprintf(out, "        for(int __i = 0; __i < __n; __i++) {\n");
-                            fprintf(out, "            Value __a1[1]; __a1[0] = val_clone(&__arr.v.array.items[__i]);\n");
+                            fprintf(out, "            Value __a1[1]; __a1[0] = __arr.v.array->items[__i];\n");
                             fprintf(out, "            Value __r = __cf(__a1, 1);\n");
-                            fprintf(out, "            if(lumin_to_bool(__r)) __out.v.array.items[__cnt++] = val_clone(&__arr.v.array.items[__i]);\n");
+                            fprintf(out, "            if(lumin_to_bool(__r)) __out.v.array->items[__cnt++] = __arr.v.array->items[__i];\n");
                             fprintf(out, "        }\n");
-                            fprintf(out, "        __out.v.array.len = __cnt;\n");
+                            fprintf(out, "        __out.v.array->len = __cnt;\n");
                             fprintf(out, "        __stk[__sp++] = __out;\n");
                         } else {
                             fprintf(out, "        Value __acc = __init;\n");
                             fprintf(out, "        for(int __i = 0; __i < __n; __i++) {\n");
-                            fprintf(out, "            Value __a2[2]; __a2[0] = __acc; __a2[1] = val_clone(&__arr.v.array.items[__i]);\n");
+                            fprintf(out, "            Value __a2[2]; __a2[0] = __acc; __a2[1] = __arr.v.array->items[__i];\n");
                             fprintf(out, "            __acc = __cf(__a2, 2);\n");
                             fprintf(out, "        }\n");
                             fprintf(out, "        __stk[__sp++] = __acc;\n");
@@ -889,7 +889,7 @@ static void emit_insns(BytecodeFunc* fn)
                 if(!g_cur_fn)
                     fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; return 0; }\n");
                 else
-                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; if(g_trace_n > 0) g_trace_n--; { Value __v = __g_pend_val; return val_clone(&__v); } }\n");
+                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; if(g_trace_n > 0) g_trace_n--; { Value __v = __g_pend_val; return __v; } }\n");
                 fprintf(out, "      else runtime_error(\"finally 完成动作未知\");\n");
                 fprintf(out, "    }\n");
                 break;
@@ -944,7 +944,7 @@ static void emit_insns(BytecodeFunc* fn)
                 if(callee->has_variadic) {
                     fprintf(out, "        Value __rest = val_array(%d);\n", restn);
                     for(int k = 0; k < restn; k++)
-                        fprintf(out, "        __rest.v.array.items[%d] = __args[%d];\n", k, fixed + k);
+                        fprintf(out, "        __rest.v.array->items[%d] = __args[%d];\n", k, fixed + k);
                     fprintf(out, "        __stk[__sp++] = lumin_func_%s(", nm);
                     for(int k = 0; k < fixed; k++) {
                         if(k) fprintf(out, ", ");
@@ -983,7 +983,7 @@ static void emit_insns(BytecodeFunc* fn)
                 if(g_cur_fn) {
                     fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0;\n");
                     fprintf(out, "    if(g_trace_n > 0) g_trace_n--;\n");
-                    fprintf(out, "    { Value __v = __stk[--__sp]; return val_clone(&__v); }\n");
+                    fprintf(out, "    { Value __v = __stk[--__sp]; return __v; }\n");
                 } else
                     fprintf(out, "    return 0;\n");
                 break;
@@ -1065,7 +1065,7 @@ static void emit_func_wraps(void)
         if(fn->has_variadic) {
             // 变参打包：n - fixed 个尾部实参进数组（动态调用经 wrap 时实参在 a[]）
             fprintf(out, "    Value __rest = val_array(n > %d ? n - %d : 0);\n", fn->param_cnt, fn->param_cnt);
-            fprintf(out, "    for(int __k = 0; __k < __rest.v.array.len; __k++) __rest.v.array.items[__k] = a[%d + __k];\n", fn->param_cnt);
+            fprintf(out, "    for(int __k = 0; __k < __rest.v.array->len; __k++) __rest.v.array->items[__k] = a[%d + __k];\n", fn->param_cnt);
         }
         fprintf(out, "    return lumin_func_%s(", fn->name);
         int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);

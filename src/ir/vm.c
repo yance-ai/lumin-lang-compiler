@@ -6,6 +6,7 @@
 #include "ast/ast_runtime_sym.h"
 #include "runtime/lm_value.h"
 #include "runtime/lm_runtime.h"
+#include "runtime/gc_runtime.h"
 #include "runtime/lm_thread.h"
 #include "runtime/lm_lock.h"
 #include "runtime/lm_tls.h"
@@ -103,7 +104,7 @@ static void vm_thread_body(ThreadLaunch* t)
         int i = 0;
         for(; i < pcnt; i++) {
             const char* pname = interp_func_param_name(rf, i);
-            Value bound = (i < t->argc) ? val_clone(&t->args[i]) : val_none();
+            Value bound = (i < t->argc) ? t->args[i] : val_none();
             stackframe_bind(callee, pname, bound);
         }
         if(interp_func_has_variadic(rf)) {
@@ -112,7 +113,7 @@ static void vm_thread_body(ThreadLaunch* t)
             if(rest < 0) rest = 0;
             Value arr = val_array(rest);
             for(int k = 0; k < rest; k++)
-                arr.v.array.items[k] = val_clone(&t->args[i + k]);
+                arr.v.array->items[k] = t->args[i + k];
             stackframe_bind(callee, vname, arr);
         }
     }
@@ -137,7 +138,7 @@ static Value vm_call_rf(RuntimeFunc* rf, Value* args, int argc, StackFrame* pare
         int i = 0;
         for(; i < pcnt; i++) {
             const char* pname = interp_func_param_name(rf, i);
-            Value bound = (i < argc) ? val_clone(&args[i]) : val_none();
+            Value bound = (i < argc) ? args[i] : val_none();
             stackframe_bind(callee, pname, bound);
         }
         if(interp_func_has_variadic(rf)) {
@@ -146,7 +147,7 @@ static Value vm_call_rf(RuntimeFunc* rf, Value* args, int argc, StackFrame* pare
             if(rest < 0) rest = 0;
             Value arr = val_array(rest);
             for(int k = 0; k < rest; k++) {
-                arr.v.array.items[k] = val_clone(&args[i + k]);
+                arr.v.array->items[k] = args[i + k];
             }
             stackframe_bind(callee, vname, arr);
         }
@@ -204,6 +205,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
     int sp = 0;
     int pc = 0;
+    /* 注册 GC 根：当前线程的 VM 栈与帧链，供 gc_alloc 自动触发回收时扫描 */
+    gc_set_roots(stack, &sp, frame);
     /* 函数边界隔离 try 状态：进入保存，所有退出点恢复（try 内 return 不能泄漏） */
     int saved_depth = vm_depth;
     jmp_buf* saved_gj = g_err_jmp;
@@ -225,7 +228,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_NOP:
                 break;
             case OPC_LOAD_CONST:
-                stack[sp++] = val_clone(&bf->consts[in.a]);
+                stack[sp++] = bf->consts[in.a];
                 break;
             case OPC_GETFUNC: {
                 const char* fname = bf->syms[in.a];
@@ -248,7 +251,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 Value v = stack[--sp];
                 /* 词法遮蔽：函数内赋值 = 绑定当前帧局部（C 语义：局部变量遮蔽全局同名）；
                    不再沿链更新父帧/全局。顶层（main 帧）赋值仍写入全局帧。 */
-                stackframe_bind(frame, name, val_clone(&v));
+                stackframe_bind(frame, name, v);
                 stack[sp++] = v;             // 原值压回（表达式值）
                 break;
             }
@@ -312,7 +315,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 int n = in.b;
                 Value arr = val_array(n);
                 for(int k = 0; k < n; k++)
-                    arr.v.array.items[k] = val_clone(&stack[sp - n + k]);
+                    arr.v.array->items[k] = stack[sp - n + k];
                 sp = sp - n + 1;
                 stack[sp - 1] = arr;
                 break;
@@ -386,15 +389,13 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_DEL: {
                         Value idx = stack[--sp];
-                        Value arr = stack[--sp];
-                        stack[sp++] = lumin_del(arr, idx);
+                        lumin_del(&stack[sp-1], idx);
                         break;
                     }
                     case BUILTIN_INSERT: {
                         Value val = stack[--sp];
                         Value idx = stack[--sp];
-                        Value arr = stack[--sp];
-                        stack[sp++] = lumin_insert(arr, idx, val);
+                        lumin_insert(&stack[sp-1], idx, val);
                         break;
                     }
                     case BUILTIN_FLOOR: { Value v = stack[--sp]; stack[sp++] = lumin_floor(v); break; }
@@ -548,15 +549,13 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             stack[sp++] = lumin_map_add(m, k, v);
                         } else {
                             Value v = stack[--sp];
-                            Value arr = stack[--sp];
-                            stack[sp++] = lumin_array_add(arr, v);
+                            lumin_array_add(&stack[sp-1], v);
                         }
                         break;
                     }
                     case BUILTIN_ARRAY_REMOVE: {
                         Value idx = stack[--sp];
-                        Value arr = stack[--sp];
-                        stack[sp++] = lumin_del(arr, idx);
+                        lumin_del(&stack[sp-1], idx);
                         break;
                     }
                     case BUILTIN_ARRAY_INDEXOF: {
@@ -589,8 +588,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_ARRAY_CLEAR: {
-                        Value c = stack[--sp];
-                        stack[sp++] = lumin_array_clear(c);
+                        lumin_array_clear(&stack[sp-1]);
                         break;
                     }
                     case BUILTIN_MAP_HAS: {
@@ -644,8 +642,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_ARRAY_ADDALL: {
                         Value b = stack[--sp];
-                        Value a = stack[--sp];
-                        stack[sp++] = lumin_array_addall(a, b);
+                        lumin_array_addall(&stack[sp-1], b);
                         break;
                     }
                     case BUILTIN_BYTES: {
@@ -825,15 +822,13 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             stack[sp++] = lumin_map_add(m, k, v);
                         } else {
                             Value v = stack[--sp];
-                            Value arr = stack[--sp];
-                            stack[sp++] = lumin_array_add(arr, v);
+                            lumin_array_add(&stack[sp-1], v);
                         }
                         break;
                     }
                     case BUILTIN_ARRAY_REMOVE: {
                         Value idx = stack[--sp];
-                        Value arr = stack[--sp];
-                        stack[sp++] = lumin_del(arr, idx);
+                        lumin_del(&stack[sp-1], idx);
                         break;
                     }
                     case BUILTIN_ARRAY_INDEXOF: {
@@ -866,8 +861,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_ARRAY_CLEAR: {
-                        Value c = stack[--sp];
-                        stack[sp++] = lumin_array_clear(c);
+                        lumin_array_clear(&stack[sp-1]);
                         break;
                     }
                     case BUILTIN_MAP_HAS: {
@@ -921,8 +915,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_ARRAY_ADDALL: {
                         Value b = stack[--sp];
-                        Value a = stack[--sp];
-                        stack[sp++] = lumin_array_addall(a, b);
+                        lumin_array_addall(&stack[sp-1], b);
                         break;
                     }
                     case BUILTIN_BYTES: {
@@ -1113,10 +1106,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             Value mk, mv;
                             while(map_iter_next(&it, &mk, &mv)) {
                                 Value a2[2];
-                                a2[0] = val_clone(&mv);
-                                a2[1] = val_clone(&mk);
+                                a2[0] = mv;
+                                a2[1] = mk;
                                 Value r = vm_call_rf(mrf, a2, 2, frame, ctx);
-                                lumin_map_set(&mout, val_clone(&mk), val_clone(&r));
+                                lumin_map_set(&mout, mk, r);
                             }
                             stack[sp++] = mout;
                             break;
@@ -1124,29 +1117,29 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(arr.type != VAL_ARRAY) runtime_error("map()/filter()/reduce() 第一个参数必须是数组");
                         if(fn.type != VAL_FUNC) runtime_error("map()/filter()/reduce() 第二个参数必须是函数");
                         RuntimeFunc* rf = fn.v.func.func_obj;
-                        int n = arr.v.array.len;
+                        int n = arr.v.array->len;
                         if(in.a == BUILTIN_MAP) {
                             Value out = val_array(n);
                             for(int i = 0; i < n; i++) {
-                                Value a1[1] = { arr.v.array.items[i] };
+                                Value a1[1] = { arr.v.array->items[i] };
                                 Value r = vm_call_rf(rf, a1, 1, frame, ctx);
-                                out.v.array.items[i] = val_clone(&r);
+                                out.v.array->items[i] = r;
                             }
                             stack[sp++] = out;
                         } else if(in.a == BUILTIN_FILTER) {
                             Value out = val_array(n);
                             int cnt = 0;
                             for(int i = 0; i < n; i++) {
-                                Value a1[1] = { arr.v.array.items[i] };
+                                Value a1[1] = { arr.v.array->items[i] };
                                 Value r = vm_call_rf(rf, a1, 1, frame, ctx);
-                                if(lumin_to_bool(r)) out.v.array.items[cnt++] = val_clone(&arr.v.array.items[i]);
+                                if(lumin_to_bool(r)) out.v.array->items[cnt++] = arr.v.array->items[i];
                             }
-                            out.v.array.len = cnt;
+                            out.v.array->len = cnt;
                             stack[sp++] = out;
                         } else {
                             Value acc = init;
                             for(int i = 0; i < n; i++) {
-                                Value a2[2] = { acc, arr.v.array.items[i] };
+                                Value a2[2] = { acc, arr.v.array->items[i] };
                                 acc = vm_call_rf(rf, a2, 2, frame, ctx);
                             }
                             stack[sp++] = acc;
@@ -1259,8 +1252,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     Value v = vm_pend_val;
                     vm_depth = saved_depth;
                     g_err_jmp = saved_gj;
+                    gc_set_roots(NULL, NULL, NULL);
                     free(stack);
-                    return val_clone(&v);
+                    return v;
                 } else {
                     runtime_error("finally 完成动作未知");
                 }
@@ -1309,7 +1303,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     int i = 0;
                     for(; i < pcnt; i++) {
                         const char* pname = interp_func_param_name(rf, i);
-                        Value bound = (i < argc) ? val_clone(&eval_args[i]) : val_none();
+                        Value bound = (i < argc) ? eval_args[i] : val_none();
                         stackframe_bind(callee, pname, bound);
                     }
                     if(interp_func_has_variadic(rf)) {
@@ -1318,7 +1312,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(rest < 0) rest = 0;
                         Value arr = val_array(rest);
                         for(int k = 0; k < rest; k++) {
-                            arr.v.array.items[k] = val_clone(&eval_args[i + k]);
+                            arr.v.array->items[k] = eval_args[i + k];
                         }
                         stackframe_bind(callee, vname, arr);
                     }
@@ -1355,7 +1349,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     int i = 0;
                     for(; i < pcnt; i++) {
                         const char* pname = interp_func_param_name(rf, i);
-                        Value bound = (i < argc) ? val_clone(&eval_args[i]) : val_none();
+                        Value bound = (i < argc) ? eval_args[i] : val_none();
                         stackframe_bind(callee, pname, bound);
                     }
                     if(interp_func_has_variadic(rf)) {
@@ -1364,7 +1358,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(rest < 0) rest = 0;
                         Value arr = val_array(rest);
                         for(int k = 0; k < rest; k++) {
-                            arr.v.array.items[k] = val_clone(&eval_args[i + k]);
+                            arr.v.array->items[k] = eval_args[i + k];
                         }
                         stackframe_bind(callee, vname, arr);
                     }
@@ -1388,19 +1382,22 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
+                gc_set_roots(NULL, NULL, NULL);
                 free(stack);
-                return val_clone(&v);
+                return v;
             }
             case OPC_RETURN_NIL:
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
+                gc_set_roots(NULL, NULL, NULL);
                 free(stack);
                 return val_none();
             case OPC_HALT:
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
+                gc_set_roots(NULL, NULL, NULL);
                 free(stack);
                 return val_none();
             default:

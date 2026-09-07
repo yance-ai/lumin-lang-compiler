@@ -325,6 +325,7 @@ static void compile_array_elems(Ctx* c, AstNode* e) {
     }
 }
 // 递归编译 map 字面量条目（含 spread）
+// 约定：入口时栈顶为正在构建的 map；出口时栈顶仍为该 map
 static void compile_map_entries_spread(Ctx* c, AstNode* e) {
     if(!e) return;
     if(e->type == AST_SEQ) {
@@ -336,9 +337,13 @@ static void compile_map_entries_spread(Ctx* c, AstNode* e) {
         c_expr(c, e->u.spread.expr);
         emit(c, OPC_BUILTIN, BUILTIN_ARRAY_ADDALL, 2);
     } else {
+        // OPC_INDEX_SET 返回被设置的值而非 map，因此先 DUP map，
+        // 设置后 POP 掉返回值，保留原 map 在栈顶
+        emit(c, OPC_DUP, 0, 0);
         c_expr(c, e->u.map_entry.key);
         c_expr(c, e->u.map_entry.value);
         emit(c, OPC_INDEX_SET, 0, 0);
+        emit(c, OPC_POP, 0, 0);
     }
 }
 // 字典字面量项递归展开：AST_SEQ 链 / AST_MAP_ENTRY 单节点
@@ -594,6 +599,7 @@ static void c_expr(Ctx* c, AstNode* node)
                 ast_free(ml);
                 break;
             }
+            /* 引用语义：修改型内置直接原地修改，无需自动 DUP+STORE 回变量 */
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
@@ -604,7 +610,9 @@ static void c_expr(Ctx* c, AstNode* node)
                     if(strcmp(node->u.call.name, bnames[k]) == 0) { bid = k; break; }
                 }
             }
-            if(bid >= 0) emit(c, OPC_BUILTIN, bid, argc);
+            if(bid >= 0) {
+                emit(c, OPC_BUILTIN, bid, argc);
+            }
             else emit(c, OPC_CALL, bf_sym(c->fn, node->u.call.name), argc);
             break;
         }
