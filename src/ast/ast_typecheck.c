@@ -583,12 +583,16 @@ int typecheck_expr(AstNode* node)
             // 内置函数白名单：len/type/input/range/substr（用户函数同名时用户优先）
             ValueType t;
             if(type_lookup(node->u.call.name) >= 0) {
-                /* type 构造调用：参数个数 == 属性数（或单 map 原样） */
+                /* type 构造调用：参数个数 == 属性数（或单 map 原样）。
+                   函数体先于 typecheck 被 ir 编译（yacc 动作 compile_func_from_ast），
+                   构造展开会摘空 args——args 为空时跳过（已展开，运行时宽松处理） */
                 int nargs = typecheck_arg_count(node->u.call.args);
-                int nprops = type_get(type_lookup(node->u.call.name))->nprops;
-                if(!(nargs == nprops || nargs == 1)) {
-                    fprintf(stderr, "语义错误(第%d行)：类型构造参数个数错误：需要 %d 个（或单个 map），实际 %d 个\n",
-                            node->line, nprops, nargs);
+                if(nargs > 0) {
+                    int nprops = type_get(type_lookup(node->u.call.name))->nprops;
+                    if(!(nargs == nprops || nargs == 1)) {
+                        fprintf(stderr, "语义错误(第%d行)：类型构造参数个数错误：需要 %d 个（或单个 map），实际 %d 个\n",
+                                node->line, nprops, nargs);
+                    }
                 }
             } else if(!static_sym_get(node->u.call.name, &t)) {
                 static const struct { const char* name; int min; int max; } builtins[] = {
