@@ -320,9 +320,11 @@ static void jq_stringify(SB* b, Value v, Value enc)
             sb_putc(b, '{');
             for(int i = 0; i < v.v.map->len; i++) {
                 if(i > 0) sb_putc(b, ',');
+                char* kstr = value_to_str(v.v.map->keys[i]);
                 if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!enc.v.s || !*enc.v.s)))
-                    sb_json_string(b, v.v.map->keys[i]);
-                else { char* t = lumin_utf8_to_text(v.v.map->keys[i], enc); sb_json_string(b, t ? t : v.v.map->keys[i]); free(t); }
+                    sb_json_string(b, kstr);
+                else { char* t = lumin_utf8_to_text(kstr, enc); sb_json_string(b, t ? t : kstr); free(t); }
+                free(kstr);
                 sb_putc(b, ':');
                 jq_stringify(b, v.v.map->values[i], enc);
             }

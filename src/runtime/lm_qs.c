@@ -43,9 +43,11 @@ static const char* qs_enc_str(Value enc) {
 static void qs_stringify_rec(QSB* b, const char* key, Value v, Value enc) {
     if(v.type == VAL_MAP) {
         for(int i = 0; i < v.v.map->len; i++) {
+            char* kstr = value_to_str(v.v.map->keys[i]);
             char* sub;
-            if(*key) { sub = malloc(strlen(key) + strlen(v.v.map->keys[i]) + 4); sprintf(sub, "%s[%s]", key, v.v.map->keys[i]); }
-            else     { sub = malloc(strlen(v.v.map->keys[i]) + 2); sprintf(sub, "%s", v.v.map->keys[i]); }
+            if(*key) { sub = malloc(strlen(key) + strlen(kstr) + 4); sprintf(sub, "%s[%s]", key, kstr); }
+            else     { sub = malloc(strlen(kstr) + 2); sprintf(sub, "%s", kstr); }
+            free(kstr);
             qs_stringify_rec(b, sub, v.v.map->values[i], enc);
             free(sub);
         }

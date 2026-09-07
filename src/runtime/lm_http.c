@@ -88,7 +88,9 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
     if(params.type == VAL_MAP) {
         for(int i = 0; i < params.v.map->len; i++) {
             if(i > 0) buf_append(&qs, "&", 1);
-            char* ek = curl_easy_escape(h, params.v.map->keys[i], 0);
+            char* pkstr = value_to_str(params.v.map->keys[i]);
+            char* ek = curl_easy_escape(h, pkstr, 0);
+            free(pkstr);
             char* sv = value_to_str(params.v.map->values[i]);
             char* ev = curl_easy_escape(h, sv, 0);
             free(sv);
@@ -114,14 +116,16 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
     long timeout_s = 30;
     Value body = val_none();
     if(config.type == VAL_MAP) {
-        if(lumin_map_has(config, "headers")) {
+        if(lumin_map_has(config, lumin_make_string("headers"))) {
             Value hv = lumin_map_get(config, lumin_make_string("headers"));
             if(hv.type != VAL_MAP) { curl_easy_cleanup(h); free(full_url.data); runtime_error("requests: config.headers 必须是字典"); }
             for(int i = 0; i < hv.v.map->len; i++) {
                 char* sv = value_to_str(hv.v.map->values[i]);
-                size_t klen = strlen(hv.v.map->keys[i]), vlen = strlen(sv);
+                char* hkstr = value_to_str(hv.v.map->keys[i]);
+                size_t klen = strlen(hkstr), vlen = strlen(sv);
                 char* entry = (char*)malloc(klen + vlen + 3);
-                memcpy(entry, hv.v.map->keys[i], klen);
+                memcpy(entry, hkstr, klen);
+                free(hkstr);
                 entry[klen] = ':'; entry[klen + 1] = ' ';
                 memcpy(entry + klen + 2, sv, vlen + 1);
                 hdrs = curl_slist_append(hdrs, entry);
@@ -129,11 +133,11 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
                 free(sv);
             }
         }
-        if(lumin_map_has(config, "body")) {
+        if(lumin_map_has(config, lumin_make_string("body"))) {
             body = lumin_map_get(config, lumin_make_string("body"));
             if(body.type != VAL_STRING) { curl_easy_cleanup(h); free(full_url.data); if(hdrs) curl_slist_free_all(hdrs); runtime_error("requests: config.body 必须是字符串"); }
         }
-        if(lumin_map_has(config, "timeout")) {
+        if(lumin_map_has(config, lumin_make_string("timeout"))) {
             Value tv = lumin_map_get(config, lumin_make_string("timeout"));
             if(tv.type == VAL_INT) timeout_s = tv.v.i;
         }

@@ -230,7 +230,7 @@ void val_destroy(Value* v) {
         ValueMap* m = v->v.map;
         if(m) {
             for(int i = 0; i < m->len; i++) {
-                free(m->keys[i]);
+                val_destroy(&m->keys[i]);
                 val_destroy(&m->values[i]);
             }
             free(m->keys);
@@ -297,11 +297,11 @@ Value val_clone(const Value* src) {
         for(int i = 0; i < srcm->len; i++) {
             if(dm->len >= dm->cap) {
                 int ncap = dm->cap ? dm->cap * 2 : 8;
-                dm->keys = (char**)realloc(dm->keys, sizeof(char*) * ncap);
+                dm->keys = (Value*)realloc(dm->keys, sizeof(Value) * ncap);
                 dm->values = (Value*)realloc(dm->values, sizeof(Value) * ncap);
                 dm->cap = ncap;
             }
-            dm->keys[dm->len] = strdup(srcm->keys[i]);
+            dm->keys[dm->len] = val_clone(&srcm->keys[i]);
             dm->values[dm->len] = val_clone(&srcm->values[i]);
             dm->len++;
         }

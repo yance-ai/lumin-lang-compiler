@@ -245,7 +245,6 @@ Value lumin_len(Value v) {
 // 下标读：数组元素 / 字符串字符（返回 char） / 字典键
 Value lumin_index_get(Value c, Value idx) {
     if(c.type == VAL_MAP) {
-        if(idx.type != VAL_STRING) runtime_error("字典下标必须是字符串键");
         return lumin_map_get(c, idx);
     }
     if(c.type == VAL_ERROR) {
@@ -434,12 +433,12 @@ Value lumin_eq(Value a, Value b) {
         }
         const char* am = (a.type == VAL_ERROR) ? a.v.err.message : (a.type == VAL_STRING ? a.v.s : NULL);
         const char* bm = (b.type == VAL_ERROR) ? b.v.err.message : (b.type == VAL_STRING ? b.v.s : NULL);
-        if(a.type == VAL_ERROR && b.type == VAL_MAP && lumin_map_has(b, "message")) {
+        if(a.type == VAL_ERROR && b.type == VAL_MAP && lumin_map_has(b, lumin_make_string("message"))) {
             Value mv = lumin_map_get(b, lumin_make_string("message"));
             if(mv.type != VAL_STRING) return lumin_make_bool(0);
             const char* tm = NULL;
             if(a.v.err.type) {
-                if(lumin_map_has(b, "type")) {
+                if(lumin_map_has(b, lumin_make_string("type"))) {
                     Value tv = lumin_map_get(b, lumin_make_string("type"));
                     if(tv.type == VAL_STRING) tm = tv.v.s;
                 }
@@ -516,7 +515,7 @@ case VAL_ARRAY: {
 case VAL_MAP: {
     Value r = val_map();
     for(int i = 0; i < v.v.map->len; i++)
-        lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_char(v.v.map->values[i]));
+        lumin_map_set(&r, val_clone(&v.v.map->keys[i]), lumin_cast_char(v.v.map->values[i]));
     return r;
 }
         default:
@@ -559,7 +558,7 @@ case VAL_ARRAY: {
 case VAL_MAP: {
     Value r = val_map();
     for(int i = 0; i < v.v.map->len; i++)
-        lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_byte(v.v.map->values[i]));
+        lumin_map_set(&r, val_clone(&v.v.map->keys[i]), lumin_cast_byte(v.v.map->values[i]));
     return r;
 }
         default:
@@ -580,7 +579,7 @@ Value lumin_cast_ascii(Value v) {
     if(v.type == VAL_MAP) {
         Value r = val_map();
         for(int i = 0; i < v.v.map->len; i++)
-            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_ascii(v.v.map->values[i]));
+            lumin_map_set(&r, val_clone(&v.v.map->keys[i]), lumin_cast_ascii(v.v.map->values[i]));
         return r;
     }
     if(v.type == VAL_CHAR)
@@ -652,7 +651,7 @@ case VAL_ARRAY: {
 case VAL_MAP: {
     Value r = val_map();
     for(int i = 0; i < v.v.map->len; i++)
-        lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_int(v.v.map->values[i]));
+        lumin_map_set(&r, val_clone(&v.v.map->keys[i]), lumin_cast_int(v.v.map->values[i]));
     return r;
 }
         default:
@@ -701,7 +700,7 @@ case VAL_ARRAY: {
 case VAL_MAP: {
     Value r = val_map();
     for(int i = 0; i < v.v.map->len; i++)
-        lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_double(v.v.map->values[i]));
+        lumin_map_set(&r, val_clone(&v.v.map->keys[i]), lumin_cast_double(v.v.map->values[i]));
     return r;
 }
         default:
@@ -721,7 +720,7 @@ Value lumin_cast_bool(Value v) {
     if(v.type == VAL_MAP) {
         Value r = val_map();
         for(int i = 0; i < v.v.map->len; i++)
-            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_bool(v.v.map->values[i]));
+            lumin_map_set(&r, val_clone(&v.v.map->keys[i]), lumin_cast_bool(v.v.map->values[i]));
         return r;
     }
     _Bool b = lumin_to_bool(v);
@@ -739,7 +738,7 @@ Value lumin_cast_string(Value v) {
     if(v.type == VAL_MAP) {
         Value r = val_map();
         for(int i = 0; i < v.v.map->len; i++)
-            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]), lumin_cast_string(v.v.map->values[i]));
+            lumin_map_set(&r, val_clone(&v.v.map->keys[i]), lumin_cast_string(v.v.map->values[i]));
         return r;
     }
     char *s = value_to_str(v);
@@ -834,7 +833,7 @@ static Value cast_int_width(Value v, int bits, int is_signed) {
     if(v.type == VAL_MAP) {
         Value r = val_map();
         for(int i = 0; i < v.v.map->len; i++)
-            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]),
+            lumin_map_set(&r, val_clone(&v.v.map->keys[i]),
                           cast_int_width(v.v.map->values[i], bits, is_signed));
         return r;
     }
@@ -869,7 +868,7 @@ static Value cast_float_rec(Value v) {
     if(v.type == VAL_MAP) {
         Value r = val_map();
         for(int i = 0; i < v.v.map->len; i++)
-            lumin_map_set(&r, lumin_make_string(v.v.map->keys[i]),
+            lumin_map_set(&r, val_clone(&v.v.map->keys[i]),
                           cast_float_rec(v.v.map->values[i]));
         return r;
     }

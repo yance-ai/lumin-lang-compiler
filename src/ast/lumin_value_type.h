@@ -67,7 +67,7 @@ typedef struct {
 
 // 字典运行时对象，VAL_MAP 使用（线性探测哈希：字符串键 → 值）
 typedef struct {
-    char** keys;     // 键（strdup 堆分配）
+    Value* keys;     // 键（任意类型，Value 克隆）
     Value* values;   // 值（与 keys 同序）
     int len;         // 当前键数
     int cap;         // 容量

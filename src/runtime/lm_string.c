@@ -126,7 +126,7 @@ Value lumin_contains(Value hay, Value needle)
     }
     if(hay.type == VAL_MAP) {
         if(needle.type != VAL_STRING) runtime_error("contains() 字典键必须是字符串");
-        return lumin_make_bool(lumin_map_has(hay, needle.v.s));
+        return lumin_make_bool(lumin_map_has(hay, needle));
     }
     runtime_error("contains() 第一个参数必须是字符串、数组或字典");
     return val_none();

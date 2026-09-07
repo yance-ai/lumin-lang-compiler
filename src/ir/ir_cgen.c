@@ -474,7 +474,7 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __c = __stk[--__sp]; __stk[__sp++] = lumin_array_clear(__c); }\n");
                         break;
                     case BUILTIN_MAP_HAS:
-                        fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(__k.type == VAL_STRING && lumin_map_has(__m, __k.v.s)); }\n");
+                        fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(lumin_map_has(__m, __k)); }\n");
                         break;
                     case BUILTIN_JSON:
                         if(in.b >= 2)
@@ -623,7 +623,7 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __c = __stk[--__sp]; __stk[__sp++] = lumin_array_clear(__c); }\n");
                         break;
                     case BUILTIN_MAP_HAS:
-                        fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(__k.type == VAL_STRING && lumin_map_has(__m, __k.v.s)); }\n");
+                        fprintf(out, "    { Value __k = __stk[--__sp]; Value __m = __stk[--__sp]; __stk[__sp++] = lumin_make_bool(lumin_map_has(__m, __k)); }\n");
                         break;
                     case BUILTIN_JSON:
                         if(in.b >= 2)
@@ -770,9 +770,9 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "            Value (*__cfm)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
                             fprintf(out, "            Value __mout = val_map();\n");
                             fprintf(out, "            for(int __i = 0; __i < __arr.v.map->len; __i++) {\n");
-                            fprintf(out, "                Value __a2[2]; __a2[0] = val_clone(&__arr.v.map->values[__i]); __a2[1] = lumin_make_string(__arr.v.map->keys[__i]);\n");
+                            fprintf(out, "                Value __a2[2]; __a2[0] = val_clone(&__arr.v.map->values[__i]); __a2[1] = val_clone(&__arr.v.map->keys[__i]);\n");
                             fprintf(out, "                Value __r = __cfm(__a2, 2);\n");
-                            fprintf(out, "                lumin_map_set(&__mout, lumin_make_string(__arr.v.map->keys[__i]), val_clone(&__r));\n");
+                            fprintf(out, "                lumin_map_set(&__mout, val_clone(&__arr.v.map->keys[__i]), val_clone(&__r));\n");
                             fprintf(out, "            }\n");
                             fprintf(out, "            __stk[__sp++] = __mout;\n");
                             fprintf(out, "        } else {\n");
@@ -861,8 +861,8 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "      const char* __tp = \"Error\"; char* __msg = NULL;\n");
                 fprintf(out, "      if(__v.type == VAL_ERROR) { __tp = __v.v.err.type ? __v.v.err.type : \"Error\"; __msg = strdup(__v.v.err.message ? __v.v.err.message : \"\"); }\n");
                 fprintf(out, "      else if(__v.type == VAL_MAP) {\n");
-                fprintf(out, "        if(lumin_map_has(__v, \"type\")) { Value __tv = lumin_map_get(__v, lumin_make_string(\"type\")); if(__tv.type == VAL_STRING) __tp = __tv.v.s; }\n");
-                fprintf(out, "        if(lumin_map_has(__v, \"message\")) { Value __mv = lumin_map_get(__v, lumin_make_string(\"message\")); if(__mv.type == VAL_STRING) __msg = strdup(__mv.v.s); }\n");
+                fprintf(out, "        if(lumin_map_has(__v, lumin_make_string(\"type\"))) { Value __tv = lumin_map_get(__v, lumin_make_string(\"type\")); if(__tv.type == VAL_STRING) __tp = __tv.v.s; }\n");
+                fprintf(out, "        if(lumin_map_has(__v, lumin_make_string(\"message\"))) { Value __mv = lumin_map_get(__v, lumin_make_string(\"message\")); if(__mv.type == VAL_STRING) __msg = strdup(__mv.v.s); }\n");
                 fprintf(out, "      }\n");
                 fprintf(out, "      if(!__msg) __msg = value_to_str(__v);\n");
                 fprintf(out, "      g_err_type_set(__tp);\n");

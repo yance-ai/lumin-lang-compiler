@@ -37,9 +37,8 @@ Value lumin_range_n(Value* args, int n) {
 Value lumin_del(Value arr, Value idx)
 {
     if(arr.type == VAL_MAP) {
-        if(idx.type != VAL_STRING) runtime_error("del() 字典键必须是字符串");
         lumin_check_classname_ro(arr, idx, "删除");
-        return lumin_map_del(arr, idx.v.s);
+        return lumin_map_del(arr, idx);
     }
     if(arr.type != VAL_ARRAY) runtime_error("del() 第一个参数必须是数组或字典");
     if(idx.type != VAL_INT) runtime_error("del() 下标必须是整数");
@@ -97,8 +96,7 @@ Value lumin_index_of(Value arr, Value x)
 Value lumin_array_get_safe(Value arr, Value idx)
 {
     if(arr.type == VAL_MAP) {
-        if(idx.type != VAL_STRING) return val_none();
-        int i = lumin_map_find(arr.v.map, idx.v.s);
+        int i = lumin_map_find(arr.v.map, idx);
         return i < 0 ? val_none() : arr.v.map->values[i];
     }
     if(arr.type != VAL_ARRAY) return val_none();
@@ -112,7 +110,6 @@ Value lumin_array_get_safe(Value arr, Value idx)
 Value lumin_array_set_method(Value arr, Value idx, Value val)
 {
     if(arr.type == VAL_MAP) {
-        if(idx.type != VAL_STRING) runtime_error("set() 字典键必须是字符串");
         lumin_check_classname_ro(arr, idx, "赋值");
         lumin_map_set(&arr, idx, val);
         return arr;
@@ -150,7 +147,6 @@ Value lumin_array_last(Value arr)
 Value lumin_map_add(Value m, Value k, Value v)
 {
     if(m.type != VAL_MAP) runtime_error("add() 第一个参数必须是数组或字典");
-    if(k.type != VAL_STRING) runtime_error("add() 字典键必须是字符串");
     lumin_check_classname_ro(m, k, "赋值");
     lumin_map_set(&m, k, v);
     return m;
@@ -163,12 +159,12 @@ Value lumin_array_clear(Value v)
 {
     if(v.type == VAL_MAP) {
         ValueMap* m = v.v.map;
-        char* cn = NULL; Value cnv = val_none();
-        int i = lumin_map_find(m, "__classname__");
-        if(i >= 0) { cn = strdup(m->keys[i]); cnv = m->values[i]; }
-        for(int k = 0; k < m->len; k++) free(m->keys[k]);
+        Value cnk = val_none(); Value cnv = val_none();
+        int i = lumin_map_find(m, lumin_make_string("__classname__"));
+        if(i >= 0) { cnk = val_clone(&m->keys[i]); cnv = val_clone(&m->values[i]); }
+        for(int k = 0; k < m->len; k++) { val_destroy(&m->keys[k]); val_destroy(&m->values[k]); }
         m->len = 0;
-        if(cn) { lumin_map_set(&v, lumin_make_string(cn), cnv); free(cn); }
+        if(cnk.type != VAL_NONE) { lumin_map_set(&v, cnk, cnv); val_destroy(&cnk); val_destroy(&cnv); }
         return v;
     }
     if(v.type == VAL_ARRAY) return val_array(0);
@@ -310,7 +306,7 @@ Value lumin_array_addall(Value a, Value b) {
     if(a.type == VAL_MAP && b.type == VAL_MAP) {
         /* 引用语义：原地合并，返回 a（与 set/clear 一致） */
         for(int i = 0; i < b.v.map->len; i++) {
-            lumin_map_set(&a, lumin_make_string(b.v.map->keys[i]), b.v.map->values[i]);
+            lumin_map_set(&a, val_clone(&b.v.map->keys[i]), b.v.map->values[i]);
         }
         return a;
     }

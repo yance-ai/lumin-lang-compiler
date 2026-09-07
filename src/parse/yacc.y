@@ -262,6 +262,8 @@ const_expr
     | INTEGER                 { $$ = ast_int($1); }
     | char_lit                { $$ = ast_new_char($1); }
     | STRING_LIT              { $$ = ast_string($1); free($1); }
+    | TRUE                    { $$ = ast_bool(1); }
+    | FALSE                   { $$ = ast_bool(0); }
     ;
 
 elif_clause_list
@@ -364,7 +366,7 @@ primary
        <string,V>{k:v} map 值强转（键固定 string） */
     | LT builtin_type_name GT unary_expr
         { $$ = new_cast_node($2, $4); }
-    | LT TOK_STRING COMMA builtin_type_name GT MAP_OPEN map_items RBRACE
+    | LT type_name COMMA type_name GT MAP_OPEN map_items RBRACE
         { $$ = new_cast_node($4, ast_map_lit($7)); }
     | LT ID GT ARRAY_OPEN arg_list RBRACKET {
           /* 泛型自定义类型：<Person>[e1,e2] → [Person(e1), Person(e2)]（形状构造） */
@@ -441,6 +443,12 @@ map_item
       }
     | ID COLON expr {
           $$ = ast_map_entry(ast_string(strdup($1)), $3);
+      }
+    | const_expr COLON expr {
+          $$ = ast_map_entry($1, $3);
+      }
+    | ARRAY_OPEN expr RBRACKET COLON expr {
+          $$ = ast_map_entry($2, $5);
       }
     | ELLIPSIS unary_expr {
           $$ = ast_spread($2);

@@ -596,7 +596,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_MAP_HAS: {
                         Value k = stack[--sp];
                         Value m = stack[--sp];
-                        stack[sp++] = lumin_make_bool(k.type == VAL_STRING && lumin_map_has(m, k.v.s));
+                        stack[sp++] = lumin_make_bool(lumin_map_has(m, k));
                         break;
                     }
                     case BUILTIN_JSON: {
@@ -873,7 +873,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_MAP_HAS: {
                         Value k = stack[--sp];
                         Value m = stack[--sp];
-                        stack[sp++] = lumin_make_bool(k.type == VAL_STRING && lumin_map_has(m, k.v.s));
+                        stack[sp++] = lumin_make_bool(lumin_map_has(m, k));
                         break;
                     }
                     case BUILTIN_JSON: {
@@ -1112,9 +1112,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             for(int i = 0; i < arr.v.map->len; i++) {
                                 Value a2[2];
                                 a2[0] = val_clone(&arr.v.map->values[i]);
-                                a2[1] = lumin_make_string(arr.v.map->keys[i]);
+                                a2[1] = val_clone(&arr.v.map->keys[i]);
                                 Value r = vm_call_rf(mrf, a2, 2, frame, ctx);
-                                lumin_map_set(&mout, lumin_make_string(arr.v.map->keys[i]), val_clone(&r));
+                                lumin_map_set(&mout, val_clone(&arr.v.map->keys[i]), val_clone(&r));
                             }
                             stack[sp++] = mout;
                             break;
@@ -1216,11 +1216,11 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     type = v.v.err.type ? v.v.err.type : "Error";
                     msg = strdup(v.v.err.message ? v.v.err.message : "");
                 } else if(v.type == VAL_MAP) {
-                    if(lumin_map_has(v, "type")) {
+                    if(lumin_map_has(v, lumin_make_string("type"))) {
                         Value tv = lumin_map_get(v, lumin_make_string("type"));
                         if(tv.type == VAL_STRING) type = tv.v.s;
                     }
-                    if(lumin_map_has(v, "message")) {
+                    if(lumin_map_has(v, lumin_make_string("message"))) {
                         Value mv = lumin_map_get(v, lumin_make_string("message"));
                         if(mv.type == VAL_STRING) msg = strdup(mv.v.s);
                     }
