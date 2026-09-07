@@ -10,6 +10,8 @@
 #include "runtime/lm_array.h"
 #include "runtime/lm_charset.h"
 #include "runtime/lm_crypto.h"
+#include "runtime/lm_regex.h"
+#include "runtime/lm_time.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -529,6 +531,52 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_DECODE_BASE64:
                         fprintf(out, "    { Value __v = __stk[--__sp]; int __ol=0; char* __r = lumin_base64_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\", &__ol); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
+                    case BUILTIN_REGEX_MATCH:
+                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_make_bool(lumin_regex_match(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\")); }\n");
+                        break;
+                    case BUILTIN_REGEX_SEARCH:
+                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_regex_search(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\"); }\n");
+                        break;
+                    case BUILTIN_REGEX_REPLACE:
+                        fprintf(out, "    { Value __r=__stk[--__sp]; Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; char* __o=lumin_regex_replace(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\", __r.type==VAL_STRING?(__r.v.s?__r.v.s:\"\"):\"\"); __stk[__sp++]=lumin_make_string(__o); free(__o); }\n");
+                        break;
+                    case BUILTIN_NOW:
+                        fprintf(out, "    __stk[__sp++] = lumin_now();\n");
+                        break;
+                    case BUILTIN_TIMESTAMP:
+                        fprintf(out, "    __stk[__sp++] = lumin_make_double(lumin_timestamp());\n");
+                        break;
+                    case BUILTIN_TIMESTAMP_MS:
+                        fprintf(out, "    __stk[__sp++] = lumin_make_int(lumin_timestamp_ms());\n");
+                        break;
+                    case BUILTIN_SLEEP:
+                        fprintf(out, "    { Value __v=__stk[--__sp]; lumin_sleep_ms((long long)lumin_extract_int(__v)); __stk[__sp++]=val_none(); }\n");
+                        break;
+                    case BUILTIN_DATE:
+                        fprintf(out, "    { char* __r=lumin_date_str(); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_TIME:
+                        fprintf(out, "    { char* __r=lumin_time_str(); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_DATETIME:
+                        fprintf(out, "    { char* __r=lumin_datetime_str(); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_FORMAT_TIME:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __t=__stk[--__sp]; Value __f=__stk[--__sp]; double __ts=__t.type==VAL_DOUBLE?__t.v.d:(double)lumin_extract_int(__t); char* __r=lumin_format_time(__f.type==VAL_STRING?(__f.v.s?__f.v.s:\"\"):\"\", __ts); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        else
+                            fprintf(out, "    { Value __f=__stk[--__sp]; char* __r=lumin_format_time(__f.type==VAL_STRING?(__f.v.s?__f.v.s:\"\"):\"\", -1.0); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_LOG_DEBUG:
+                    case BUILTIN_LOG_INFO:
+                    case BUILTIN_LOG_WARN:
+                    case BUILTIN_LOG_ERROR:
+                    case BUILTIN_LOG_FATAL:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __m=__stk[--__sp]; __stk[--__sp]; char* __s=value_to_str(__m); lumin_log(%d, __s); free(__s); __stk[__sp++]=val_none(); }\n", in.a - BUILTIN_LOG_DEBUG);
+                        else
+                            fprintf(out, "    { Value __m=__stk[--__sp]; char* __s=value_to_str(__m); lumin_log(%d, __s); free(__s); __stk[__sp++]=val_none(); }\n", in.a - BUILTIN_LOG_DEBUG);
+                        break;
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -631,6 +679,52 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     case BUILTIN_DECODE_BASE64:
                         fprintf(out, "    { Value __v = __stk[--__sp]; int __ol=0; char* __r = lumin_base64_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\", &__ol); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_REGEX_MATCH:
+                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_make_bool(lumin_regex_match(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\")); }\n");
+                        break;
+                    case BUILTIN_REGEX_SEARCH:
+                        fprintf(out, "    { Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; __stk[__sp++]=lumin_regex_search(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\"); }\n");
+                        break;
+                    case BUILTIN_REGEX_REPLACE:
+                        fprintf(out, "    { Value __r=__stk[--__sp]; Value __p=__stk[--__sp]; Value __s=__stk[--__sp]; char* __o=lumin_regex_replace(__s.type==VAL_STRING?(__s.v.s?__s.v.s:\"\"):\"\", __p.type==VAL_STRING?(__p.v.s?__p.v.s:\"\"):\"\", __r.type==VAL_STRING?(__r.v.s?__r.v.s:\"\"):\"\"); __stk[__sp++]=lumin_make_string(__o); free(__o); }\n");
+                        break;
+                    case BUILTIN_NOW:
+                        fprintf(out, "    __stk[__sp++] = lumin_now();\n");
+                        break;
+                    case BUILTIN_TIMESTAMP:
+                        fprintf(out, "    __stk[__sp++] = lumin_make_double(lumin_timestamp());\n");
+                        break;
+                    case BUILTIN_TIMESTAMP_MS:
+                        fprintf(out, "    __stk[__sp++] = lumin_make_int(lumin_timestamp_ms());\n");
+                        break;
+                    case BUILTIN_SLEEP:
+                        fprintf(out, "    { Value __v=__stk[--__sp]; lumin_sleep_ms((long long)lumin_extract_int(__v)); __stk[__sp++]=val_none(); }\n");
+                        break;
+                    case BUILTIN_DATE:
+                        fprintf(out, "    { char* __r=lumin_date_str(); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_TIME:
+                        fprintf(out, "    { char* __r=lumin_time_str(); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_DATETIME:
+                        fprintf(out, "    { char* __r=lumin_datetime_str(); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_FORMAT_TIME:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __t=__stk[--__sp]; Value __f=__stk[--__sp]; double __ts=__t.type==VAL_DOUBLE?__t.v.d:(double)lumin_extract_int(__t); char* __r=lumin_format_time(__f.type==VAL_STRING?(__f.v.s?__f.v.s:\"\"):\"\", __ts); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        else
+                            fprintf(out, "    { Value __f=__stk[--__sp]; char* __r=lumin_format_time(__f.type==VAL_STRING?(__f.v.s?__f.v.s:\"\"):\"\", -1.0); __stk[__sp++]=lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_LOG_DEBUG:
+                    case BUILTIN_LOG_INFO:
+                    case BUILTIN_LOG_WARN:
+                    case BUILTIN_LOG_ERROR:
+                    case BUILTIN_LOG_FATAL:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __m=__stk[--__sp]; __stk[--__sp]; char* __s=value_to_str(__m); lumin_log(%d, __s); free(__s); __stk[__sp++]=val_none(); }\n", in.a - BUILTIN_LOG_DEBUG);
+                        else
+                            fprintf(out, "    { Value __m=__stk[--__sp]; char* __s=value_to_str(__m); lumin_log(%d, __s); free(__s); __stk[__sp++]=val_none(); }\n", in.a - BUILTIN_LOG_DEBUG);
                         break;
                     case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
                             case BUILTIN_HTTP_HEAD:   m = "HEAD"; break;

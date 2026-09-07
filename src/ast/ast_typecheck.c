@@ -57,6 +57,7 @@ static int g_global_vars_cnt = 0;
 static int g_global_vars_cap = 0;
 
 static int is_global_var(const char* n) {
+    if(strcmp(n, "log") == 0) return 1;  // 预定义全局对象：log.debug/info/warn/error/fatal
     for(int i = 0; i < g_global_vars_cnt; i++)
         if(strcmp(g_global_vars[i], n) == 0) return 1;
     return 0;
@@ -622,6 +623,11 @@ int typecheck_expr(AstNode* node)
                     {"encode", 1, 2}, {"decode", 1, 2},
                     {"encodeURL", 1, 1}, {"decodeURL", 1, 1},
                     {"md5", 1, 1}, {"encodeBase64", 1, 1}, {"decodeBase64", 1, 1},
+                    {"regex_match", 2, 2}, {"regex_search", 2, 2}, {"regex_replace", 3, 3},
+                    {"now", 0, 0}, {"timestamp", 0, 0}, {"timestamp_ms", 0, 0},
+                    {"sleep", 1, 1}, {"date", 0, 0}, {"time", 0, 0}, {"datetime", 0, 0},
+                    {"format_time", 1, 2},
+                    {"debug", 1, 2}, {"info", 1, 2}, {"warn", 1, 2}, {"error", 1, 2}, {"fatal", 1, 2},
                 };
                 int found = 0;
                 int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));

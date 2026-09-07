@@ -13,6 +13,8 @@ runtime/lm_http.h
 runtime/lm_json.h
 runtime/lm_charset.h
 runtime/lm_crypto.h
+runtime/lm_regex.h
+runtime/lm_time.h
 runtime/lm_qs.h
 
 
@@ -31,4 +33,6 @@ runtime/lm_http.c
 runtime/lm_json.c
 runtime/lm_charset.c
 runtime/lm_crypto.c
+runtime/lm_regex.c
+runtime/lm_time.c
 runtime/lm_qs.c

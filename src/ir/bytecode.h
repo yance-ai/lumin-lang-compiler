@@ -137,6 +137,22 @@ typedef enum {
     BUILTIN_MD5,          // md5(s)：MD5 32 位十六进制小写
     BUILTIN_ENCODE_BASE64,  // encodeBase64(s)：Base64 编码
     BUILTIN_DECODE_BASE64,  // decodeBase64(s)：Base64 解码
+    BUILTIN_REGEX_MATCH,    // regex_match(s, pattern)：完整匹配 → bool
+    BUILTIN_REGEX_SEARCH,   // regex_search(s, pattern)：搜索 → [match, group1, ...]
+    BUILTIN_REGEX_REPLACE,  // regex_replace(s, pattern, repl)：替换所有匹配（支持 \1 反向引用）
+    BUILTIN_NOW,            // now()：当前时间 map
+    BUILTIN_TIMESTAMP,      // timestamp()：Unix 秒（double）
+    BUILTIN_TIMESTAMP_MS,   // timestamp_ms()：Unix 毫秒（int）
+    BUILTIN_SLEEP,          // sleep(ms)：休眠毫秒
+    BUILTIN_DATE,           // date()："2026-09-07"
+    BUILTIN_TIME,           // time()："15:30:45"
+    BUILTIN_DATETIME,       // datetime()："2026-09-07 15:30:45"
+    BUILTIN_FORMAT_TIME,    // format_time(fmt, ts?)：strftime 格式化
+    BUILTIN_LOG_DEBUG,      // debug(msg) / log.debug(msg)
+    BUILTIN_LOG_INFO,       // info(msg) / log.info(msg)
+    BUILTIN_LOG_WARN,       // warn(msg) / log.warn(msg)
+    BUILTIN_LOG_ERROR,      // error(msg) / log.error(msg)
+    BUILTIN_LOG_FATAL,      // fatal(msg) / log.fatal(msg)
     BUILTIN_COUNT
 } BuiltinId;
 

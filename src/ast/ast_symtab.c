@@ -44,6 +44,7 @@ int static_sym_put(const char* name, ValueType ty)
 
 int static_sym_get(const char* name, ValueType* out_ty)
 {
+    if(strcmp(name, "log") == 0) { *out_ty = VAL_MAP; return 1; }  // 预定义全局对象 log
     for(int i = 0; i < static_sym_count; ++i) {
         if(strcmp(static_sym_table[i].name, name) == 0) {
             *out_ty = static_sym_table[i].ty;

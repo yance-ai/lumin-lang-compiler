@@ -14,6 +14,8 @@
 #include "runtime/lm_qs.h"
 #include "runtime/lm_charset.h"
 #include "runtime/lm_crypto.h"
+#include "runtime/lm_regex.h"
+#include "runtime/lm_time.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -169,6 +171,7 @@ Value vm_run_main(BytecodeFunc* main_fn)
     EvalCtx local_ctx = {0};
     StackFrame* top = stackframe_new(NULL);
     stackframe_set_shared(top);              // 全局共享帧：多线程沿 parent 链访问需加锁
+    stackframe_set(top, "log", val_map());   // 预定义 log 对象（方法链 log.xxx）
     StackFrame* saved_global = s_global_frame;
     s_global_frame = top;
     Value ret = vm_run(main_fn, top, &local_ctx);
@@ -704,6 +707,96 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         free(r);
                         break;
                     }
+                    case BUILTIN_REGEX_MATCH: {
+                        Value pat = stack[--sp];
+                        Value str = stack[--sp];
+                        stack[sp++] = lumin_make_bool(lumin_regex_match(
+                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
+                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : ""));
+                        break;
+                    }
+                    case BUILTIN_REGEX_SEARCH: {
+                        Value pat = stack[--sp];
+                        Value str = stack[--sp];
+                        stack[sp++] = lumin_regex_search(
+                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
+                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : "");
+                        break;
+                    }
+                    case BUILTIN_REGEX_REPLACE: {
+                        Value repl = stack[--sp];
+                        Value pat = stack[--sp];
+                        Value str = stack[--sp];
+                        char* r = lumin_regex_replace(
+                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
+                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : "",
+                            repl.type == VAL_STRING ? (repl.v.s ? repl.v.s : "") : "");
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_NOW: {
+                        stack[sp++] = lumin_now();
+                        break;
+                    }
+                    case BUILTIN_TIMESTAMP: {
+                        stack[sp++] = lumin_make_double(lumin_timestamp());
+                        break;
+                    }
+                    case BUILTIN_TIMESTAMP_MS: {
+                        stack[sp++] = lumin_make_int(lumin_timestamp_ms());
+                        break;
+                    }
+                    case BUILTIN_SLEEP: {
+                        Value v = stack[--sp];
+                        lumin_sleep_ms((long long)lumin_extract_int(v));
+                        stack[sp++] = val_none();
+                        break;
+                    }
+                    case BUILTIN_DATE: {
+                        char* r = lumin_date_str();
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_TIME: {
+                        char* r = lumin_time_str();
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_DATETIME: {
+                        char* r = lumin_datetime_str();
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_FORMAT_TIME: {
+                        Value ts = val_none();
+                        Value fmt;
+                        if(in.b >= 2) { ts = stack[--sp]; fmt = stack[--sp]; }
+                        else { fmt = stack[--sp]; }
+                        double tsv = (ts.type == VAL_NONE) ? -1.0 : (ts.type == VAL_DOUBLE ? ts.v.d : (double)lumin_extract_int(ts));
+                        char* r = lumin_format_time(fmt.type == VAL_STRING ? (fmt.v.s ? fmt.v.s : "") : "", tsv);
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_LOG_DEBUG:
+                    case BUILTIN_LOG_INFO:
+                    case BUILTIN_LOG_WARN:
+                    case BUILTIN_LOG_ERROR:
+                    case BUILTIN_LOG_FATAL: {
+                        int lvl = in.a - BUILTIN_LOG_DEBUG;
+                        Value msg;
+                        if(in.b >= 2) { msg = stack[--sp]; stack[--sp]; }  // 方法链：先弹消息，再丢弃 receiver
+                        else { msg = stack[--sp]; }
+                        char* ms = value_to_str(msg);
+                        lumin_log(lvl, ms);
+                        free(ms);
+                        stack[sp++] = val_none();
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -889,6 +982,96 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         char* r = lumin_base64_decode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "", &olen);
                         stack[sp++] = lumin_make_string(r);
                         free(r);
+                        break;
+                    }
+                    case BUILTIN_REGEX_MATCH: {
+                        Value pat = stack[--sp];
+                        Value str = stack[--sp];
+                        stack[sp++] = lumin_make_bool(lumin_regex_match(
+                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
+                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : ""));
+                        break;
+                    }
+                    case BUILTIN_REGEX_SEARCH: {
+                        Value pat = stack[--sp];
+                        Value str = stack[--sp];
+                        stack[sp++] = lumin_regex_search(
+                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
+                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : "");
+                        break;
+                    }
+                    case BUILTIN_REGEX_REPLACE: {
+                        Value repl = stack[--sp];
+                        Value pat = stack[--sp];
+                        Value str = stack[--sp];
+                        char* r = lumin_regex_replace(
+                            str.type == VAL_STRING ? (str.v.s ? str.v.s : "") : "",
+                            pat.type == VAL_STRING ? (pat.v.s ? pat.v.s : "") : "",
+                            repl.type == VAL_STRING ? (repl.v.s ? repl.v.s : "") : "");
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_NOW: {
+                        stack[sp++] = lumin_now();
+                        break;
+                    }
+                    case BUILTIN_TIMESTAMP: {
+                        stack[sp++] = lumin_make_double(lumin_timestamp());
+                        break;
+                    }
+                    case BUILTIN_TIMESTAMP_MS: {
+                        stack[sp++] = lumin_make_int(lumin_timestamp_ms());
+                        break;
+                    }
+                    case BUILTIN_SLEEP: {
+                        Value v = stack[--sp];
+                        lumin_sleep_ms((long long)lumin_extract_int(v));
+                        stack[sp++] = val_none();
+                        break;
+                    }
+                    case BUILTIN_DATE: {
+                        char* r = lumin_date_str();
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_TIME: {
+                        char* r = lumin_time_str();
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_DATETIME: {
+                        char* r = lumin_datetime_str();
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_FORMAT_TIME: {
+                        Value ts = val_none();
+                        Value fmt;
+                        if(in.b >= 2) { ts = stack[--sp]; fmt = stack[--sp]; }
+                        else { fmt = stack[--sp]; }
+                        double tsv = (ts.type == VAL_NONE) ? -1.0 : (ts.type == VAL_DOUBLE ? ts.v.d : (double)lumin_extract_int(ts));
+                        char* r = lumin_format_time(fmt.type == VAL_STRING ? (fmt.v.s ? fmt.v.s : "") : "", tsv);
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_LOG_DEBUG:
+                    case BUILTIN_LOG_INFO:
+                    case BUILTIN_LOG_WARN:
+                    case BUILTIN_LOG_ERROR:
+                    case BUILTIN_LOG_FATAL: {
+                        int lvl = in.a - BUILTIN_LOG_DEBUG;
+                        Value msg;
+                        if(in.b >= 2) { msg = stack[--sp]; stack[--sp]; }  // 方法链：先弹消息，再丢弃 receiver
+                        else { msg = stack[--sp]; }
+                        char* ms = value_to_str(msg);
+                        lumin_log(lvl, ms);
+                        free(ms);
+                        stack[sp++] = val_none();
                         break;
                     }
                     case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
