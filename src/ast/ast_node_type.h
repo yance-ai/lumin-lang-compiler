@@ -145,6 +145,14 @@ struct AstNode {
         struct {
             AstNode* expr;       // throw 的值表达式
         } thrownode;
+        struct {
+            char** names;        // 解构变量名数组
+            int count;           // 变量个数
+            AstNode* rhs;        // 右值表达式（应为数组）
+        } destruct;
+        struct {
+            AstNode* expr;       // 被展开的表达式（数组或 map）
+        } spread;
     } u;
 };
 

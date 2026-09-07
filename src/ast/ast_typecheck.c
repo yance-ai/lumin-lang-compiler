@@ -139,6 +139,22 @@ static void collect_top_level(AstNode* node) {
         case AST_THROW:
             collect_top_level(node->u.thrownode.expr);
             break;
+        case AST_DESTRUCT:
+            for(int i = 0; i < node->u.destruct.count; i++) {
+                static_sym_put(node->u.destruct.names[i], VAL_NONE);
+                if(g_global_vars_cnt >= g_global_vars_cap) {
+                    int nc = g_global_vars_cap > 0 ? g_global_vars_cap * 2 : 64;
+                    char** nt = (char**)realloc(g_global_vars, (size_t)nc * sizeof(char*));
+                    if(!nt) { fprintf(stderr, "全局变量表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                    g_global_vars = nt; g_global_vars_cap = nc;
+                }
+                g_global_vars[g_global_vars_cnt++] = strdup(node->u.destruct.names[i]);
+            }
+            collect_top_level(node->u.destruct.rhs);
+            break;
+        case AST_SPREAD:
+            collect_top_level(node->u.spread.expr);
+            break;
         case AST_MAP_ENTRY:
             collect_top_level(node->u.map_entry.key);
             collect_top_level(node->u.map_entry.value);
@@ -487,6 +503,16 @@ int typecheck_expr(AstNode* node)
             break;
         case AST_THROW:
             err |= typecheck_expr(node->u.thrownode.expr);
+            node->val_type = VAL_NONE;
+            break;
+        case AST_DESTRUCT:
+            err |= typecheck_expr(node->u.destruct.rhs);
+            for(int i = 0; i < node->u.destruct.count; i++)
+                static_sym_put(node->u.destruct.names[i], VAL_NONE);
+            node->val_type = VAL_NONE;
+            break;
+        case AST_SPREAD:
+            err |= typecheck_expr(node->u.spread.expr);
             node->val_type = VAL_NONE;
             break;
         case AST_PRINT:

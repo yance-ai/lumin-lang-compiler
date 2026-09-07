@@ -101,7 +101,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> elif_clause_list elif_clause else_part
 %type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
-%type<node> func_def param_list param arg_list arg type_prop_list type_prop enum_members enum_member
+%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member
 %type<ll> type_name
 %type <ch> char_lit
 %type<ll> INTEGER
@@ -121,6 +121,11 @@ stmt_list
 
 closed_stmt
     : expr SEMI                      { $$ = $1; }
+    | destruct_lhs ASSIGN expr SEMI {
+        char** names = NULL; int cnt = 0;
+        ast_collect_varnames($1, &names, &cnt);
+        $$ = ast_destruct(names, cnt, $3);
+    }
     | PRINT LPAREN expr RPAREN SEMI  { $$ = ast_print($3); }
     | block_stmt                     { $$ = $1; }
     | open_stmt                      { $$ = $1; }
@@ -186,6 +191,13 @@ arg_list
 
 arg
     : expr                 { $$ = $1; }
+    | ELLIPSIS unary_expr  { $$ = ast_spread($2); }
+;
+
+/* 解构赋值左边：a,b,c 标识符列表（AST_SEQ 链的 AST_VAR） */
+destruct_lhs
+    : ID COMMA ID                  { $$ = ast_seq(ast_var($1), ast_seq(ast_var($3), NULL)); }
+    | destruct_lhs COMMA ID        { $$ = ast_seq_append($1, ast_var($3)); }
 ;
 
 
@@ -440,6 +452,9 @@ map_item
     | ID COLON expr {
           $$ = ast_map_entry(ast_string(strdup($1)), $3);
       }
+    | ELLIPSIS unary_expr {
+          $$ = ast_spread($2);
+      }
     ;
 
 /* type 声明属性清单 */
@@ -522,6 +537,7 @@ ternary_expr
 assignment_expr
     : ternary_expr
     | ID ASSIGN assignment_expr  { $$ = ast_assign($1, $3); }
+    /* destruct_lhs 移到 closed_stmt 层面，避免与函数参数列表的 COMMA 冲突 */
     | ID PLUSEQ assignment_expr  { $$ = ast_assign($1, ast_binop(OP_ADD, ast_var($1), $3)); }
     | ID MINUSEQ assignment_expr { $$ = ast_assign($1, ast_binop(OP_SUB, ast_var($1), $3)); }
     | ID MULEQ assignment_expr   { $$ = ast_assign($1, ast_binop(OP_MUL, ast_var($1), $3)); }

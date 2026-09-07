@@ -17,6 +17,8 @@ AstNode* ast_binop(BinOp op, AstNode* l, AstNode* r);
 AstNode* ast_assign(char* name, AstNode* e);
 AstNode* ast_print(AstNode* e);
 AstNode* ast_seq(AstNode* a, AstNode* b);
+AstNode* ast_seq_append(AstNode* list, AstNode* item);
+void ast_collect_varnames(AstNode* seq, char*** out_names, int* out_count);
 AstNode* ast_if(AstNode* cond, AstNode* then_stmt, AstNode* elif_chain, AstNode* else_stmt);
 AstNode* ast_block(AstNode* stmts);
 AstNode* ast_elif(AstNode* cond, AstNode* body);
@@ -54,6 +56,8 @@ AstNode* ast_array_lit(AstNode* elems);
 AstNode* ast_map_lit(AstNode* entries);
 AstNode* ast_try(AstNode* body, char* catch_var, AstNode* catch_body, AstNode* finally_body);
 AstNode* ast_throw(AstNode* expr);
+AstNode* ast_destruct(char** names, int count, AstNode* rhs);
+AstNode* ast_spread(AstNode* expr);
 AstNode* ast_map_entry(AstNode* key, AstNode* value);
 
 // 深拷贝（复合赋值下标展开防双重释放）

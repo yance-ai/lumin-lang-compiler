@@ -122,6 +122,43 @@ AstNode* ast_seq(AstNode* a, AstNode* b)
     p->u.seq.second = b;
     return p;
 }
+// 把 item 追加到 list 链的末尾（保持扁平：末尾 AST_SEQ.second=NULL）
+AstNode* ast_seq_append(AstNode* list, AstNode* item) {
+    if(!list) return ast_seq(item, NULL);
+    AstNode* p = list;
+    while(p->type == AST_SEQ && p->u.seq.second && p->u.seq.second->type == AST_SEQ)
+        p = p->u.seq.second;
+    if(p->type == AST_SEQ) {
+        AstNode* last = p->u.seq.second;
+        if(last && last->type != AST_SEQ)
+            p->u.seq.second = ast_seq(last, ast_seq(item, NULL));
+        else if(!last)
+            p->u.seq.second = ast_seq(item, NULL);
+        else
+            p->u.seq.second = ast_seq_append(last, item);
+    }
+    return list;
+}
+// 递归收集 AST_SEQ 树中所有叶子节点的 varname（左到右顺序）
+static void collect_vn(AstNode* n, char*** arr, int* cnt, int* cap) {
+    if(!n) return;
+    if(n->type == AST_SEQ) {
+        collect_vn(n->u.seq.first, arr, cnt, cap);
+        collect_vn(n->u.seq.second, arr, cnt, cap);
+    } else {
+        if(*cnt >= *cap) {
+            *cap = *cap > 0 ? *cap * 2 : 8;
+            *arr = (char**)realloc(*arr, (size_t)(*cap) * sizeof(char*));
+        }
+        (*arr)[(*cnt)++] = n->u.varname;
+    }
+}
+void ast_collect_varnames(AstNode* seq, char*** out_names, int* out_count) {
+    int cap = 0;
+    *out_names = NULL;
+    *out_count = 0;
+    collect_vn(seq, out_names, out_count, &cap);
+}
 
 AstNode* ast_if(AstNode* cond, AstNode* then_stmt, AstNode* elif_chain, AstNode* else_stmt)
 {
@@ -397,6 +434,18 @@ AstNode* ast_try(AstNode* body, char* catch_var, AstNode* catch_body, AstNode* f
 AstNode* ast_throw(AstNode* expr) {
     AstNode* n = ast_new(AST_THROW);
     n->u.thrownode.expr = expr;
+    return n;
+}
+AstNode* ast_destruct(char** names, int count, AstNode* rhs) {
+    AstNode* n = ast_new(AST_DESTRUCT);
+    n->u.destruct.names = names;
+    n->u.destruct.count = count;
+    n->u.destruct.rhs = rhs;
+    return n;
+}
+AstNode* ast_spread(AstNode* expr) {
+    AstNode* n = ast_new(AST_SPREAD);
+    n->u.spread.expr = expr;
     return n;
 }
 

@@ -301,6 +301,46 @@ static void c_args(Ctx* c, AstNode* args, int* argc)
     c_args(c, args->u.seq.second, argc);
 }
 
+// 递归检测 AST_SEQ 树中是否含 AST_SPREAD
+static int has_spread_node(AstNode* e) {
+    if(!e) return 0;
+    if(e->type == AST_SPREAD) return 1;
+    if(e->type == AST_SEQ) return has_spread_node(e->u.seq.first) || has_spread_node(e->u.seq.second);
+    return 0;
+}
+// 递归编译数组字面量元素（含 spread）：栈顶保持为当前数组
+static void compile_array_elems(Ctx* c, AstNode* e) {
+    if(!e) return;
+    if(e->type == AST_SEQ) {
+        compile_array_elems(c, e->u.seq.first);
+        compile_array_elems(c, e->u.seq.second);
+        return;
+    }
+    if(e->type == AST_SPREAD) {
+        c_expr(c, e->u.spread.expr);
+        emit(c, OPC_BUILTIN, BUILTIN_ARRAY_ADDALL, 2);
+    } else {
+        c_expr(c, e);
+        emit(c, OPC_BUILTIN, BUILTIN_ARRAY_ADD, 2);
+    }
+}
+// 递归编译 map 字面量条目（含 spread）
+static void compile_map_entries_spread(Ctx* c, AstNode* e) {
+    if(!e) return;
+    if(e->type == AST_SEQ) {
+        compile_map_entries_spread(c, e->u.seq.first);
+        compile_map_entries_spread(c, e->u.seq.second);
+        return;
+    }
+    if(e->type == AST_SPREAD) {
+        c_expr(c, e->u.spread.expr);
+        emit(c, OPC_BUILTIN, BUILTIN_ARRAY_ADDALL, 2);
+    } else {
+        c_expr(c, e->u.map_entry.key);
+        c_expr(c, e->u.map_entry.value);
+        emit(c, OPC_INDEX_SET, 0, 0);
+    }
+}
 // 字典字面量项递归展开：AST_SEQ 链 / AST_MAP_ENTRY 单节点
 static void c_map_entries(Ctx* c, AstNode* e, int* n) {
     if(!e) return;
@@ -570,15 +610,25 @@ static void c_expr(Ctx* c, AstNode* node)
             emit(c, OPC_INDEX_SET, 0, 0);
             break;
         case AST_ARRAY_LIT: {
-            int n = 0;
-            c_args(c, node->u.array_lit.elems, &n);
-            emit(c, OPC_ARRAY_LIT, 0, n);
+            if(!has_spread_node(node->u.array_lit.elems)) {
+                int n = 0;
+                c_args(c, node->u.array_lit.elems, &n);
+                emit(c, OPC_ARRAY_LIT, 0, n);
+            } else {
+                emit(c, OPC_ARRAY_LIT, 0, 0);
+                compile_array_elems(c, node->u.array_lit.elems);
+            }
             break;
         }
         case AST_MAP_LIT: {
-            int n = 0;
-            c_map_entries(c, node->u.map_lit.entries, &n);
-            emit(c, OPC_MAP_LIT, 0, n);
+            if(!has_spread_node(node->u.map_lit.entries)) {
+                int n = 0;
+                c_map_entries(c, node->u.map_lit.entries, &n);
+                emit(c, OPC_MAP_LIT, 0, n);
+            } else {
+                emit(c, OPC_MAP_LIT, 0, 0);
+                compile_map_entries_spread(c, node->u.map_lit.entries);
+            }
             break;
         }
         case AST_PRINT:
@@ -603,6 +653,22 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_RETURN:
             if(node->u.ret.ret_val) c_expr(c, node->u.ret.ret_val);
             else emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
+            break;
+        case AST_DESTRUCT: {
+            c_expr(c, node->u.destruct.rhs);
+            for(int i = 0; i < node->u.destruct.count; i++) {
+                emit(c, OPC_DUP, 0, 0);
+                emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_int(i)), 0);
+                emit(c, OPC_INDEX_GET, 0, 0);
+                emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.destruct.names[i]), 0);
+                emit(c, OPC_POP, 0, 0);
+            }
+            emit(c, OPC_POP, 0, 0);
+            emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
+            break;
+        }
+        case AST_SPREAD:
+            c_expr(c, node->u.spread.expr);
             break;
         default:
             emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
@@ -643,6 +709,8 @@ static void c_stmt(Ctx* c, AstNode* node)
         case AST_INDEX_ASSIGN:
         case AST_ARRAY_LIT:
         case AST_MAP_LIT:
+        case AST_DESTRUCT:
+        case AST_SPREAD:
             c_expr(c, node);
             emit(c, OPC_POP, 0, 0);
             break;

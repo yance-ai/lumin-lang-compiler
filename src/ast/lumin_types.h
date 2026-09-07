@@ -44,6 +44,8 @@ typedef enum {
     AST_MAP_ENTRY,     // 字典字面量的一项（键表达式 + 值表达式）
     AST_TRY,           // try { body } catch (e) { handler } finally { }（catch/finally 可省略其一）
     AST_THROW,         // throw expr：显式抛错
+    AST_DESTRUCT,      // 解构赋值 a,b = [1,2]
+    AST_SPREAD,        // 展开运算符 ...expr（数组/map 字面量内）
 } AstType;
 
 // 二元运算符
