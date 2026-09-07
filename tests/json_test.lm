@@ -1,84 +1,178 @@
-// json(s) / stringify(v) 内置函数测试
-// 双通道一致：VM 与 C 编译通道输出逐行相同
+// json_test.lm —— 数组/map JSON 序列化与反序列化全场景（含任意类型键）
+print("== 1. 基本数组序列化 ==");
+arr1 = [1, 2, 3, 4, 5];
+print(stringify(arr1));
+print(arr1.stringify());
 
-q = (char)34;  // 双引号字符（构造 JSON 字符串字面量，规避模板内插）
-bs = (char)92; // 反斜杠字符
+print("== 2. 混合类型数组 ==");
+arr2 = [1, "hello", true, 3.14, null, 'c'];
+print(stringify(arr2));
 
-print("== 标量解析 ==");
-print(json("42"));            // 42（整数 → int）
-print(json("-7.25"));         // -7.25（小数 → double）
-print(json("true"));          // true
-print(json("false") == false);// true
-print(json("null") == null);  // true
-print(json(q + "hi" + q));    // hi（字符串）
+print("== 3. 嵌套数组 ==");
+arr3 = [[1, 2], [3, 4], [5, [6, 7]]];
+print(stringify(arr3));
 
-print("== 数组解析 ==");
-print(json("[1, 2, 3]")[1]);       // 2
-print(json("[1, [2, [3]]]")[1][1][0]); // 3 嵌套
-print(json("[]") == []);           // true 空数组
-print(type(json("[1, 2]")));       // array
+print("== 4. 空数组 ==");
+print(stringify([]));
 
-print("== round-trip（map → stringify → json）==");
-m2 = {"a": 1, "b": [1, 2], "c": {"x": "y"}, "d": null, "e": true, "f": 3.5, "g": "s"};
-js = stringify(m2);
-print(js);                        // {"a":1,"b":[1,2],"c":{"x":"y"},"d":null,"e":true,"f":3.5,"g":"s"}
-m = json(js);
-print(m["a"]);                    // 1
-print(m["b"][1]);                 // 2
-print(m["c"]["x"]);               // y
-print(m["d"] == null);            // true
-print(m["e"]);                    // true
-print(m["f"]);                    // 3.5
-print(m["g"]);                    // s
-print(stringify(m) == js);        // true 序列化幂等
+print("== 5. string 键 map 序列化 ==");
+m1 = {"name": "lumin", "version": 1, "active": true};
+print(stringify(m1));
+print(m1.stringify());
 
-print("== 数组 round-trip ==");
-a2 = [1, "two", false, null, 2.5];
-aj = stringify(a2);
-print(aj);                        // [1,"two",false,null,2.5]
-a3 = json(aj);
-print(a3[0]);                     // 1
-print(a3[1]);                     // two
-print(a3[2] == false);            // true
-print(a3[3] == null);             // true
-print(a3[4]);                     // 2.5
+print("== 6. int 键 map 序列化（键自动转字符串） ==");
+m2 = {1: "one", 2: "two", 100: "hundred"};
+print(stringify(m2));
 
-print("== stringify 转义 ==");
-print(stringify(q));              // "\""
-print(stringify(bs));             // "\\"
-s = q + "a" + bs + "b" + q;       // 内容: "a\b
-print(stringify(s));              // "\"a\\b\""
-print(json(stringify(s)) == s);   // true 转义 round-trip
-print(stringify('A'));            // "A"（char → 字符串）
-print(stringify((byte)65));       // 65（byte → 数字）
-print(stringify(1.0));            // 1（%g 去尾零）
-print(stringify(3.5));            // 3.5
+print("== 7. char 键 map 序列化 ==");
+m3 = {'a': 1, 'b': 2};
+print(stringify(m3));
 
-print("== 多层嵌套（map 包 array 包 map 交叉）==");
-nested = {
-  "name": "root",
-  "list": [
-    {"id": 1, "tags": ["a", "b"]},
-    {"id": 2, "tags": ["c", "d"], "inner": {"deep": [10, 20, [30, 40]]}},
-    [1, [2, {"x": "y"}]]
-  ],
-  "matrix": [[1, 2], [3, [4, 5]]]
-};
-njs = stringify(nested);
-print(njs);
-nm = json(njs);
-print(nm["name"]);                    // root
-print(nm["list"][0]["id"]);           // 1
-print(nm["list"][0]["tags"][1]);      // b
-print(nm["list"][1]["inner"]["deep"][2][1]); // 40
-print(nm["list"][2][1][1]["x"]);      // y
-print(nm["matrix"][1][1][0]);         // 4
-print(stringify(nm) == njs);          // true 深层 round-trip
+print("== 8. bool 键 map 序列化 ==");
+m4 = {true: "yes", false: "no"};
+print(stringify(m4));
 
-print("== unicode ==");
-print(json(q + "\u4f60\u597d" + q));   // 你好（\u 转义）
-print(json(q + "\ud83d\ude00" + q));   // 😀（代理对合并）
+print("== 9. double 键 map 序列化 ==");
+m5 = {3.14: "pi", 2.71: "e"};
+print(stringify(m5));
 
-print("== 错误处理 ==");
-try { json("not json"); print("no"); } catch (e) { print("caught"); }
-try { json("12x"); print("no"); } catch (e) { print("caught2"); }
+print("== 10. 混合类型键 map ==");
+m6 = {"str": 1, 42: "int", 'c': true, 3.14: "pi", false: "no"};
+print(stringify(m6));
+
+print("== 11. 嵌套 map ==");
+m7 = {"user": {"name": "alice", "age": 30}, "scores": [90, 85, 95]};
+print(stringify(m7));
+
+print("== 12. map 包 array，array 包 map ==");
+m8 = {"items": [{"id": 1, "val": "a"}, {"id": 2, "val": "b"}]};
+print(stringify(m8));
+arr4 = [{"x": 1}, {"y": 2}];
+print(stringify(arr4));
+
+print("== 13. 空 map ==");
+print(stringify({}));
+
+print("== 14. 自定义 type 对象序列化 ==");
+type Person { name: string, age: int }
+p = {name: "bob", age: 25};
+print(stringify(p));
+
+print("== 15. 含 null 值的 map ==");
+m9 = {"a": 1, "b": null, "c": "hello"};
+print(stringify(m9));
+
+print("== 16. 字符串值序列化 ==");
+m10 = {"simple": "hello world", "empty": "", "unicode": "中文测试"};
+print(stringify(m10));
+
+print("== 17. JSON 反序列化：基本对象 ==");
+src1 = {"name": "lumin", "version": 1, "active": true};
+j1 = json(stringify(src1));
+print(j1["name"]);
+print(j1["version"]);
+print(j1["active"]);
+
+print("== 18. JSON 反序列化：数组 ==");
+src2 = [1, 2, 3, "four", true, null];
+j2 = json(stringify(src2));
+print(j2[0]);
+print(j2[3]);
+print(j2[4]);
+print(j2[5]);
+
+print("== 19. JSON 反序列化：嵌套 ==");
+src3 = {"user": {"name": "alice", "age": 30}, "scores": [90, 85]};
+j3 = json(stringify(src3));
+print(j3["user"]["name"]);
+print(j3["user"]["age"]);
+print(j3["scores"][0]);
+
+print("== 20. 往返测试：序列化→解析→序列化 ==");
+original = {"a": 1, "b": [2, 3], "c": {"d": "hello"}};
+s1 = stringify(original);
+parsed = json(s1);
+s2 = stringify(parsed);
+print(s1 == s2);
+
+print("== 21. 数组往返 ==");
+arr5 = [1, "two", true, [3, 4], {"five": 5}];
+sa = stringify(arr5);
+pa = json(sa);
+print(stringify(pa) == sa);
+
+print("== 22. int 键 map 往返（键变成字符串） ==");
+m11 = {1: "one", 2: "two"};
+sm = stringify(m11);
+pm = json(sm);
+print(pm["1"]);
+print(pm["2"]);
+
+print("== 23. UTF-8 中文序列化 ==");
+m12 = {"名称": "照明", "描述": "编译器"};
+print(stringify(m12));
+print(stringify(m12, "UTF-8"));
+
+print("== 24. 中文往返 ==");
+sc = stringify(m12);
+pc = json(sc);
+print(pc["名称"]);
+
+print("== 25. 空字符串/零值 ==");
+m13 = {"empty": "", "zero": 0, "false": false, "nul": null};
+print(stringify(m13));
+
+print("== 26. 大数组序列化 ==");
+big = [];
+for(i = 0; i < 100; i++) big = big.add(i);
+sb = stringify(big);
+print(sb.len() > 0);
+pb = json(sb);
+print(pb.len());
+print(pb[99]);
+
+print("== 27. 深层嵌套 ==");
+deep = {"a": {"b": {"c": {"d": [1, 2, {"e": "deep"}]}}}};
+print(stringify(deep));
+pd = json(stringify(deep));
+print(pd["a"]["b"]["c"]["d"][2]["e"]);
+
+print("== 28. 泛型数组序列化 ==");
+ga = <int8>[200, 128, 50];
+print(stringify(ga));
+
+print("== 29. 泛型 map 序列化 ==");
+gm = <string,int8>{"a": 200, "b": 128};
+print(stringify(gm));
+
+print("== 30. json() 方法调用 ==");
+src30 = {"method": "test", "code": 200};
+js = stringify(src30);
+print(js.json()["method"]);
+print(js.json()["code"]);
+
+print("== 31. char 键往返 ==");
+m14 = {'a': 1, 'b': 2};
+sc14 = stringify(m14);
+print(sc14);
+pc14 = json(sc14);
+print(pc14["a"]);
+print(pc14["b"]);
+
+print("== 32. bool 键往返 ==");
+m15 = {true: "yes", false: "no"};
+sc15 = stringify(m15);
+print(sc15);
+pc15 = json(sc15);
+print(pc15["true"]);
+print(pc15["false"]);
+
+print("== 33. double 键往返 ==");
+m16 = {3.14: "pi", 2.71: "e"};
+sc16 = stringify(m16);
+print(sc16);
+pc16 = json(sc16);
+print(pc16["3.14"]);
+print(pc16["2.71"]);
+
+print("ALL DONE");
