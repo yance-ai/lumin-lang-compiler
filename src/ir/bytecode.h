@@ -130,6 +130,13 @@ typedef enum {
     BUILTIN_ARRAY_ADDALL, // addAll(a, b)：数组追加全部元素 / 字典合并全部键值
     BUILTIN_BYTES,        // bytes(s, enc?)：字符串 → 字节数组（按编码，默认 UTF-8）
     BUILTIN_STR,          // str(arr, enc?)：字节数组 → 字符串（按编码，默认 UTF-8）
+    BUILTIN_ENCODE,       // encode(s, enc?)：字符串 → 字节数组（按编码，默认 UTF-8）
+    BUILTIN_DECODE,       // decode(arr, enc?)：字节数组 → 字符串（按编码，默认 UTF-8）
+    BUILTIN_ENCODE_URL,   // encodeURL(s)：URL 编码（高字节原样）
+    BUILTIN_DECODE_URL,   // decodeURL(s)：URL 解码（%XX/+ → 原字符）
+    BUILTIN_MD5,          // md5(s)：MD5 32 位十六进制小写
+    BUILTIN_ENCODE_BASE64,  // encodeBase64(s)：Base64 编码
+    BUILTIN_DECODE_BASE64,  // decodeBase64(s)：Base64 解码
     BUILTIN_COUNT
 } BuiltinId;
 

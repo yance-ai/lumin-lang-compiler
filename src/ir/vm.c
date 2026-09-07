@@ -13,6 +13,7 @@
 #include "runtime/lm_json.h"
 #include "runtime/lm_qs.h"
 #include "runtime/lm_charset.h"
+#include "runtime/lm_crypto.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -649,6 +650,60 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = lumin_from_bytes(v, enc);
                         break;
                     }
+                    case BUILTIN_ENCODE: {
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_to_bytes(v, enc);
+                        break;
+                    }
+                    case BUILTIN_DECODE: {
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_from_bytes(v, enc);
+                        break;
+                    }
+                    case BUILTIN_ENCODE_URL: {
+                        Value v = stack[--sp];
+                        char* r = lumin_url_encode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "");
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_DECODE_URL: {
+                        Value v = stack[--sp];
+                        char* r = lumin_url_decode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "");
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_MD5: {
+                        Value v = stack[--sp];
+                        const char* inp = v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "";
+                        char* r = lumin_md5_hex(inp, (int)strlen(inp));
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_ENCODE_BASE64: {
+                        Value v = stack[--sp];
+                        const char* inp = v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "";
+                        char* r = lumin_base64_encode(inp, (int)strlen(inp));
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_DECODE_BASE64: {
+                        Value v = stack[--sp];
+                        int olen = 0;
+                        char* r = lumin_base64_decode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "", &olen);
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -780,6 +835,60 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
                         stack[sp++] = lumin_from_bytes(v, enc);
+                        break;
+                    }
+                    case BUILTIN_ENCODE: {
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_to_bytes(v, enc);
+                        break;
+                    }
+                    case BUILTIN_DECODE: {
+                        Value enc = val_none();
+                        Value v;
+                        if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
+                        else { v = stack[--sp]; }
+                        stack[sp++] = lumin_from_bytes(v, enc);
+                        break;
+                    }
+                    case BUILTIN_ENCODE_URL: {
+                        Value v = stack[--sp];
+                        char* r = lumin_url_encode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "");
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_DECODE_URL: {
+                        Value v = stack[--sp];
+                        char* r = lumin_url_decode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "");
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_MD5: {
+                        Value v = stack[--sp];
+                        const char* inp = v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "";
+                        char* r = lumin_md5_hex(inp, (int)strlen(inp));
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_ENCODE_BASE64: {
+                        Value v = stack[--sp];
+                        const char* inp = v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "";
+                        char* r = lumin_base64_encode(inp, (int)strlen(inp));
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
+                        break;
+                    }
+                    case BUILTIN_DECODE_BASE64: {
+                        Value v = stack[--sp];
+                        int olen = 0;
+                        char* r = lumin_base64_decode(v.type == VAL_STRING ? (v.v.s ? v.v.s : "") : "", &olen);
+                        stack[sp++] = lumin_make_string(r);
+                        free(r);
                         break;
                     }
                     case BUILTIN_HTTP_DELETE: m = "DELETE"; break;

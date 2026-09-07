@@ -619,6 +619,9 @@ int typecheck_expr(AstNode* node)
                     {"arr_get", 2, 2}, {"indexOf", 2, 2}, {"set", 3, 3}, {"first", 1, 1}, {"last", 1, 1}, {"has", 2, 2},
                     {"flat", 1, 2}, {"qs", 1, 2}, {"addAll", 2, 2}, {"bytes", 1, 2}, {"str", 1, 2},
                     {"json", 1, 2}, {"stringify", 1, 2},
+                    {"encode", 1, 2}, {"decode", 1, 2},
+                    {"encodeURL", 1, 1}, {"decodeURL", 1, 1},
+                    {"md5", 1, 1}, {"encodeBase64", 1, 1}, {"decodeBase64", 1, 1},
                 };
                 int found = 0;
                 int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));

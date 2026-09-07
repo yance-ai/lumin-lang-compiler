@@ -9,6 +9,7 @@
 #include "runtime/lm_qs.h"
 #include "runtime/lm_array.h"
 #include "runtime/lm_charset.h"
+#include "runtime/lm_crypto.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -501,6 +502,33 @@ static void emit_insns(BytecodeFunc* fn)
                         else
                             fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, val_none()); }\n");
                         break;
+                    case BUILTIN_ENCODE:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_to_bytes(__v, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_to_bytes(__v, val_none()); }\n");
+                        break;
+                    case BUILTIN_DECODE:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, val_none()); }\n");
+                        break;
+                    case BUILTIN_ENCODE_URL:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_encode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_DECODE_URL:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_MD5:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"; char* __r = lumin_md5_hex(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_ENCODE_BASE64:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"; char* __r = lumin_base64_encode(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_DECODE_BASE64:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; int __ol=0; char* __r = lumin_base64_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\", &__ol); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -576,6 +604,33 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, __e); }\n");
                         else
                             fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, val_none()); }\n");
+                        break;
+                    case BUILTIN_ENCODE:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_to_bytes(__v, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_to_bytes(__v, val_none()); }\n");
+                        break;
+                    case BUILTIN_DECODE:
+                        if(in.b >= 2)
+                            fprintf(out, "    { Value __e = __stk[--__sp]; Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, __e); }\n");
+                        else
+                            fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_from_bytes(__v, val_none()); }\n");
+                        break;
+                    case BUILTIN_ENCODE_URL:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_encode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_DECODE_URL:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; char* __r = lumin_url_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_MD5:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"; char* __r = lumin_md5_hex(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_ENCODE_BASE64:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; const char* __i = __v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\"; char* __r = lumin_base64_encode(__i, (int)strlen(__i)); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
+                        break;
+                    case BUILTIN_DECODE_BASE64:
+                        fprintf(out, "    { Value __v = __stk[--__sp]; int __ol=0; char* __r = lumin_base64_decode(__v.type==VAL_STRING?(__v.v.s?__v.v.s:\"\"):\"\", &__ol); __stk[__sp++] = lumin_make_string(__r); free(__r); }\n");
                         break;
                     case BUILTIN_HTTP_DELETE: m = "DELETE"; break;
                             case BUILTIN_HTTP_HEAD:   m = "HEAD"; break;

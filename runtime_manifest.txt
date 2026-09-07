@@ -12,6 +12,7 @@ runtime/lm_tls.h
 runtime/lm_http.h
 runtime/lm_json.h
 runtime/lm_charset.h
+runtime/lm_crypto.h
 runtime/lm_qs.h
 
 
@@ -29,4 +30,5 @@ runtime/lm_tls.c
 runtime/lm_http.c
 runtime/lm_json.c
 runtime/lm_charset.c
+runtime/lm_crypto.c
 runtime/lm_qs.c
