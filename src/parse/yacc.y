@@ -360,9 +360,8 @@ primary
         { $$ = new_cast_node(CAST_BYTE, ast_array_lit($5)); }
     | LPAREN TOK_BYTE RPAREN LBRACE map_items RBRACE
         { $$ = new_cast_node(CAST_BYTE, ast_map_lit($5)); }
-    /* 泛型字面量：<T>[1,2,3] 数组逐元素强转 / <string,V>{k:v} map 值强转（键固定 string） */
-    | LT builtin_type_name GT ARRAY_OPEN arg_list RBRACKET
-        { $$ = new_cast_node($2, ast_array_lit($5)); }
+    /* 泛型字面量：<T>value 单值/数组/map 统一走 unary_expr（强转函数已支持数组/map 递归）
+       <string,V>{k:v} map 值强转（键固定 string） */
     | LT builtin_type_name GT unary_expr
         { $$ = new_cast_node($2, $4); }
     | LT TOK_STRING COMMA builtin_type_name GT MAP_OPEN map_items RBRACE
