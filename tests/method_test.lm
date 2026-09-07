@@ -103,6 +103,34 @@ print(n.last());               // 3
 print(len(n.keys()));          // 3（map 方法嵌套）
 print(n.values()[0]);          // 1
 
+print("== 全部容器内置可 .函数() 触发 ==");
+a = [3, 1, 2];
+print(a.len());                    // 3
+print(a.indexOf(2));               // 2
+print(a.contains(1));              // true
+print(a.first());                  // 3
+print(a.last());                   // 2
+print(a.sum());                    // 6
+print(a.avg());                    // 2
+print(a.sort().first());           // 1
+print(a.reverse().first());        // 3
+b = a.insert(0, 9);
+print(b.len());                    // 4
+print(b.del(1).len());             // 3
+m = {"x": 1, "y": 2};
+print(m.len());                    // 2
+print(m.keys().len());             // 2
+print(m.values().sum());           // 3
+print(m.contains("x"));            // true
+print(m.get("x"));                 // 1
+print(m.has("y"));                 // true
+print(m.del("x").len());           // 1（map del 方法链：值语义返回新 map）
+print(m.first());                  // 1（原 map 不变，插入序首键 x 的值）
+print(m.last());                   // 2
+print(m.add("z", 3).len());        // 3
+print(m.set("w", 4).len());        // 4（set 原地，原 map 扩为 4 键）
+print(m.clear().len());            // 0（普通 map 无 __classname__，清空后 0）
+
 print("== 边界 ==");
 print(len([].clear()));                // 0
 try { [1, 2].remove(5); print("no"); } catch (e) { print("caught"); }
