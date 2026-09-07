@@ -95,7 +95,7 @@ print(m.remove("a")["b"]);     // x（remove 删键，返回新 map）
 print(m.has("a"));             // true（remove 值语义，原 map 不变）
 print(m.first());              // 1（首键值，插入序）
 print(m.last());               // 99（尾键值）
-print(m.clear() == {});        // true（清空返回空 map）
+print(m.clear() == {});        // true（clear 原地生效，返回自身）
 n = {}.add("x", 1).add("y", 2).set("z", 3);  // 链式
 print(n["y"]);                 // 2
 print(n.first());              // 1

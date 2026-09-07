@@ -153,12 +153,23 @@ Value lumin_map_add(Value m, Value k, Value v)
     return m;
 }
 
-// clear 容器：数组 → 空数组；字典 → 空字典
+// clear 容器：原地清空，返回自身（链式）；数组 → 空数组；字典 → 空字典
+// 只读 __classname__ 不被清理：type 构造对象 clear 后类名属性保留
 Value lumin_array_clear(Value v)
 {
-    if(v.type == VAL_MAP) return val_map();
-    if(v.type != VAL_ARRAY) runtime_error("clear() 参数必须是数组或字典");
-    return val_array(0);
+    if(v.type == VAL_MAP) {
+        ValueMap* m = v.v.map;
+        char* cn = NULL; Value cnv = val_none();
+        int i = lumin_map_find(m, "__classname__");
+        if(i >= 0) { cn = strdup(m->keys[i]); cnv = m->values[i]; }
+        for(int k = 0; k < m->len; k++) free(m->keys[k]);
+        m->len = 0;
+        if(cn) { lumin_map_set(&v, lumin_make_string(cn), cnv); free(cn); }
+        return v;
+    }
+    if(v.type == VAL_ARRAY) { v.v.array.len = 0; return v; }
+    runtime_error("clear() 参数必须是数组或字典");
+    return v;
 }
 
 // floor/ceil：向下/向上取整，返回 int

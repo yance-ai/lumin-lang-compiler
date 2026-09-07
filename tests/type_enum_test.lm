@@ -73,6 +73,36 @@ print(p.name);                       // 张三（原属性不受影响）
 //   t.remove("__classname__");       → Runtime Error（只读不可删）
 //   k = "__classname__"; t[k] = "x"; → Runtime Error（动态键兜底）
 
+print("== 多类型 clear 保留 __classname__ ==");
+type Product { id: int, price: double }
+type Book { title: string, pages: int }
+type Car { brand: string, speed: int }
+pr = Product(1, 99.5);
+bk = Book("Lumin 语言", 300);
+cr = Car("BYD", 120);
+pr.clear();
+bk.clear();
+cr.clear();
+print(pr.__classname__);       // Product（clear 后类名保留）
+print(bk.__classname__);       // Book
+print(cr.__classname__);       // Car
+print(len(pr.keys()));         // 1（只剩 __classname__）
+print(pr.id == null);          // true（普通属性被清）
+print(bk.title == null);       // true
+print(cr.speed == null);       // true
+print(cr.clear().__classname__);  // Car（再次 clear 仍保留，链式返回自身）
+print(cr.brand == null);       // true（第二次 clear 后仍无普通属性）
+plain = {"x": 1, "y": 2};      // 普通 map 无 __classname__
+plain.clear();
+print(len(plain.keys()));      // 0
+print(plain == {});            // true
+a = [1, 2, 3];
+a.clear();                     // 数组 clear 原地
+print(len(a));                 // 0
+print(a == []);                // true
+// clear 链式：构造 → clear → 读类名
+print(Product(7, 1.5).clear().__classname__);  // Product
+
 print("== 类型构造参数错误（语义检查） ==");
 // Person("only one")  单参非 map → 位置构造（name=only one，age 缺省 null）
 p4 = Person("only one");
