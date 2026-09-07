@@ -114,6 +114,8 @@ char* value_to_str(Value v) {
             memcpy(res, buf2, n+1);
             return res;
         }
+        case VAL_MAP:
+            return lumin_json_stringify(v);
         default:
             strcpy(buf, "");
             break;
