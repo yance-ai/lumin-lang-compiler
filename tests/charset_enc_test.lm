@@ -24,8 +24,8 @@ print(str(s.bytes("gb18030"), "gb18030")); // s
 print(str("hello".bytes("big5"), "big5")); // hello（big5 无简体，ASCII 原样）
 print("== 3. qs 编码参数 ==");
 m = {"name": "张三", "age": 25, "ok": true};
-print(qs(m));                        // name=%E5%BC%A0%E4%B8%89&age=25&ok=true
-print(qs(m, "gbk"));                 // name=%D5%C5%C8%FD&age=25&ok=true
+print(qs(m));                        // name=张三&age=25&ok=true（默认中文原样）
+print(qs(m, "gbk"));                 // name=%D5%C5%C8%FD&age=25&ok=true（传 enc 才 %XX）
 print(qs("name=%D5%C5%C8%FD&age=25", "gbk").name); // 张三
 r = qs("name=%E5%BC%A0%E4%B8%89&age=25");
 print(r.age);                        // 25

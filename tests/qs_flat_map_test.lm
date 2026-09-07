@@ -76,7 +76,7 @@ print(qs(m2));                  // user[name]=john&user[age]=30
 m3 = {"tags": ["a", "b"]};
 print(qs(m3));                  // tags[0]=a&tags[1]=b
 m4 = {"user": {"name": "张三", "tags": ["a", "b"]}, "n": 5};
-print(qs(m4));                  // user[name]=%E5%BC%A0%E4%B8%89&user[tags][0]=a&user[tags][1]=b&n=5
+print(qs(m4));                  // user[name]=张三&user[tags][0]=a&user[tags][1]=b&n=5
 print(qs({"a": [1, {"b": 2}]}));  // a[0]=1&a[1][b]=2
 print(qs({}));                  // 空字典 → 空串
 

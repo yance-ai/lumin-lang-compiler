@@ -20,9 +20,10 @@ static void qsb_ch(QSB* b, char c) { qsb_grow(b, 1); b->s[b->len++] = c; b->s[b-
 static void qsb_str(QSB* b, const char* s) { int n = (int)strlen(s); qsb_grow(b, n); memcpy(b->s + b->len, s, n); b->len += n; b->s[b->len] = 0; }
 
 // ===== URL 编码/解码（UTF-8 字节安全） =====
-static void qs_encode(QSB* b, const char* s) {
+static void qs_encode(QSB* b, const char* s, int raw_high) {
     for(const unsigned char* p = (const unsigned char*)s; *p; p++) {
         if(isalnum(*p) || *p=='-' || *p=='_' || *p=='.' || *p=='~') qsb_ch(b, (char)*p);
+        else if(raw_high && *p >= 0x80) qsb_ch(b, (char)*p);  // 中文等多字节字符原样输出
         else { char h[4]; snprintf(h, 4, "%%%02X", *p); qsb_str(b, h); }
     }
 }
@@ -62,8 +63,8 @@ static void qs_stringify_rec(QSB* b, const char* key, Value v, Value enc) {
         else qsb_str(b, key);
         qsb_ch(b, '=');
         char* sv = value_to_str(v);
-        if(e) { char* vt = lumin_utf8_to_text(sv, enc); qs_encode(b, vt ? vt : sv); free(vt); }
-        else qs_encode(b, sv);
+        if(e) { char* vt = lumin_utf8_to_text(sv, enc); qs_encode(b, vt ? vt : sv, 0); free(vt); }
+        else qs_encode(b, sv, 1);
         free(sv);
     }
 }
