@@ -127,6 +127,7 @@ typedef enum {
     BUILTIN_MAP_HAS,      // has(m, k)：键是否存在（m.has(k) 方法链）
     BUILTIN_ARRAY_FLAT,   // flat(arr, depth?)：数组/字典扁平化（.flat() 方法链）
     BUILTIN_QS,           // qs(v)：字典/数组 → 查询字符串；字符串 → 解析为字典/数组
+    BUILTIN_ARRAY_ADDALL, // addAll(a, b)：数组追加全部元素 / 字典合并全部键值
     BUILTIN_COUNT
 } BuiltinId;
 

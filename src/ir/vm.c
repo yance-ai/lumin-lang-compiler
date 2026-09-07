@@ -617,6 +617,12 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         }
                         break;
                     }
+                    case BUILTIN_ARRAY_ADDALL: {
+                        Value b = stack[--sp];
+                        Value a = stack[--sp];
+                        stack[sp++] = lumin_array_addall(a, b);
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -717,6 +723,12 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         } else {
                             runtime_error("qs() 参数必须是字典/数组（序列化）或字符串（解析）");
                         }
+                        break;
+                    }
+                    case BUILTIN_ARRAY_ADDALL: {
+                        Value b = stack[--sp];
+                        Value a = stack[--sp];
+                        stack[sp++] = lumin_array_addall(a, b);
                         break;
                     }
                     case BUILTIN_HTTP_DELETE: m = "DELETE"; break;

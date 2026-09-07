@@ -297,3 +297,23 @@ Value lumin_array_flat(Value v, int depth) {
     free(b.items);
     return r;
 }
+
+// ===== addAll：数组追加 / 字典合并 =====
+Value lumin_array_addall(Value a, Value b) {
+    if(a.type == VAL_ARRAY && b.type == VAL_ARRAY) {
+        int n = a.v.array.len + b.v.array.len;
+        Value r = val_array(n);
+        for(int i = 0; i < a.v.array.len; i++) r.v.array.items[i] = val_clone(&a.v.array.items[i]);
+        for(int i = 0; i < b.v.array.len; i++) r.v.array.items[a.v.array.len + i] = val_clone(&b.v.array.items[i]);
+        return r;
+    }
+    if(a.type == VAL_MAP && b.type == VAL_MAP) {
+        /* 引用语义：原地合并，返回 a（与 set/clear 一致） */
+        for(int i = 0; i < b.v.map->len; i++) {
+            lumin_map_set(&a, lumin_make_string(b.v.map->keys[i]), b.v.map->values[i]);
+        }
+        return a;
+    }
+    runtime_error("addAll() 参数类型不匹配：数组+数组 或 字典+字典");
+    return a;
+}

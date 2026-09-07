@@ -27,3 +27,6 @@ Value lumin_array_clear(Value v);                // 清空容器：数组→[]�
 
 // 数组/字典扁平化：展开嵌套数组（深度 depth，默认 1；负数 → 无限展开）
 Value lumin_array_flat(Value v, int depth);
+
+// addAll(a, b)：数组追加全部元素（新数组）/ 字典合并全部键值（原地返回 a）
+Value lumin_array_addall(Value a, Value b);
