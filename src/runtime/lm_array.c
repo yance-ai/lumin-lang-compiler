@@ -62,6 +62,7 @@ Value lumin_array_add(Value* arr, Value val)
         arr->v.array->cap = newcap;
     }
     gc_write_barrier(val);  /* 增量标记写屏障 */
+    gc_remembered_set_check(*arr, val);  /* 老年代容器引用新生代时加入 remembered set */
     arr->v.array->items[n] = val;
     arr->v.array->len++;
     return *arr;
@@ -85,6 +86,7 @@ Value lumin_insert(Value* arr, Value idx, Value val)
     // 后移
     for(int k = n; k > (int)i; k--) arr->v.array->items[k] = arr->v.array->items[k - 1];
     gc_write_barrier(val);  /* 增量标记写屏障 */
+    gc_remembered_set_check(*arr, val);  /* 老年代容器引用新生代时加入 remembered set */
     arr->v.array->items[(int)i] = val;
     return *arr;
 }
@@ -130,6 +132,7 @@ Value lumin_array_set_method(Value arr, Value idx, Value val)
     }
     Value* slot = &arr.v.array->items[i];
     gc_write_barrier(val);  /* 增量标记写屏障 */
+    gc_remembered_set_check(arr, val);  /* 老年代容器引用新生代时加入 remembered set */
     *slot = val;
     return arr;
 }
@@ -337,6 +340,7 @@ Value lumin_array_addall(Value* a, Value b) {
         }
         for(int i = 0; i < nb; i++) {
             gc_write_barrier(b.v.array->items[i]);  /* 增量标记写屏障 */
+            gc_remembered_set_check(*a, b.v.array->items[i]);  /* 老年代容器引用新生代时加入 rs */
             a->v.array->items[na + i] = b.v.array->items[i];
         }
         a->v.array->len = na + nb;

@@ -19,11 +19,14 @@
 /* 分代 GC：对象年龄阈值，达到该值后从新生代晋升老年代 */
 #define PROMOTE_AGE 3
 
+/* GCObject flags 位定义 */
+#define GC_OBJ_IN_RS 0x01  /* bit 0：对象已在 remembered set 中（去重） */
+
 typedef struct GCObject {
     unsigned char marked;
     unsigned char vtype;      /* VAL_STRING / VAL_ARRAY / VAL_MAP / VAL_ERROR / VAL_FUNC */
     unsigned char age;         /* 分代年龄：<PROMOTE_AGE=新生代，>=PROMOTE_AGE=老年代 */
-    unsigned char _pad;        /* 对齐填充，保持结构体 16 字节 */
+    unsigned char flags;       /* 标志位：bit0=GC_OBJ_IN_RS，保持结构体 16 字节 */
     uint32_t user_size;       /* 用户数据大小（不含 GCObject 头） */
     struct GCObject* next;
 } GCObject;
@@ -35,6 +38,17 @@ void* gc_alloc(size_t size, int vtype);
 /* 从链表移除旧节点，realloc，重新挂入，返回新用户数据指针。
  * 只用于 realloc 数组 items 等内部缓冲区（ValueArray* 本身不变，只有 items 指针变） */
 void* gc_realloc(void* ptr, size_t new_size);
+
+/* 老年代分配：分配后直接设 age=PROMOTE_AGE，用于内部缓冲区
+ * （items/buckets/tree/MapEntry），避免被老年代容器引用时 Minor GC 错误回收 */
+void* gc_alloc_old(size_t size, int vtype);
+
+/* Remembered set 检查：老年代容器写入新值时，若新值可能引用新生代对象，
+ * 将容器加入 remembered set。在所有修改堆对象内部引用的位置调用。 */
+void gc_remembered_set_check(Value owner, Value new_val);
+
+/* 返回 remembered set 当前大小（统计用） */
+size_t gc_rs_size(void);
 
 /* ---- 标记 ---- */
 /* 如果 v 是堆类型，标记其 GCObject，然后递归标记内部引用 */
@@ -57,7 +71,8 @@ void gc_collect(Value* stack, int sp, StackFrame* frame);
 /* Major GC：全量增量标记-清除（sweep 全部对象，age 不变） */
 void gc_collect_major(Value* stack, int sp, StackFrame* frame);
 
-/* Minor GC：全量标记 + 只 sweep 新生代（存活对象 age++，达到阈值晋升老年代） */
+/* Minor GC：全量 STW 标记新生代 + remembered set，只 sweep 新生代
+ * （存活对象 age++，达到阈值晋升老年代，晋升对象加入 remembered set） */
 void gc_collect_minor(Value* stack, int sp, StackFrame* frame);
 
 /* ---- 根注册（供 gc_alloc 内部触发 GC 时使用） ---- */

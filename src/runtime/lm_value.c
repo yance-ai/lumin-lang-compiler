@@ -393,6 +393,7 @@ Value lumin_array_set(Value arr, Value idx, Value val) {
     }
     Value* slot = &arr.v.array->items[i];
     gc_write_barrier(val);  /* 增量标记写屏障：新值引用白色堆对象时变灰入栈 */
+    gc_remembered_set_check(arr, val);  /* 老年代容器引用新生代时加入 remembered set */
     *slot = val;
     return val;
 }

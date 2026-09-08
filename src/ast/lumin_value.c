@@ -213,7 +213,7 @@ Value val_array(int len) {
     gc_disable();
     Value* items = NULL;
     if(len > 0) {
-        items = (Value*)gc_alloc(sizeof(Value) * len, VAL_ARRAY);
+        items = (Value*)gc_alloc_old(sizeof(Value) * len, VAL_ARRAY);  /* 内部缓冲区老年代 */
         for(int i = 0; i < len; i++) {
             items[i] = val_none();
         }
@@ -240,7 +240,7 @@ Value val_array_from_stack(ValueArray* va, int len) {
     va->len = len;
     va->cap = len > 0 ? len : 0;
     if(len > 0) {
-        va->items = (Value*)gc_alloc(sizeof(Value) * len, VAL_ARRAY);
+        va->items = (Value*)gc_alloc_old(sizeof(Value) * len, VAL_ARRAY);  /* 内部缓冲区老年代 */
         for(int i = 0; i < len; i++) va->items[i] = val_none();
     } else {
         va->items = NULL;
@@ -273,9 +273,9 @@ Value val_map(void) {
     r.type = VAL_MAP;
     /* GC 安全：构造期间暂停自动 GC */
     gc_disable();
-    MapEntry** buckets = (MapEntry**)gc_alloc(16 * sizeof(MapEntry*), VAL_MAP);
+    MapEntry** buckets = (MapEntry**)gc_alloc_old(16 * sizeof(MapEntry*), VAL_MAP);  /* 内部缓冲区老年代 */
     memset(buckets, 0, 16 * sizeof(MapEntry*));
-    unsigned char* tree = (unsigned char*)gc_alloc(16 * sizeof(unsigned char), VAL_MAP);
+    unsigned char* tree = (unsigned char*)gc_alloc_old(16 * sizeof(unsigned char), VAL_MAP);  /* 内部缓冲区老年代 */
     memset(tree, 0, 16 * sizeof(unsigned char));
     r.v.map = (ValueMap*)gc_alloc(sizeof(ValueMap), VAL_MAP);
     r.v.map->len = 0;
@@ -294,9 +294,9 @@ Value val_map_from_stack(ValueMap* vm) {
     Value r;
     r.type = VAL_MAP;
     gc_disable();
-    MapEntry** buckets = (MapEntry**)gc_alloc(16 * sizeof(MapEntry*), VAL_MAP);
+    MapEntry** buckets = (MapEntry**)gc_alloc_old(16 * sizeof(MapEntry*), VAL_MAP);  /* 内部缓冲区老年代 */
     memset(buckets, 0, 16 * sizeof(MapEntry*));
-    unsigned char* tree = (unsigned char*)gc_alloc(16 * sizeof(unsigned char), VAL_MAP);
+    unsigned char* tree = (unsigned char*)gc_alloc_old(16 * sizeof(unsigned char), VAL_MAP);  /* 内部缓冲区老年代 */
     memset(tree, 0, 16 * sizeof(unsigned char));
     vm->len = 0;
     vm->cap = 16;

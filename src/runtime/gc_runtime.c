@@ -31,6 +31,9 @@ _Static_assert(sizeof(GCObject) == 16, "GCObject must be 16 bytes");
 #define TLA_MAX_SIZE   256   /* 用户数据 <=256 字节走 TLA */
 #define TLA_BATCH      16    /* 本地链表空时批量分配/取用的对象数 */
 
+/* 指针有效性校验：并发标记时栈扫描可能读到撕裂 Value，跳过明显非法指针 */
+#define GC_VALID_PTR(p) ((p) && (unsigned long long)(p) >= 4096 && (unsigned long long)(p) <= 0x00007fffffffffffULL)
+
 /* 线程本地空闲链表（无锁访问）：对象在 g_gc_objects 中，marked=2 */
 static _Thread_local GCObject* tla_local_free = NULL;
 static _Thread_local int tla_local_count = 0;
@@ -62,6 +65,16 @@ static size_t g_young_threshold = 8 * 1024 * 1024;   /* 新生代阈值，超过
 static size_t g_old_threshold = 64 * 1024 * 1024;    /* 老年代阈值，超过触发 Major GC */
 static unsigned long long g_minor_gc_count = 0;  /* Minor GC 次数 */
 static unsigned long long g_major_gc_count = 0;  /* Major GC 次数 */
+
+/* ---- Remembered Set（老年代→新生代跨代引用追踪）----
+ * 记录所有可能引用新生代对象的老年代对象。Minor GC 时只扫描根 + remembered set
+ * 中的老年代对象，而非全部老年代，大幅减少标记开销。
+ * 条目在 Minor GC 之间持久化；Major GC sweep 前清空（避免悬空指针）。
+ * 用 GCObject.flags 的 GC_OBJ_IN_RS 位去重（每个老年代对象最多一条）。 */
+static GCObject** g_remembered_set = NULL;
+static size_t g_rs_size = 0;
+static size_t g_rs_cap = 0;
+static pthread_mutex_t g_rs_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* ---- 增量标记：运行时开关 ----
  * 1=启用增量标记（初始STW + 并发标记 + 最终STW），0=全量 STW 标记（fallback）
@@ -206,6 +219,7 @@ void* gc_alloc(size_t size, int vtype)
                 cur->marked = g_gc_marking ? 1 : 3;
                 cur->vtype = (unsigned char)vtype;
                 cur->age = 0;
+                cur->flags = 0;
                 memset(obj_to_ptr(cur), 0, size);
                 /* 不增加 g_gc_bytes（对象一直在全局链表中，已被统计） */
                 return obj_to_ptr(cur);
@@ -249,6 +263,7 @@ void* gc_alloc(size_t size, int vtype)
                     cur->marked = g_gc_marking ? 1 : 3;  /* 新分配预标记 / 标记期黑色 */
                     cur->vtype = (unsigned char)vtype;
                     cur->age = 0;  /* 新分配对象进入新生代 */
+                    cur->flags = 0;
                     memset(obj_to_ptr(cur), 0, size);
                     return obj_to_ptr(cur);
                 }
@@ -269,6 +284,7 @@ void* gc_alloc(size_t size, int vtype)
             batch[i]->marked = 0;
             batch[i]->vtype = 0;
             batch[i]->age = 0;  /* 新对象进入新生代 */
+            batch[i]->flags = 0;
             batch[i]->user_size = (uint32_t)real_sz;
             batch[i]->next = NULL;
         }
@@ -320,6 +336,7 @@ void* gc_alloc(size_t size, int vtype)
     obj->marked = g_gc_marking ? 1 : 3;  /* 新分配预标记 / 标记期黑色 */
     obj->vtype = (unsigned char)vtype;
     obj->age = (size > TLA_MAX_SIZE) ? PROMOTE_AGE : 0;  /* 大对象直接老年代 */
+    obj->flags = 0;
     obj->user_size = (uint32_t)size;
     obj->next = NULL;
     memset(obj_to_ptr(obj), 0, size);
@@ -373,6 +390,8 @@ void* gc_realloc(void* ptr, size_t new_size)
     new_obj->user_size = (uint32_t)new_size;
     new_obj->marked = 0;
     new_obj->vtype = vtype;
+    new_obj->age = PROMOTE_AGE;  /* 内部缓冲区始终老年代，避免被老年代容器引用时 Minor GC 错误回收 */
+    new_obj->flags = 0;
     new_obj->next = NULL;
     if (new_size > copy_size) {
         memset((char*)new_obj + sizeof(GCObject) + copy_size, 0, new_size - copy_size);
@@ -383,15 +402,136 @@ void* gc_realloc(void* ptr, size_t new_size)
     new_obj->next = g_gc_objects;
     g_gc_objects = new_obj;
     g_gc_bytes += new_total;
-    /* 按新对象 age（从旧对象复制）计入对应分代 */
-    if (new_obj->age < PROMOTE_AGE) g_young_bytes += new_total;
-    else g_old_bytes += new_total;
+    /* 内部缓冲区始终老年代（gc_realloc 仅用于内部缓冲区） */
+    g_old_bytes += new_total;
     /* 旧对象保留在链表中，marked 保持原值（通常为 0）。
      * 调用方更新指针后，旧对象不再被引用，下一次 GC sweep 释放它。
      * 在调用方更新指针前，并发 GC 可安全扫描旧对象（内存未被释放）。 */
     pthread_mutex_unlock(&g_gc_mutex);
 
     return obj_to_ptr(new_obj);
+}
+
+/* ============================================================
+ * 老年代分配：内部缓冲区（items/buckets/tree/MapEntry）直接进入老年代
+ * ============================================================ */
+void* gc_alloc_old(size_t size, int vtype)
+{
+    void* ptr = gc_alloc(size, vtype);
+    GCObject* obj = ptr_to_obj(ptr);
+    if (obj->age < PROMOTE_AGE) {
+        /* 从新生代统计移到老年代统计（计数器漂移由 gc_recount_bytes 修正） */
+        obj->age = PROMOTE_AGE;
+    }
+    return ptr;
+}
+
+/* ============================================================
+ * Remembered Set 操作
+ * ============================================================ */
+
+/* 将老年代对象加入 remembered set（去重：已有 GC_OBJ_IN_RS 位则跳过）。
+ * 调用方无需加锁，内部加 g_rs_mutex。 */
+static void remembered_set_add(GCObject* obj)
+{
+    if (!obj || obj->age < PROMOTE_AGE) return;  /* 只记录老年代对象 */
+    if (obj->flags & GC_OBJ_IN_RS) return;  /* 已在 rs 中，去重 */
+
+    pthread_mutex_lock(&g_rs_mutex);
+    /* 双重检查：加锁后可能已被其他线程加入 */
+    if (obj->flags & GC_OBJ_IN_RS) {
+        pthread_mutex_unlock(&g_rs_mutex);
+        return;
+    }
+    if (g_rs_size >= g_rs_cap) {
+        size_t new_cap = g_rs_cap ? g_rs_cap * 2 : 64;
+        GCObject** new_rs = (GCObject**)realloc(g_remembered_set, new_cap * sizeof(GCObject*));
+        if (!new_rs) {
+            fprintf(stderr, "GC: out of memory expanding remembered set\n");
+            abort();
+        }
+        g_remembered_set = new_rs;
+        g_rs_cap = new_cap;
+    }
+    obj->flags |= GC_OBJ_IN_RS;
+    g_remembered_set[g_rs_size++] = obj;
+    pthread_mutex_unlock(&g_rs_mutex);
+}
+
+/* 清空 remembered set：清除所有对象的 GC_OBJ_IN_RS 位，重置 size=0。
+ * 必须在 Major GC sweep 之前调用（此时所有对象仍有效，避免悬空指针）。 */
+static void remembered_set_clear(void)
+{
+    pthread_mutex_lock(&g_rs_mutex);
+    for (size_t i = 0; i < g_rs_size; i++) {
+        if (g_remembered_set[i]) {
+            g_remembered_set[i]->flags &= ~GC_OBJ_IN_RS;
+        }
+    }
+    g_rs_size = 0;
+    pthread_mutex_unlock(&g_rs_mutex);
+}
+
+/* 暴露 remembered set 大小（统计用） */
+size_t gc_rs_size(void) { return g_rs_size; }
+
+/* ============================================================
+ * Remembered Set 写屏障检查
+ *
+ * 在所有修改堆对象内部引用的位置调用。如果 owner 是老年代容器且
+ * new_val 可能引用新生代对象，将 owner 加入 remembered set。
+ * ============================================================ */
+void gc_remembered_set_check(Value owner, Value new_val)
+{
+    if (!gc_generational_enabled()) return;
+
+    /* 从 owner 获取 GCObject*（仅 VAL_ARRAY/VAL_MAP 且非 stack_alloc） */
+    GCObject* owner_obj = NULL;
+    if (owner.type == VAL_ARRAY && GC_VALID_PTR(owner.v.array) && !owner.v.array->stack_alloc) {
+        owner_obj = ptr_to_obj(owner.v.array);
+    } else if (owner.type == VAL_MAP && GC_VALID_PTR(owner.v.map) && !owner.v.map->stack_alloc) {
+        owner_obj = ptr_to_obj(owner.v.map);
+    } else {
+        return;  /* stack_alloc 容器在 C 栈上，等效于根，无需 rs */
+    }
+
+    /* owner 不是老年代，无需追踪 */
+    if (owner_obj->age < PROMOTE_AGE) return;
+
+    /* 检查 new_val 是否可能引用新生代对象 */
+    int may_ref_young = 0;
+    switch (new_val.type) {
+    case VAL_STRING:
+        if (!new_val.str_inline && GC_VALID_PTR(new_val.v.s)) {
+            if (ptr_to_obj(new_val.v.s)->age < PROMOTE_AGE) may_ref_young = 1;
+        }
+        break;
+    case VAL_ARRAY:
+        if (GC_VALID_PTR(new_val.v.array) && !new_val.v.array->stack_alloc) {
+            if (ptr_to_obj(new_val.v.array)->age < PROMOTE_AGE) may_ref_young = 1;
+        }
+        break;
+    case VAL_MAP:
+        if (GC_VALID_PTR(new_val.v.map) && !new_val.v.map->stack_alloc) {
+            if (ptr_to_obj(new_val.v.map)->age < PROMOTE_AGE) may_ref_young = 1;
+        }
+        break;
+    case VAL_FUNC:
+        /* 保守：captures 可能引用新生代对象 */
+        may_ref_young = 1;
+        break;
+    case VAL_ERROR:
+        /* 保守：type/message/stack 字符串可能是新生代 */
+        may_ref_young = 1;
+        break;
+    default:
+        /* INT/DOUBLE/BOOL/CHAR/BYTE/NONE：无堆引用 */
+        break;
+    }
+
+    if (may_ref_young) {
+        remembered_set_add(owner_obj);
+    }
 }
 
 /* ============================================================
@@ -425,8 +565,6 @@ void gc_pin(void* ptr)
  * 为旧 int 值或垃圾）。此处校验指针范围，跳过明显非法的指针，防止
  * gc_mark_ptr 访问非法地址导致 segfault。
  * ============================================================ */
-#define GC_VALID_PTR(p) ((p) && (unsigned long long)(p) >= 4096 && (unsigned long long)(p) <= 0x00007fffffffffffULL)
-
 void gc_mark(Value v)
 {
     switch (v.type) {
@@ -775,6 +913,197 @@ void gc_mark_one(GCObject* obj)
 }
 
 /* ============================================================
+ * Minor GC 专用标记：只标记新生代对象
+ *
+ * 与全量标记的区别：老年代对象不推入标记栈（它们如果引用新生代，
+ * 应该在 remembered set 中，由 gc_scan_remembered_set 扫描）。
+ * ============================================================ */
+
+/* 对 Value 中的新生代堆对象调用 gc_mark_ptr_to_stack。
+ * 老年代对象不推入栈（由 remembered set 机制追踪）。
+ * stack_alloc 容器直接扫描子元素。 */
+static void gc_mark_value_to_stack_minor(Value v)
+{
+    switch (v.type) {
+    case VAL_STRING: {
+        if (!v.str_inline && GC_VALID_PTR(v.v.s)) {
+            GCObject* obj = ptr_to_obj(v.v.s);
+            if (obj->age < PROMOTE_AGE) gc_mark_ptr_to_stack(v.v.s);
+        }
+        break;
+    }
+    case VAL_ARRAY: {
+        if (!GC_VALID_PTR(v.v.array)) break;
+        ValueArray* arr = v.v.array;
+        if (arr->stack_alloc) {
+            /* 栈分配 ValueArray：无 GCObject 头，直接扫描子元素 */
+            if (arr->items) {
+                if (!arr->items_stack_alloc) {
+                    gc_mark_internal_black(arr->items);
+                }
+                for (int i = 0; i < arr->len; i++) {
+                    gc_mark_value_to_stack_minor(arr->items[i]);
+                }
+            }
+        } else {
+            GCObject* obj = ptr_to_obj(arr);
+            if (obj->age < PROMOTE_AGE) {
+                /* 新生代：推入标记栈，items 内部缓冲区标记黑色 */
+                if (gc_mark_ptr_to_stack(arr)) {
+                    if (arr->items && !arr->items_stack_alloc) {
+                        gc_mark_internal_black(arr->items);
+                    }
+                }
+            }
+            /* 老年代：不推入栈（如果引用新生代，应在 remembered set 中） */
+        }
+        break;
+    }
+    case VAL_MAP: {
+        ValueMap* m = v.v.map;
+        if (!GC_VALID_PTR(m)) break;
+        if (m->stack_alloc) {
+            /* 栈分配 ValueMap：直接扫描所有 entry 的 key/value */
+            for (int i = 0; i < m->cap; i++) {
+                MapEntry* e = m->buckets[i];
+                if (!e) continue;
+                if (m->tree[i]) {
+                    MapEntry* stk[256];
+                    int top = 0;
+                    MapEntry* cur = e;
+                    while (cur || top > 0) {
+                        while (cur) {
+                            if (top < 256) stk[top++] = cur;
+                            cur = cur->left;
+                        }
+                        if (top == 0) break;
+                        cur = stk[--top];
+                        gc_mark_value_to_stack_minor(cur->key);
+                        gc_mark_value_to_stack_minor(cur->value);
+                        cur = cur->right;
+                    }
+                } else {
+                    while (e) {
+                        gc_mark_value_to_stack_minor(e->key);
+                        gc_mark_value_to_stack_minor(e->value);
+                        e = e->next;
+                    }
+                }
+            }
+        } else {
+            GCObject* obj = ptr_to_obj(m);
+            if (obj->age < PROMOTE_AGE) {
+                /* 新生代：推入标记栈，buckets/tree 内部缓冲区标记黑色 */
+                if (gc_mark_ptr_to_stack(m)) {
+                    if (m->buckets) gc_mark_internal_black(m->buckets);
+                    if (m->tree) gc_mark_internal_black(m->tree);
+                }
+            }
+            /* 老年代：不推入栈（如果引用新生代，应在 remembered set 中） */
+        }
+        break;
+    }
+    case VAL_ERROR: {
+        /* ValueError 内联在 Value 中，type/message/stack 是堆字符串 */
+        if (v.v.err.type && GC_VALID_PTR(v.v.err.type)) {
+            if (ptr_to_obj(v.v.err.type)->age < PROMOTE_AGE)
+                gc_mark_ptr_to_stack(v.v.err.type);
+        }
+        if (v.v.err.message && GC_VALID_PTR(v.v.err.message)) {
+            if (ptr_to_obj(v.v.err.message)->age < PROMOTE_AGE)
+                gc_mark_ptr_to_stack(v.v.err.message);
+        }
+        if (v.v.err.stack && GC_VALID_PTR(v.v.err.stack)) {
+            if (ptr_to_obj(v.v.err.stack)->age < PROMOTE_AGE)
+                gc_mark_ptr_to_stack(v.v.err.stack);
+        }
+        break;
+    }
+    case VAL_FUNC: {
+        /* RuntimeFunc 是 malloc 非 GC 对象，始终遍历 captures */
+        RuntimeFunc* f = v.v.func.func_obj;
+        if (f && f->captures && f->capture_count > 0) {
+            for (int i = 0; i < f->capture_count; i++) {
+                gc_mark_value_to_stack_minor(f->captures[i]);
+            }
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+/* 处理一个新生代灰色对象的子对象（只将新生代子对象变灰入栈），完成后自身设为黑色。
+ * 内部缓冲区（items/buckets/tree/MapEntry）已老年代，标记黑色不被 sweep。 */
+static void gc_mark_one_minor(GCObject* obj)
+{
+    switch (obj->vtype) {
+    case VAL_STRING:
+        break;
+    case VAL_ARRAY: {
+        ValueArray* arr = (ValueArray*)obj_to_ptr(obj);
+        if (arr->items) {
+            for (int i = 0; i < arr->len; i++) {
+                gc_mark_value_to_stack_minor(arr->items[i]);
+            }
+        }
+        break;
+    }
+    case VAL_MAP: {
+        ValueMap* m = (ValueMap*)obj_to_ptr(obj);
+        for (int i = 0; i < m->cap; i++) {
+            MapEntry* e = m->buckets[i];
+            if (!e) continue;
+            if (m->tree[i]) {
+                MapEntry* stk[256];
+                int top = 0;
+                MapEntry* cur = e;
+                while (cur || top > 0) {
+                    while (cur) {
+                        if (top < 256) stk[top++] = cur;
+                        cur = cur->left;
+                    }
+                    if (top == 0) break;
+                    cur = stk[--top];
+                    gc_mark_internal_black(cur);  /* MapEntry 老年代，标记黑色 */
+                    gc_mark_value_to_stack_minor(cur->key);
+                    gc_mark_value_to_stack_minor(cur->value);
+                    cur = cur->right;
+                }
+            } else {
+                while (e) {
+                    gc_mark_internal_black(e);
+                    gc_mark_value_to_stack_minor(e->key);
+                    gc_mark_value_to_stack_minor(e->value);
+                    e = e->next;
+                }
+            }
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    obj->marked = 1;  /* 黑色 */
+}
+
+/* 扫描 remembered set 中的所有老年代对象，将它们引用的新生代子对象推入标记栈。
+ * 老年代对象本身不标记（Minor GC 不 sweep 老年代），但其内部缓冲区标记黑色。 */
+static void gc_scan_remembered_set(void)
+{
+    for (size_t i = 0; i < g_rs_size; i++) {
+        GCObject* obj = g_remembered_set[i];
+        if (!obj) continue;
+        /* 老年代对象：扫描其子对象，将新生代子对象推入标记栈。
+         * 复用 gc_mark_one_minor 逻辑（它会标记内部缓冲区黑色）。
+         * 注意：gc_mark_one_minor 会设 obj->marked=1，但 Minor GC 结束时
+         * 会清除所有非永生对象的 marked 位，所以无副作用。 */
+        gc_mark_one_minor(obj);
+    }
+}
+
+/* ============================================================
  * 根扫描（推入标记栈而非递归标记）
  * ============================================================ */
 
@@ -839,6 +1168,64 @@ void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame)
     /* 安全兜底：扫描当前线程 tls_cframe（未注册的情况） */
     if (tls_cframe && !g_gc_cframe_threads) {
         gc_scan_cframe_chain_to_stack(tls_cframe);
+    }
+}
+
+/* Minor GC 专用：扫描单个 VM 栈 + 帧链（只标记新生代） */
+static void gc_scan_vm_roots_minor(Value* stack, int sp, StackFrame* frame)
+{
+    if (stack) {
+        for (int i = 0; i < sp; i++) {
+            gc_mark_value_to_stack_minor(stack[i]);
+        }
+    }
+    StackFrame* f = frame;
+    while (f) {
+        if (f->vals) {
+            for (int i = 0; i < f->cnt; i++) {
+                gc_mark_value_to_stack_minor(f->vals[i]);
+            }
+        }
+        f = f->parent;
+    }
+}
+
+/* Minor GC 专用：扫描单个 CFrame 链（只标记新生代） */
+static void gc_scan_cframe_chain_minor(CFrame* cf)
+{
+    while (cf) {
+        if (cf->stack && cf->sp) {
+            for (int i = 0; i < *cf->sp; i++) {
+                gc_mark_value_to_stack_minor(cf->stack[i]);
+            }
+        }
+        if (cf->local_ptrs) {
+            for (int i = 0; i < cf->nlocals; i++) {
+                if (cf->local_ptrs[i]) {
+                    gc_mark_value_to_stack_minor(*cf->local_ptrs[i]);
+                }
+            }
+        }
+        cf = cf->parent;
+    }
+}
+
+/* Minor GC 专用：扫描所有线程根（VM 栈 + 帧链 + CFrame 链），只标记新生代 */
+static void gc_scan_roots_minor(Value* stack, int sp, StackFrame* frame)
+{
+    if (g_gc_threads) {
+        for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
+            gc_scan_vm_roots_minor(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
+        }
+    } else {
+        gc_scan_vm_roots_minor(stack, sp, frame);
+    }
+    for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
+        CFrame* cf = *e->cframe_ptr;
+        gc_scan_cframe_chain_minor(cf);
+    }
+    if (tls_cframe && !g_gc_cframe_threads) {
+        gc_scan_cframe_chain_minor(tls_cframe);
     }
 }
 
@@ -942,6 +1329,9 @@ static void gc_sweep_minor(void)
                     size_t obj_bytes = sizeof(GCObject) + cur->user_size;
                     g_young_bytes -= obj_bytes;
                     g_old_bytes += obj_bytes;
+                    /* 晋升对象加入 remembered set（保守策略：刚从新生代来，
+                     * 很可能引用其他新生代对象，必须追踪以防下轮 Minor GC 丢失引用） */
+                    remembered_set_add(cur);
                 }
                 cur->marked = 0;
                 pp = &cur->next;
@@ -1113,6 +1503,8 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
             }
         }
 
+        /* Major GC：sweep 前清空 remembered set（避免 sweep 后悬空指针） */
+        remembered_set_clear();
         gc_sweep();
         gc_recount_bytes();
         /* 更新阈值：非分代模式用总字节，分代模式用老年代字节 */
@@ -1188,6 +1580,8 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
     /* 关闭写屏障 */
     g_gc_marking = 0;
 
+    /* Major GC：sweep 前清空 remembered set（避免 sweep 后悬空指针） */
+    remembered_set_clear();
     /* Major GC：sweep 全部对象 */
     gc_sweep();
 
@@ -1224,15 +1618,18 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
 }
 
 /* ============================================================
- * Minor GC：全量标记 + 只 sweep 新生代
- *   - 标记阶段与 Major GC 完全相同（全量标记所有可达对象）
- *   - 第一版简化方案：不实现 Remembered Set，Minor GC 标记所有根并遍历所有可达对象。
- *     正确性有保证，sweep 只回收新生代（大多数垃圾在新生代），减少 sweep 时间。
- *     未来优化：实现 Remembered Set，Minor GC 只扫描根 + remembered set 中的老年代对象，
- *     减少标记开销。
- *   - sweep：只回收新生代垃圾，存活新生代对象 age++，达到 PROMOTE_AGE 晋升老年代
- *   - 老年代对象：不回收，仅清除标记位
- *   - 更新新生代阈值
+ * Minor GC：真正的分代 GC —— 全量 STW 标记新生代 + remembered set，只 sweep 新生代
+ *
+ * 标记流程：
+ *   1. STW 暂停所有线程
+ *   2. 扫描所有线程根，只将新生代对象推入标记栈
+ *   3. 扫描 remembered set 中的老年代对象，将它们引用的新生代子对象推入栈
+ *   4. 迭代处理标记栈（gc_mark_one_minor），只标记新生代子对象
+ *   5. sweep 新生代白色对象，存活对象 age++，达到阈值晋升老年代
+ *   6. 晋升对象加入 remembered set（保守策略：刚从新生代来，很可能引用新生代）
+ *
+ * 不使用增量标记：标记范围小（只新生代），STW 时间短，不需要增量复杂度。
+ * g_gc_marking 保持 0，写屏障空操作（STW 期间无并发修改）。
  * ============================================================ */
 void gc_collect_minor(Value* stack, int sp, StackFrame* frame)
 {
@@ -1240,125 +1637,39 @@ void gc_collect_minor(Value* stack, int sp, StackFrame* frame)
     g_in_gc = 1;
     g_minor_gc_count++;
 
-    if (!gc_incremental_enabled()) {
-        /* === Fallback：全量 STW 标记 === */
-        g_gc_stw = 1;
-        gc_set_self_at_safepoint(1);
-        gc_wait_all_threads_at_safepoint();
-
-        pthread_mutex_lock(&g_gc_mutex);
-
-        /* 递归标记所有根（与 Major 相同，全量标记） */
-        if (g_gc_threads) {
-            for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
-                gc_mark_roots(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
-            }
-        } else {
-            gc_mark_roots(stack, sp, frame);
-        }
-        for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
-            CFrame* cf = *e->cframe_ptr;
-            while (cf) {
-                if (cf->stack && cf->sp) {
-                    for (int i = 0; i < *cf->sp; i++) gc_mark(cf->stack[i]);
-                }
-                if (cf->local_ptrs) {
-                    for (int i = 0; i < cf->nlocals; i++) {
-                        if (cf->local_ptrs[i]) gc_mark(*cf->local_ptrs[i]);
-                    }
-                }
-                cf = cf->parent;
-            }
-        }
-        if (tls_cframe && !g_gc_cframe_threads) {
-            CFrame* cf = tls_cframe;
-            while (cf) {
-                if (cf->stack && cf->sp) {
-                    for (int i = 0; i < *cf->sp; i++) gc_mark(cf->stack[i]);
-                }
-                if (cf->local_ptrs) {
-                    for (int i = 0; i < cf->nlocals; i++) {
-                        if (cf->local_ptrs[i]) gc_mark(*cf->local_ptrs[i]);
-                    }
-                }
-                cf = cf->parent;
-            }
-        }
-
-        /* Minor GC：只 sweep 新生代 */
-        gc_sweep_minor();
-        gc_recount_bytes();
-        /* 更新新生代阈值 */
-        size_t new_young_thr = g_young_bytes * 2;
-        if (new_young_thr < 1024 * 1024) new_young_thr = 1024 * 1024;
-        g_young_threshold = new_young_thr;
-        pthread_mutex_unlock(&g_gc_mutex);
-
-        g_gc_stw = 0;
-        gc_set_self_at_safepoint(0);
-        g_in_gc = 0;
-        return;
-    }
-
-    /* === 增量标记模式 === */
-
-    /* ---- 初始 STW ---- */
     unsigned long long t_stw_start = gc_now_ns();
+
+    /* ---- STW：暂停所有线程 ---- */
     g_gc_stw = 1;
     gc_set_self_at_safepoint(1);
     gc_wait_all_threads_at_safepoint();
 
     pthread_mutex_lock(&g_gc_mutex);
 
-    /* 开启写屏障 */
-    g_gc_marking = 1;
+    /* 不开启增量写屏障（g_gc_marking 保持 0）：STW 期间无并发修改 */
 
-    /* 扫描所有根（全量标记，与 Major 相同） */
-    gc_scan_roots_to_stack(stack, sp, frame);
+    /* 重置标记栈（确保无残留） */
+    g_mark_stack_size = 0;
 
-    pthread_mutex_unlock(&g_gc_mutex);
+    /* ---- 1. 扫描所有线程根，只标记新生代 ---- */
+    gc_scan_roots_minor(stack, sp, frame);
 
-    /* 恢复应用线程 */
-    g_gc_stw = 0;
-    gc_set_self_at_safepoint(0);
-    unsigned long long t_initial_stw = gc_now_ns() - t_stw_start;
+    /* ---- 2. 扫描 remembered set：老年代对象引用的新生代 ---- */
+    gc_scan_remembered_set();
 
-    /* ---- 并发标记 ---- */
+    /* ---- 3. 迭代处理标记栈 ---- */
+    size_t marked_count = 0;
     while (1) {
-        pthread_mutex_lock(&g_mark_stack_mutex);
         GCObject* obj = mark_stack_pop_locked();
-        pthread_mutex_unlock(&g_mark_stack_mutex);
         if (!obj) break;
-        gc_mark_one(obj);
+        gc_mark_one_minor(obj);
+        marked_count++;
     }
 
-    /* ---- 最终 STW ---- */
-    unsigned long long t_final_start = gc_now_ns();
-    g_gc_stw = 1;
-    gc_set_self_at_safepoint(1);
-    gc_wait_all_threads_at_safepoint();
-
-    pthread_mutex_lock(&g_gc_mutex);
-
-    /* 重新扫描根 */
-    gc_scan_roots_to_stack(stack, sp, frame);
-
-    /* 排空标记栈 */
-    while (1) {
-        pthread_mutex_lock(&g_mark_stack_mutex);
-        GCObject* obj = mark_stack_pop_locked();
-        pthread_mutex_unlock(&g_mark_stack_mutex);
-        if (!obj) break;
-        gc_mark_one(obj);
-    }
-
-    /* 关闭写屏障 */
-    g_gc_marking = 0;
-
-    /* Minor GC：只 sweep 新生代（存活对象 age++ + 晋升） */
+    /* ---- 4. sweep 新生代（存活 age++ + 晋升 + 晋升对象入 rs） ---- */
     gc_sweep_minor();
 
-    /* 精确重新计算字节数 + 更新新生代阈值 */
+    /* ---- 5. 重新计算字节数 + 更新新生代阈值 ---- */
     gc_recount_bytes();
     size_t new_young_thr = g_young_bytes * 2;
     if (new_young_thr < 1024 * 1024) new_young_thr = 1024 * 1024;
@@ -1366,18 +1677,18 @@ void gc_collect_minor(Value* stack, int sp, StackFrame* frame)
 
     pthread_mutex_unlock(&g_gc_mutex);
 
+    /* ---- 结束 STW ---- */
     g_gc_stw = 0;
     gc_set_self_at_safepoint(0);
-    unsigned long long t_final_stw = gc_now_ns() - t_final_start;
 
-    /* 累计 STW 停顿 */
-    g_stw_total_ns += t_initial_stw + t_final_stw;
+    unsigned long long t_stw = gc_now_ns() - t_stw_start;
+    g_stw_total_ns += t_stw;
 
     /* LUMIN_GC_STATS=1 时输出统计 */
     const char* stats_env = getenv("LUMIN_GC_STATS");
     if (stats_env && strcmp(stats_env, "1") == 0) {
-        fprintf(stderr, "[GC minor] initial STW=%lluus final STW=%lluus total STW=%llums minor=%llu major=%llu young=%zuKB old=%zuKB\n",
-                t_initial_stw / 1000, t_final_stw / 1000, g_stw_total_ns / 1000000,
+        fprintf(stderr, "[GC minor] STW=%lluus total STW=%llums marked=%zu rs=%zu minor=%llu major=%llu young=%zuKB old=%zuKB\n",
+                t_stw / 1000, g_stw_total_ns / 1000000, marked_count, g_rs_size,
                 g_minor_gc_count, g_major_gc_count, g_young_bytes / 1024, g_old_bytes / 1024);
     }
 

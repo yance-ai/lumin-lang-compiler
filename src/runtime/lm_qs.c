@@ -104,6 +104,7 @@ static void qs_arr_set_grow(Value* arr, int idx, Value v) {
     {
         Value __cv = val_clone(&v);
         gc_write_barrier(__cv);
+        gc_remembered_set_check(*arr, __cv);  /* 老年代容器引用新生代时加入 remembered set */
         arr->v.array->items[idx] = __cv;
     }
 }

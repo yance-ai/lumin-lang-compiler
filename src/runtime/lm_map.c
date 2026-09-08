@@ -130,7 +130,7 @@ static int key_eq(Value a, Value b) {
 
 // ============ Entry 管理 ============
 static MapEntry* entry_new(Value key, Value val, uint32_t hash) {
-    MapEntry* e = (MapEntry*)gc_alloc(sizeof(MapEntry), VAL_MAP);
+    MapEntry* e = (MapEntry*)gc_alloc_old(sizeof(MapEntry), VAL_MAP);  /* 内部缓冲区老年代 */
     gc_write_barrier(key);  /* 增量标记写屏障 */
     e->key = key;
     gc_write_barrier(val);  /* 增量标记写屏障 */
@@ -441,8 +441,8 @@ static void untreeify_bin(ValueMap* m, int idx) {
 static void map_resize(ValueMap* m) {
     int old_cap = m->cap;
     int new_cap = old_cap * 2;
-    MapEntry** new_buckets = (MapEntry**)gc_alloc(new_cap * sizeof(MapEntry*), VAL_MAP);
-    unsigned char* new_tree = (unsigned char*)gc_alloc(new_cap * sizeof(unsigned char), VAL_MAP);
+    MapEntry** new_buckets = (MapEntry**)gc_alloc_old(new_cap * sizeof(MapEntry*), VAL_MAP);  /* 内部缓冲区老年代 */
+    unsigned char* new_tree = (unsigned char*)gc_alloc_old(new_cap * sizeof(unsigned char), VAL_MAP);  /* 内部缓冲区老年代 */
     for(int i = 0; i < old_cap; i++) {
         MapEntry* e = m->buckets[i];
         if(!e) continue;
@@ -500,6 +500,9 @@ int lumin_map_find(const ValueMap* m, Value key) {
 
 void lumin_map_set(Value* map, Value key, Value val) {
     if(map->type != VAL_MAP) runtime_error("字典下标写需要 字典[键]");
+    /* Remembered set 检查：老年代 map 写入新生代 key/val 时加入 rs */
+    gc_remembered_set_check(*map, key);
+    gc_remembered_set_check(*map, val);
     ValueMap* m = map->v.map;
     uint32_t h = value_hash(key);
     int idx = bucket_idx(h, m->cap);
