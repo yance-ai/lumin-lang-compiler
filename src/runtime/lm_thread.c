@@ -114,9 +114,15 @@ int lumin_thread_start(ThreadBody body, void* data, const Value* args, int argc)
 
 void lumin_thread_set_result(ThreadLaunch* t, Value r)
 {
+    /* 工作线程此时可能已 gc_unregister_thread()（VM 通道 vm_run 退出时注销，
+     * 编译通道 lm_c_thread_body 在 cf 返回后注销），结果值 r 在 C 栈上不被 GC 扫描。
+     * val_clone 期间若其他线程触发 GC，r 引用的堆对象可能被回收 → UAF。
+     * 用 gc_protect_push 临时注册保护栈，clone 后 pop。 */
+    gc_protect_push(r);
     pthread_mutex_lock(&g_lock);
     g_slots[t->slot].result = val_clone(&r);
     pthread_mutex_unlock(&g_lock);
+    gc_protect_pop();
 }
 
 // C 生成端线程体：直接调函数指针
@@ -147,12 +153,27 @@ Value lumin_thread_join(int id)
     pthread_t h = g_slots[slot].handle;
     pthread_mutex_unlock(&g_lock);
 
+    /* 进入原生阻塞区：pthread_join 期间不执行 VM 代码、不修改 GC 根，栈稳定。
+     * 标记 at_safepoint=1 使工作线程触发的 GC 能立即扫描本线程并继续，
+     * 否则主线程卡在 pthread_join 中永远不到达安全点，形成死锁。 */
+    gc_enter_native_block();
     pthread_join(h, NULL);   // 等待线程退出（此时 result 已写）
+    gc_leave_native_block();
+
+    /* 线程已退出，读取结果（浅拷贝到 C 栈局部变量） */
+    pthread_mutex_lock(&g_lock);
+    Value r = g_slots[slot].result;
+    pthread_mutex_unlock(&g_lock);
+
+    /* val_clone 期间保护 r：r 在 C 栈上不被 GC 扫描，若此时其他线程触发 GC，
+     * r 引用的堆对象可能被回收 → UAF。临时注册保护栈。 */
+    gc_protect_push(r);
+    Value cloned = val_clone(&r);
+    gc_protect_pop();
 
     pthread_mutex_lock(&g_lock);
-    Value r = val_clone(&g_slots[slot].result);
     g_slots[slot].used = 0;
     g_slots[slot].done = 0;
     pthread_mutex_unlock(&g_lock);
-    return r;
+    return cloned;
 }

@@ -1,5 +1,6 @@
 // lm_time.c —— 日期时间 + 日志
 #include "lm_time.h"
+#include "gc_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +38,11 @@ long long lumin_timestamp_ms(void) {
 
 void lumin_sleep_ms(long long ms) {
     if(ms <= 0) return;
+    /* usleep 阻塞期间不执行 VM 代码、不修改 GC 根，栈稳定，标记安全点。
+     * 否则长时间 sleep 会导致 GC 等待所有线程 at_safepoint 超时。 */
+    gc_enter_native_block();
     usleep((useconds_t)(ms * 1000));
+    gc_leave_native_block();
 }
 
 static void fmt_buf(char* buf, size_t sz, const char* fmt, time_t t) {

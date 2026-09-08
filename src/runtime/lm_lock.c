@@ -6,6 +6,7 @@
 //   - 锁不销毁（进程生命周期），id 不复用
 #include "lm_lock.h"
 #include "lm_value.h"
+#include "gc_runtime.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -22,8 +23,15 @@ typedef enum { LK_MUTEX, LK_RMUTEX, LK_RW, LK_SPIN } LockKind;
 typedef struct { _Atomic int locked; } SpinLock;
 
 static inline void spin_lock(SpinLock* s) {
+    int spins = 0;
     while(atomic_exchange_explicit(&s->locked, 1, memory_order_acquire)) {
-        // 忙等；短临界区场景，与 pthread_spin 语义一致
+        /* 忙等期间定期检查 GC 安全点：若锁持有者触发 GC，本线程需暂停让 GC 完成，
+         * 否则 GC 等待所有线程 at_safepoint 而本线程持续自旋 → 死锁。
+         * 每 16 次自旋检查一次，降低 volatile 读开销。 */
+        if (++spins >= 16) {
+            gc_stw_check_fast();
+            spins = 0;
+        }
     }
 }
 static inline int spin_trylock(SpinLock* s) {
@@ -128,7 +136,12 @@ void lumin_lock(int id)
     LockObj* o = lock_get(id);
     if(!o) runtime_error("lock(): 无效的锁id（未创建或已销毁）");
     switch(o->kind) {
-        case LK_MUTEX: case LK_RMUTEX: pthread_mutex_lock(&o->u.mutex); break;
+        case LK_MUTEX: case LK_RMUTEX:
+            /* pthread_mutex_lock 可能阻塞等待其他线程持锁，期间栈稳定，标记安全点 */
+            gc_enter_native_block();
+            pthread_mutex_lock(&o->u.mutex);
+            gc_leave_native_block();
+            break;
         case LK_SPIN:  spin_lock(&o->u.spin); break;
         case LK_RW:    runtime_error("lock(): 读写锁请用 rdlock()/wrlock()");
     }
@@ -162,7 +175,9 @@ void lumin_rdlock(int id)
     LockObj* o = lock_get(id);
     if(!o) runtime_error("rdlock(): 无效的锁id（未创建或已销毁）");
     if(o->kind != LK_RW) runtime_error("rdlock(): 只适用于读写锁（rwlock() 创建）");
+    gc_enter_native_block();
     pthread_rwlock_rdlock(&o->u.rw);
+    gc_leave_native_block();
 }
 
 void lumin_wrlock(int id)
@@ -170,7 +185,9 @@ void lumin_wrlock(int id)
     LockObj* o = lock_get(id);
     if(!o) runtime_error("wrlock(): 无效的锁id（未创建或已销毁）");
     if(o->kind != LK_RW) runtime_error("wrlock(): 只适用于读写锁（rwlock() 创建）");
+    gc_enter_native_block();
     pthread_rwlock_wrlock(&o->u.rw);
+    gc_leave_native_block();
 }
 
 int lumin_tryrdlock(int id)
@@ -243,7 +260,10 @@ void lumin_cond_wait(int cond, int lock)
     if(o->kind == LK_SPIN) runtime_error("cond_wait(): 自旋锁不能配条件变量（忙等无阻塞释放），请用 mutex()/rmutex()");
     // LK_MUTEX / LK_RMUTEX：pthread_cond_wait 原子释放一次锁并阻塞，唤醒后重新获取
     // （递归锁释放一次、唤醒后重获一次，与 pthread 语义一致）
+    // 阻塞期间（含唤醒后重新获取锁的等待）栈稳定，标记安全点
+    gc_enter_native_block();
     pthread_cond_wait(&c->cond, &o->u.mutex);
+    gc_leave_native_block();
 }
 
 int lumin_cond_timedwait(int cond, int lock, long long ms)
@@ -259,7 +279,10 @@ int lumin_cond_timedwait(int cond, int lock, long long ms)
     ts.tv_nsec += (long)(ms % 1000) * 1000000L;
     ts.tv_sec += ms / 1000;
     if(ts.tv_nsec >= 1000000000L) { ts.tv_sec += 1; ts.tv_nsec -= 1000000000L; }
+    /* 阻塞期间栈稳定，标记安全点 */
+    gc_enter_native_block();
     int r = pthread_cond_timedwait(&c->cond, &o->u.mutex, &ts);
+    gc_leave_native_block();
     if(r == 0) return 1;            // 被 signal/broadcast 唤醒
     if(r == ETIMEDOUT) return 0;    // 超时（超时返回后仍持有锁，与 C 语义一致）
     runtime_error("cond_wait_timeout(): 等待失败");

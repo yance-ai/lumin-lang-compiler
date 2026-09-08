@@ -10,8 +10,9 @@
  * TLA（Thread-Local Allocation）：
  *   - 小对象（user_size <= TLA_MAX_SIZE）优先从线程本地空闲链表分配（无锁）
  *   - 本地链表空时：先从全局空闲链表批量取用（一次加锁），仍不够则批量 malloc
- *   - 空闲链表直接用 GCObject.next 字段链接，回收时不触碰用户数据区域，
- *     避免多线程 GC（只扫当前线程栈）误回收其他线程对象时立即破坏其内容
+ *   - 全局空闲链表用 GCObject.next 链接（对象不在 g_gc_objects 中，无冲突）
+ *   - 本地空闲链表用用户数据区域前 8 字节存储 next（TLA_LOCAL_NEXT 宏），
+ *     不占用 GCObject.next，避免与 g_gc_objects 链表冲突导致全局链表断裂
  *   - 本地空闲链表中的对象保留在 g_gc_objects 中（marked=2 永生），分配无锁
  *   - 全局空闲链表中的对象不在 g_gc_objects 中，取用时空闲→活跃需插入全局链表（已持锁）
  *   - sweep 时小对象不 free，从 g_gc_objects 摘除后移入全局空闲链表
@@ -22,6 +23,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <mach/mach_time.h>  /* 高精度计时 */
 
 /* 编译期断言：GCObject 必须保持 16 字节（user_size 利用原填充空间） */
@@ -47,7 +49,7 @@ static GCObject* g_gc_objects = NULL;
 static size_t g_gc_bytes = 0;
 static size_t g_gc_threshold = 64 * 1024 * 1024;  /* 初始阈值 64MB */
 static pthread_mutex_t g_gc_mutex = PTHREAD_MUTEX_INITIALIZER;
-static int g_in_gc = 0;
+static _Atomic int g_in_gc = 0;  /* 原子：防止多线程并发触发 GC（CAS 互斥） */
 static int g_gc_disable = 0;  /* GC 暂停计数器（构造复合对象时使用） */
 
 /* ---- 分代 GC：全局状态 ----
@@ -171,6 +173,46 @@ void gc_stw_check(void) {
     gc_set_self_at_safepoint(0);
 }
 
+/* 原生阻塞区：线程即将进入 pthread_join / mutex_lock / cond_wait / sleep 等
+ * 原生阻塞调用，期间不执行 VM 代码、不修改 GC 根，栈稳定。
+ * 标记当前线程所有注册 entry 的 at_safepoint=1，使 GC 能立即扫描本线程并继续。 */
+void gc_enter_native_block(void) {
+    gc_set_self_at_safepoint(1);
+}
+
+/* 原生阻塞调用返回，恢复 at_safepoint=0。
+ * 先调用 gc_stw_check_fast()：若 GC 仍在进行，保持 at_safepoint=1 自旋等待，
+ * GC 结束后再清除 at_safepoint，消除"已离开安全点但 GC 仍在扫描"的竞态窗口。 */
+void gc_leave_native_block(void) {
+    gc_stw_check_fast();
+    gc_set_self_at_safepoint(0);
+}
+
+/* ---- GC 值保护：临时注册 1 元素最小栈，保护 C 栈上的 Value 不被 GC 回收 ----
+ * 用于线程退出（已 unregister）时 val_clone 结果值等场景。TLS 保存旧根，不可嵌套。 */
+static _Thread_local Value        tls_protect_val;
+static _Thread_local int          tls_protect_sp = 0;
+static _Thread_local Value*       tls_protect_old_stack = NULL;
+static _Thread_local int*         tls_protect_old_sp = NULL;
+static _Thread_local StackFrame*  tls_protect_old_frame = NULL;
+
+void gc_protect_push(Value v) {
+    /* 保存当前根（pop 时恢复） */
+    gc_get_roots(&tls_protect_old_stack, &tls_protect_old_sp, &tls_protect_old_frame);
+    /* 设置 1 元素最小保护栈 */
+    tls_protect_val = v;
+    tls_protect_sp = 1;
+    gc_set_roots(&tls_protect_val, &tls_protect_sp, NULL);
+    gc_register_thread(&tls_protect_val, &tls_protect_sp, NULL);
+    /* 若 GC 已在进行，设置 at_safepoint 并自旋等待其结束（避免新 entry at_safepoint=0 导致 GC 空等） */
+    gc_stw_check_fast();
+}
+
+void gc_protect_pop(void) {
+    gc_unregister_thread();
+    gc_set_roots(tls_protect_old_stack, tls_protect_old_sp, tls_protect_old_frame);
+}
+
 /* ---- 内部辅助：用户指针 <-> GCObject ---- */
 static inline GCObject* ptr_to_obj(void* ptr) {
     return (GCObject*)((char*)ptr - sizeof(GCObject));
@@ -183,6 +225,11 @@ static inline void* obj_to_ptr(GCObject* obj) {
 static inline size_t tla_real_size(size_t size) {
     return (size < 16) ? 16 : size;
 }
+
+/* TLA 本地空闲链表 next 指针：存储在用户数据区域前 8 字节（空闲对象用户数据未使用），
+ * 不占用 GCObject.next，避免与 g_gc_objects 链表冲突导致全局链表断裂。
+ * tla_real_size 保证用户数据 >=16 字节，足够存放指针。 */
+#define TLA_LOCAL_NEXT(obj) (*(GCObject**)obj_to_ptr(obj))
 
 /* ---- 前向声明（分代辅助函数定义在 gc_alloc 之后） ---- */
 static int gc_generational_enabled(void);
@@ -200,7 +247,7 @@ void* gc_alloc(size_t size, int vtype)
     /* ---- TLA 快速路径：小对象从本地空闲链表分配（无锁） ----
      * 注意：GC 运行期间（g_in_gc）跳过本地空闲链表，强制走加锁路径，
      * 避免无锁修改 marked 位与并发 sweep 产生竞态。 */
-    if (size <= TLA_MAX_SIZE && !g_in_gc) {
+    if (size <= TLA_MAX_SIZE && !atomic_load_explicit(&g_in_gc, memory_order_relaxed)) {
         size_t real_sz = tla_real_size(size);
 
         /* 1. 扫描本地空闲链表，找第一个 user_size >= 请求大小的对象 */
@@ -208,9 +255,9 @@ void* gc_alloc(size_t size, int vtype)
         GCObject* cur = tla_local_free;
         while (cur) {
             if (cur->user_size >= real_sz) {
-                /* 从本地链表摘除 */
-                if (prev) prev->next = cur->next;
-                else tla_local_free = cur->next;
+                /* 从本地链表摘除（使用用户数据区的 next 指针，不触碰 GCObject.next） */
+                if (prev) TLA_LOCAL_NEXT(prev) = TLA_LOCAL_NEXT(cur);
+                else tla_local_free = TLA_LOCAL_NEXT(cur);
                 tla_local_count--;
                 /* 初始化：对象已在 g_gc_objects 中。
                  * 非标记期：marked=3（新分配预标记，确保首个 GC 周期不被 sweep）。
@@ -225,7 +272,7 @@ void* gc_alloc(size_t size, int vtype)
                 return obj_to_ptr(cur);
             }
             prev = cur;
-            cur = cur->next;
+            cur = TLA_LOCAL_NEXT(cur);
         }
 
         /* 2. 本地链表没找到，尝试从全局空闲链表批量取用 */
@@ -244,8 +291,8 @@ void* gc_alloc(size_t size, int vtype)
                 /* 按对象当前 age 计入对应分代（全局空闲链表中的对象保留 sweep 时的 age） */
                 if (obj->age < PROMOTE_AGE) g_young_bytes += obj_bytes;
                 else g_old_bytes += obj_bytes;
-                /* 移入本地空闲链表（marked 保持 2） */
-                obj->next = tla_local_free;
+                /* 移入本地空闲链表（marked 保持 2，next 存在用户数据区） */
+                TLA_LOCAL_NEXT(obj) = tla_local_free;
                 tla_local_free = obj;
                 tla_local_count++;
                 taken++;
@@ -257,8 +304,8 @@ void* gc_alloc(size_t size, int vtype)
             cur = tla_local_free;
             while (cur) {
                 if (cur->user_size >= real_sz) {
-                    if (prev) prev->next = cur->next;
-                    else tla_local_free = cur->next;
+                    if (prev) TLA_LOCAL_NEXT(prev) = TLA_LOCAL_NEXT(cur);
+                    else tla_local_free = TLA_LOCAL_NEXT(cur);
                     tla_local_count--;
                     cur->marked = g_gc_marking ? 1 : 3;  /* 新分配预标记 / 标记期黑色 */
                     cur->vtype = (unsigned char)vtype;
@@ -268,7 +315,7 @@ void* gc_alloc(size_t size, int vtype)
                     return obj_to_ptr(cur);
                 }
                 prev = cur;
-                cur = cur->next;
+                cur = TLA_LOCAL_NEXT(cur);
             }
         }
 
@@ -309,9 +356,10 @@ void* gc_alloc(size_t size, int vtype)
         batch[0]->vtype = (unsigned char)vtype;
         memset(obj_to_ptr(batch[0]), 0, size);
 
-        /* 剩余 TLA_BATCH-1 个放入本地空闲链表（marked=2 永生，保留在 g_gc_objects） */
+        /* 剩余 TLA_BATCH-1 个放入本地空闲链表（marked=2 永生，保留在 g_gc_objects）
+         * 使用用户数据区存储 next，不覆盖 g_gc_objects 的链接 */
         for (int i = 1; i < TLA_BATCH; i++) {
-            batch[i]->next = tla_local_free;
+            TLA_LOCAL_NEXT(batch[i]) = tla_local_free;
             tla_local_free = batch[i];
             tla_local_count++;
         }
@@ -388,7 +436,10 @@ void* gc_realloc(void* ptr, size_t new_size)
     }
     memcpy(new_obj, old_obj, sizeof(GCObject) + copy_size);
     new_obj->user_size = (uint32_t)new_size;
-    new_obj->marked = 0;
+    /* 标记期：新内部缓冲区设黑色（不被本轮 sweep）；非标记期：预标记（存活首轮 GC）。
+     * 关键：数组/map 增长时更新 items/buckets 指针不触发写屏障，若父对象已黑色
+     * 而新缓冲区为白色，并发标记期间会被漏标 → sweep 回收 → 悬空指针。 */
+    new_obj->marked = g_gc_marking ? 1 : 3;
     new_obj->vtype = vtype;
     new_obj->age = PROMOTE_AGE;  /* 内部缓冲区始终老年代，避免被老年代容器引用时 Minor GC 错误回收 */
     new_obj->flags = 0;
@@ -497,6 +548,21 @@ void gc_remembered_set_check(Value owner, Value new_val)
 
     /* owner 不是老年代，无需追踪 */
     if (owner_obj->age < PROMOTE_AGE) return;
+
+    /* 有效性校验：防止已释放/损坏的容器被加入 remembered set。
+     * VM 解释器中弹出栈到 C 局部变量的容器在扩容分配触发 GC 时可能被回收，
+     * 此处校验内部指针对齐性和字段合理性，跳过可疑对象。 */
+    if (owner.type == VAL_ARRAY) {
+        ValueArray* arr = owner.v.array;
+        if (arr->items && (!GC_VALID_PTR(arr->items) || ((unsigned long long)arr->items & 0xF) != 0))
+            return;
+        if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) return;
+    } else {
+        ValueMap* m = owner.v.map;
+        if (m->buckets && (!GC_VALID_PTR(m->buckets) || ((unsigned long long)m->buckets & 0xF) != 0))
+            return;
+        if (m->cap <= 0) return;
+    }
 
     /* 检查 new_val 是否可能引用新生代对象 */
     int may_ref_young = 0;
@@ -777,7 +843,9 @@ void gc_mark_value_to_stack(Value v)
         ValueMap* m = v.v.map;
         if (!GC_VALID_PTR(m)) break;
         if (m->stack_alloc) {
-            /* 栈分配 ValueMap：无 GCObject 头，直接扫描所有 entry 的 key/value */
+            /* 栈分配 ValueMap：无 GCObject 头，buckets/tree/MapEntry 均为堆分配需标记 */
+            if (m->buckets) gc_mark_internal_black(m->buckets);
+            if (m->tree) gc_mark_internal_black(m->tree);
             for (int i = 0; i < m->cap; i++) {
                 MapEntry* e = m->buckets[i];
                 if (!e) continue;
@@ -793,12 +861,14 @@ void gc_mark_value_to_stack(Value v)
                         }
                         if (top == 0) break;
                         cur = stk[--top];
+                        gc_mark_internal_black(cur);  /* MapEntry 标记黑色 */
                         gc_mark_value_to_stack(cur->key);
                         gc_mark_value_to_stack(cur->value);
                         cur = cur->right;
                     }
                 } else {
                     while (e) {
+                        gc_mark_internal_black(e);  /* MapEntry 标记黑色 */
                         gc_mark_value_to_stack(e->key);
                         gc_mark_value_to_stack(e->value);
                         e = e->next;
@@ -854,7 +924,14 @@ void gc_mark_one(GCObject* obj)
     case VAL_ARRAY: {
         /* 用户数据是 ValueArray 结构体（不是指针） */
         ValueArray* arr = (ValueArray*)obj_to_ptr(obj);
+        /* 有效性校验：防止已释放/损坏对象的 items 指针导致崩溃 */
+        if (arr->items && (!GC_VALID_PTR(arr->items) || ((unsigned long long)arr->items & 0xF) != 0))
+            break;
+        if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) break;
         if (arr->items) {
+            if (!arr->items_stack_alloc) {
+                gc_mark_internal_black(arr->items);  /* items 内部缓冲区标记黑色 */
+            }
             for (int i = 0; i < arr->len; i++) {
                 gc_mark_value_to_stack(arr->items[i]);
             }
@@ -864,10 +941,19 @@ void gc_mark_one(GCObject* obj)
     case VAL_MAP: {
         /* 用户数据是 ValueMap 结构体。
          * 遍历所有 buckets 的所有 entry（链表和红黑树两种形态），
-         * 对每个 entry 的 key 和 value 调用 gc_mark_value_to_stack。
-         * entry 本身（MapEntry*）已由 gc_mark_value_to_stack 中的
-         * gc_mark_internal_black 标记为黑色（不入栈），这里不重复处理。 */
+         * 对每个 entry 本身标记黑色（内部缓冲区，不入灰色栈），
+         * 再对 entry 的 key 和 value 调用 gc_mark_value_to_stack。
+         * 注意：gc_mark_value_to_stack 只标记 buckets/tree 数组本身，
+         * 不标记单个 MapEntry，必须在这里显式标记，否则 MapEntry 会被
+         * Major GC sweep 回收，导致 buckets 悬空指针。 */
         ValueMap* m = (ValueMap*)obj_to_ptr(obj);
+        /* 有效性校验：防止已释放/损坏对象的 buckets 指针导致崩溃 */
+        if (m->buckets && (!GC_VALID_PTR(m->buckets) || ((unsigned long long)m->buckets & 0xF) != 0))
+            break;
+        if (m->cap <= 0) break;
+        /* buckets/tree 内部缓冲区标记黑色（防御性：gc_mark_value_to_stack 应已标记） */
+        if (m->buckets) gc_mark_internal_black(m->buckets);
+        if (m->tree) gc_mark_internal_black(m->tree);
         for (int i = 0; i < m->cap; i++) {
             MapEntry* e = m->buckets[i];
             if (!e) continue;
@@ -883,13 +969,14 @@ void gc_mark_one(GCObject* obj)
                     }
                     if (top == 0) break;
                     cur = stk[--top];
-                    /* entry 本身已黑色，直接扫描 key/value */
+                    gc_mark_internal_black(cur);  /* MapEntry 内部缓冲区，标记黑色 */
                     gc_mark_value_to_stack(cur->key);
                     gc_mark_value_to_stack(cur->value);
                     cur = cur->right;
                 }
             } else {
                 while (e) {
+                    gc_mark_internal_black(e);  /* MapEntry 内部缓冲区，标记黑色 */
                     gc_mark_value_to_stack(e->key);
                     gc_mark_value_to_stack(e->value);
                     e = e->next;
@@ -963,7 +1050,9 @@ static void gc_mark_value_to_stack_minor(Value v)
         ValueMap* m = v.v.map;
         if (!GC_VALID_PTR(m)) break;
         if (m->stack_alloc) {
-            /* 栈分配 ValueMap：直接扫描所有 entry 的 key/value */
+            /* 栈分配 ValueMap：buckets/tree/MapEntry 均为堆分配需标记黑色 */
+            if (m->buckets) gc_mark_internal_black(m->buckets);
+            if (m->tree) gc_mark_internal_black(m->tree);
             for (int i = 0; i < m->cap; i++) {
                 MapEntry* e = m->buckets[i];
                 if (!e) continue;
@@ -978,12 +1067,14 @@ static void gc_mark_value_to_stack_minor(Value v)
                         }
                         if (top == 0) break;
                         cur = stk[--top];
+                        gc_mark_internal_black(cur);  /* MapEntry 标记黑色 */
                         gc_mark_value_to_stack_minor(cur->key);
                         gc_mark_value_to_stack_minor(cur->value);
                         cur = cur->right;
                     }
                 } else {
                     while (e) {
+                        gc_mark_internal_black(e);  /* MapEntry 标记黑色 */
                         gc_mark_value_to_stack_minor(e->key);
                         gc_mark_value_to_stack_minor(e->value);
                         e = e->next;
@@ -1035,7 +1126,8 @@ static void gc_mark_value_to_stack_minor(Value v)
 }
 
 /* 处理一个新生代灰色对象的子对象（只将新生代子对象变灰入栈），完成后自身设为黑色。
- * 内部缓冲区（items/buckets/tree/MapEntry）已老年代，标记黑色不被 sweep。 */
+ * 内部缓冲区（items/buckets/tree/MapEntry）标记黑色：若为老年代则不被 Minor GC sweep，
+ * 若为新生代则防止被错误回收（items 可能在数组增长时重新分配，旧缓冲区可能是新生代）。 */
 static void gc_mark_one_minor(GCObject* obj)
 {
     switch (obj->vtype) {
@@ -1043,7 +1135,14 @@ static void gc_mark_one_minor(GCObject* obj)
         break;
     case VAL_ARRAY: {
         ValueArray* arr = (ValueArray*)obj_to_ptr(obj);
+        /* 有效性校验：防止已释放/损坏对象的 items 指针导致崩溃 */
+        if (arr->items && (!GC_VALID_PTR(arr->items) || ((unsigned long long)arr->items & 0xF) != 0))
+            break;
+        if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) break;
         if (arr->items) {
+            if (!arr->items_stack_alloc) {
+                gc_mark_internal_black(arr->items);  /* items 内部缓冲区标记黑色 */
+            }
             for (int i = 0; i < arr->len; i++) {
                 gc_mark_value_to_stack_minor(arr->items[i]);
             }
@@ -1052,6 +1151,13 @@ static void gc_mark_one_minor(GCObject* obj)
     }
     case VAL_MAP: {
         ValueMap* m = (ValueMap*)obj_to_ptr(obj);
+        /* 有效性校验：防止已释放/损坏对象的 buckets 指针导致崩溃 */
+        if (m->buckets && (!GC_VALID_PTR(m->buckets) || ((unsigned long long)m->buckets & 0xF) != 0))
+            break;
+        if (m->cap <= 0) break;
+        /* buckets/tree 内部缓冲区标记黑色（防止新生代缓冲区被 Minor GC sweep） */
+        if (m->buckets) gc_mark_internal_black(m->buckets);
+        if (m->tree) gc_mark_internal_black(m->tree);
         for (int i = 0; i < m->cap; i++) {
             MapEntry* e = m->buckets[i];
             if (!e) continue;
@@ -1431,7 +1537,7 @@ static void gc_recount_bytes(void)
  * 调用方应在持有 g_gc_mutex 时调用（读取阈值和字节数）。 */
 static int gc_need_collect_locked(void)
 {
-    if (g_in_gc || g_gc_disable != 0) return 0;
+    if (atomic_load_explicit(&g_in_gc, memory_order_relaxed) || g_gc_disable != 0) return 0;
     if (gc_generational_enabled()) {
         /* 老年代阈值优先：老年代满了必须 Major GC 才能回收 */
         if (g_old_bytes > g_old_threshold) return 2;
@@ -1454,8 +1560,8 @@ unsigned long long gc_stw_time_ns(void) { return g_stw_total_ns; }
  * ============================================================ */
 void gc_collect_major(Value* stack, int sp, StackFrame* frame)
 {
-    if (g_in_gc) return;
-    g_in_gc = 1;
+    /* 原子 CAS：确保只有一个线程进入 GC，防止多线程并发标记/回收竞态 */
+    if (atomic_exchange_explicit(&g_in_gc, 1, memory_order_acquire)) return;
     g_major_gc_count++;
 
     if (!gc_incremental_enabled()) {
@@ -1521,7 +1627,7 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
 
         g_gc_stw = 0;
         gc_set_self_at_safepoint(0);
-        g_in_gc = 0;
+        atomic_store_explicit(&g_in_gc, 0, memory_order_release);
         return;
     }
 
@@ -1614,7 +1720,7 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
                 g_minor_gc_count, g_major_gc_count, g_young_bytes / 1024, g_old_bytes / 1024);
     }
 
-    g_in_gc = 0;
+    atomic_store_explicit(&g_in_gc, 0, memory_order_release);
 }
 
 /* ============================================================
@@ -1633,8 +1739,8 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
  * ============================================================ */
 void gc_collect_minor(Value* stack, int sp, StackFrame* frame)
 {
-    if (g_in_gc) return;
-    g_in_gc = 1;
+    /* 原子 CAS：确保只有一个线程进入 GC，防止多线程并发标记/回收竞态 */
+    if (atomic_exchange_explicit(&g_in_gc, 1, memory_order_acquire)) return;
     g_minor_gc_count++;
 
     unsigned long long t_stw_start = gc_now_ns();
@@ -1692,7 +1798,7 @@ void gc_collect_minor(Value* stack, int sp, StackFrame* frame)
                 g_minor_gc_count, g_major_gc_count, g_young_bytes / 1024, g_old_bytes / 1024);
     }
 
-    g_in_gc = 0;
+    atomic_store_explicit(&g_in_gc, 0, memory_order_release);
 }
 
 /* ============================================================
@@ -1752,11 +1858,12 @@ void gc_get_roots(Value** stack, int** sp_ptr, StackFrame** frame)
 }
 
 /* 手动触发一次 GC（使用当前注册的根）。
- * 显式 gc_collect() 触发 Major GC（全量标记-清除），确保所有垃圾被回收。 */
+ * 分代模式下调用 gc_collect() 调度入口（优先 Minor GC，使存活对象 age++ 并能晋升老年代）；
+ * 非分代模式下 gc_collect() 退化为 Major GC（全量标记-清除）。 */
 void gc_collect_now(void)
 {
     if (tls_stack && tls_sp && (tls_frame || tls_cframe)) {
-        gc_collect_major(tls_stack, *tls_sp, tls_frame);
+        gc_collect(tls_stack, *tls_sp, tls_frame);
     }
 }
 

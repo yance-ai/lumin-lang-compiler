@@ -122,6 +122,30 @@ static inline void gc_stw_check_fast(void) {
     gc_stw_check();
 }
 
+/* ---- 原生阻塞区（Native Block）----
+ * 线程在原生阻塞调用（pthread_join / pthread_mutex_lock / pthread_cond_wait /
+ * usleep 等）中不执行 VM 代码、不修改 GC 根，操作数栈与帧链稳定，可视为在安全点。
+ *
+ * gc_enter_native_block()：将当前线程所有注册 entry（VM + CFrame）的 at_safepoint 置 1，
+ *   使正在等待的 GC 能立即扫描本线程栈并继续；随后进入原生阻塞调用。
+ * gc_leave_native_block()：原生调用返回后将 at_safepoint 恢复为 0。
+ *
+ * 必须严格配对使用（enter → 原生阻塞调用 → leave），且 enter 与 leave 之间不得执行
+ * 任何可能修改 GC 根的 VM 级操作（如分配、写入堆对象字段）。
+ * 与 gc_stw_check() 的区别：gc_stw_check 会自旋等待 GC 结束，而 native_block 只标记
+ * 安全点后立即返回（线程本身已被原生调用阻塞，无需额外自旋）。 */
+void gc_enter_native_block(void);
+void gc_leave_native_block(void);
+
+/* ---- GC 值保护（Value Protect）----
+ * 临时将一个 Value 注册为 GC 根，使其在原生阻塞区/线程退出等场景下不被误回收。
+ * 典型场景：工作线程退出时已 gc_unregister_thread()，结果值在 C 栈上不被 GC 扫描；
+ * 此时若其他线程触发 GC，结果值引用的堆对象可能被回收 → val_clone 时 UAF。
+ * 在 val_clone 前调用 gc_protect_push(r)，clone 后 gc_protect_pop()。
+ * 必须严格配对；内部使用 TLS 保存旧根，不可嵌套调用。 */
+void gc_protect_push(Value v);
+void gc_protect_pop(void);
+
 /* ============================================================
  * 编译通道（C 代码生成）帧链表
  *
