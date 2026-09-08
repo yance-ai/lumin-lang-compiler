@@ -63,6 +63,21 @@ static int g_scalar_sym_cnt = 0;
 /* 标量替换最大元素数（超过则不替换，避免生成过多标量变量） */
 #define SCALAR_REPL_MAX 16
 
+/* 判断指令 i 处的 ARRAY_LIT/MAP_LIT 是否被标量替换。
+ * 标量替换模式：LIT + STORE_VAR(v) + POP，且 g_scalar_var[v]==1。
+ * 被标量替换的字面量不再生成 __arr_stk_N / __items_stk_N / __map_stk_N 栈声明。 */
+static int is_scalar_replaced_lit(const BytecodeFunc* fn, int i)
+{
+    if(!g_scalar_var) return 0;
+    if(i + 2 >= fn->code_len) return 0;
+    if(fn->code[i].op != OPC_ARRAY_LIT && fn->code[i].op != OPC_MAP_LIT) return 0;
+    if(fn->code[i+1].op != OPC_STORE_VAR) return 0;
+    if(fn->code[i+2].op != OPC_POP) return 0;
+    int v = fn->code[i+1].a;
+    if(v < 0 || v >= fn->sym_cnt) return 0;
+    return g_scalar_var[v];
+}
+
 // ---------------- NameSet ----------------
 
 static int ns_has(const NameSet* s, const char* name)
@@ -1782,22 +1797,22 @@ static void emit_func_def(BytecodeFunc* fn)
     for(int i = 0; i < fn_locals.count; i++) {
         fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
     }
-    /* 栈分配数组声明：逃逸分析判定为不逃逸的 OPC_ARRAY_LIT */
+    /* 栈分配数组声明：逃逸分析判定为不逃逸的 OPC_ARRAY_LIT（标量替换的跳过） */
     for(int i = 0; i < fn->code_len; i++) {
-        if(g_stack_alloc && g_stack_alloc[i]) {
+        if(g_stack_alloc && g_stack_alloc[i] && !is_scalar_replaced_lit(fn, i)) {
             fprintf(out, "    ValueArray __arr_stk_%d;\n", i);
         }
     }
-    /* items 栈缓冲区声明：完全栈分配数组的 items 在 C 栈上 */
+    /* items 栈缓冲区声明：完全栈分配数组的 items 在 C 栈上（标量替换的跳过） */
     for(int i = 0; i < fn->code_len; i++) {
-        if(g_items_stack_alloc && g_items_stack_alloc[i]) {
+        if(g_items_stack_alloc && g_items_stack_alloc[i] && !is_scalar_replaced_lit(fn, i)) {
             int ne = fn->code[i].b;
             fprintf(out, "    Value __items_stk_%d[%d];\n", i, ne);
         }
     }
-    /* map 栈分配声明：不逃逸的 OPC_MAP_LIT */
+    /* map 栈分配声明：不逃逸的 OPC_MAP_LIT（标量替换的跳过） */
     for(int i = 0; i < fn->code_len; i++) {
-        if(g_map_stack_alloc && g_map_stack_alloc[i]) {
+        if(g_map_stack_alloc && g_map_stack_alloc[i] && !is_scalar_replaced_lit(fn, i)) {
             fprintf(out, "    ValueMap __map_stk_%d;\n", i);
         }
     }
