@@ -45,8 +45,23 @@ static int g_items_stack_alloc_len = 0;
 static uint8_t* g_map_stack_alloc = NULL;
 static int g_map_stack_alloc_len = 0;
 
+/* 标量替换（Scalar Replacement）：
+ * g_scalar_var[v]=1：局部变量 v 持有一个被标量替换的数组/map，
+ *   其创建被拆解为一组标量局部变量，INDEX_GET/INDEX_SET/len 被替换为标量读写。
+ * g_scalar_kind[v]：0=数组，1=map
+ * g_scalar_count[v]：元素个数（数组）或键值对个数（map）
+ * g_scalar_keys[v][k]：map 第 k 个键的常量表索引（仅 map）
+ * 标量变量命名：__sr_v{v}_e{k}（变量 v 的第 k 个元素） */
+static uint8_t* g_scalar_var = NULL;
+static uint8_t* g_scalar_kind = NULL;
+static int* g_scalar_count = NULL;
+static int** g_scalar_keys = NULL;
+static int g_scalar_sym_cnt = 0;
+
 /* items 栈分配最大元素数（每个 Value 32 字节，256 个 = 8KB，防止栈溢出） */
 #define ITEMS_STACK_MAX 256
+/* 标量替换最大元素数（超过则不替换，避免生成过多标量变量） */
+#define SCALAR_REPL_MAX 16
 
 // ---------------- NameSet ----------------
 
@@ -205,10 +220,114 @@ static int is_jump_target(BytecodeFunc* fn, int idx)
 
 static void emit_insns(BytecodeFunc* fn)
 {
-    for(int i = 0; i < fn->code_len; i++) {
+    int i = 0;
+    while(i < fn->code_len) {
         if(is_jump_target(fn, i)) fprintf(out, "L%d:;\n", i);
         Instruction in = fn->code[i];
         const char* nm = (in.a >= 0 && in.a < fn->sym_cnt) ? fn->syms[in.a] : NULL;
+
+        /* ===== 标量替换：创建模式 ARRAY_LIT/MAP_LIT + STORE_VAR + POP ===== */
+        if((in.op == OPC_ARRAY_LIT || in.op == OPC_MAP_LIT) &&
+           i + 2 < fn->code_len &&
+           fn->code[i+1].op == OPC_STORE_VAR &&
+           fn->code[i+2].op == OPC_POP) {
+            int v = fn->code[i+1].a;
+            if(g_scalar_var && g_scalar_var[v]) {
+                int cnt = g_scalar_count[v];
+                if(g_scalar_kind[v] == 0) {
+                    /* 数组标量初始化：元素在栈上 __stk[__sp-cnt..__sp-1] */
+                    fprintf(out, "    { /* scalar-repl array init v=%d cnt=%d */\n", v, cnt);
+                    for(int k = 0; k < cnt; k++)
+                        fprintf(out, "        __sr_v%d_e%d = __stk[__sp - %d + %d];\n", v, k, cnt, k);
+                    fprintf(out, "        __sp -= %d;\n", cnt);
+                    fprintf(out, "    }\n");
+                } else {
+                    /* map 标量初始化：键值对在栈上，值在奇数位置 */
+                    fprintf(out, "    { /* scalar-repl map init v=%d cnt=%d */\n", v, cnt);
+                    for(int k = 0; k < cnt; k++)
+                        fprintf(out, "        __sr_v%d_e%d = __stk[__sp - %d + %d];\n", v, k, 2*cnt, 2*k + 1);
+                    fprintf(out, "        __sp -= %d;\n", 2 * cnt);
+                    fprintf(out, "    }\n");
+                }
+                i += 3;  /* 跳过 LIT + STORE_VAR + POP */
+                continue;
+            }
+        }
+
+        /* ===== 标量替换：使用模式 LOAD_VAR(scalar var) + ... ===== */
+        if(in.op == OPC_LOAD_VAR && g_scalar_var && g_scalar_var[in.a]) {
+            int v = in.a;
+            int cnt = g_scalar_count[v];
+            /* 模式1：LOAD_VAR + BUILTIN_LEN → 常量 len */
+            if(i + 1 < fn->code_len && fn->code[i+1].op == OPC_BUILTIN &&
+               fn->code[i+1].a == BUILTIN_LEN) {
+                fprintf(out, "    { Value __c; __c.type = VAL_INT; __c.v.i = %d; __stk[__sp++] = __c; }\n", cnt);
+                i += 2;
+                continue;
+            }
+            /* 模式2/3：LOAD_VAR + LOAD_CONST(idx) + INDEX_GET/INDEX_SET */
+            if(i + 1 < fn->code_len && fn->code[i+1].op == OPC_LOAD_CONST) {
+                int ci = fn->code[i+1].a;
+                int elem_idx = -1;
+                if(g_scalar_kind[v] == 0) {
+                    /* 数组：下标是整数常量 */
+                    if(ci >= 0 && ci < fn->const_cnt && fn->consts[ci].type == VAL_INT) {
+                        long long idx = fn->consts[ci].v.i;
+                        if(idx >= 0 && idx < cnt) elem_idx = (int)idx;
+                    }
+                } else {
+                    /* map：键是字符串常量，匹配 g_scalar_keys[v] */
+                    if(ci >= 0 && ci < fn->const_cnt && fn->consts[ci].type == VAL_STRING && g_scalar_keys[v]) {
+                        const char* key_str = lumin_str_cstr(&fn->consts[ci]);
+                        for(int k = 0; k < cnt; k++) {
+                            int kci = g_scalar_keys[v][k];
+                            if(kci >= 0 && kci < fn->const_cnt && fn->consts[kci].type == VAL_STRING) {
+                                if(strcmp(lumin_str_cstr(&fn->consts[kci]), key_str) == 0) {
+                                    elem_idx = k;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if(elem_idx >= 0) {
+                    /* INDEX_GET：LOAD_VAR + LOAD_CONST + INDEX_GET */
+                    if(i + 2 < fn->code_len && fn->code[i+2].op == OPC_INDEX_GET) {
+                        fprintf(out, "    __stk[__sp++] = __sr_v%d_e%d;\n", v, elem_idx);
+                        i += 3;
+                        continue;
+                    }
+                    /* INDEX_SET：LOAD_VAR + LOAD_CONST + <value> + INDEX_SET（value 单条指令） */
+                    if(i + 3 < fn->code_len && fn->code[i+3].op == OPC_INDEX_SET) {
+                        Instruction val_in = fn->code[i+2];
+                        /* 生成值指令（内联支持 LOAD_CONST / LOAD_VAR / GETFUNC） */
+                        if(val_in.op == OPC_LOAD_CONST) {
+                            fprintf(out, "    __stk[__sp++] = ");
+                            emit_const(out, &fn->consts[val_in.a]);
+                            fprintf(out, ";\n");
+                        } else if(val_in.op == OPC_LOAD_VAR) {
+                            const char* vnm = (val_in.a >= 0 && val_in.a < fn->sym_cnt) ? fn->syms[val_in.a] : NULL;
+                            fprintf(out, "    __stk[__sp++] = %s;\n", cvar(vnm));
+                        } else if(val_in.op == OPC_GETFUNC) {
+                            const char* vnm = (val_in.a >= 0 && val_in.a < fn->sym_cnt) ? fn->syms[val_in.a] : NULL;
+                            int fidx = -1;
+                            for(int fi = 0; fi < ir_func_table_count(); fi++)
+                                if(strcmp(ir_func_table_get(fi)->name, vnm) == 0) { fidx = fi; break; }
+                            fprintf(out, "    { Value __f; __f.type = VAL_FUNC; __f.v.func.func_obj = (void*)lum_wrap_%d; __stk[__sp++] = __f; }\n", fidx);
+                        } else {
+                            /* 不支持的值表达式类型：回退到正常处理（不应发生，分析阶段已过滤） */
+                            fprintf(out, "    __stk[__sp++] = val_none(); /* scalar-repl fallback */\n");
+                        }
+                        /* 标量存储：弹出值，存入标量，再压回（INDEX_SET 返回值语义） */
+                        fprintf(out, "    { Value __v = __stk[--__sp]; __sr_v%d_e%d = __v; __stk[__sp++] = __v; }\n", v, elem_idx);
+                        i += 4;
+                        continue;
+                    }
+                }
+                /* elem_idx < 0 或模式不匹配：回退正常处理 */
+            }
+        }
+
         switch(in.op) {
             case OPC_NOP:
                 break;
@@ -1057,6 +1176,7 @@ static void emit_insns(BytecodeFunc* fn)
             default:
                 break;
         }
+        i++;
     }
 }
 
@@ -1456,6 +1576,160 @@ static void analyze_escape_for(BytecodeFunc* fn, int target_op,
     (void)other_op;
 }
 
+/* 标量替换分析：在逃逸分析之后运行。
+ * 识别"不逃逸数组/map 字面量立即赋值给局部变量，且该变量仅用于常量下标读写或 len()"
+ * 的模式，标记为可标量替换。代码生成时将其拆解为一组标量局部变量。
+ *
+ * 适用模式（保守）：
+ *   a = [1,2,3];            // ARRAY_LIT + STORE_VAR + POP
+ *   print(a[0]);            // LOAD_VAR a + LOAD_CONST 0 + INDEX_GET
+ *   a[1] = 5;               // LOAD_VAR a + LOAD_CONST 1 + val + INDEX_SET
+ *   print(len(a));          // LOAD_VAR a + BUILTIN_LEN
+ * 不适用：动态下标、传参、return、迭代、多次赋值、非 POP 上下文等。
+ */
+static void analyze_scalar_replacement(BytecodeFunc* fn)
+{
+    int n = fn->code_len;
+    int sc = fn->sym_cnt;
+
+    /* 释放上一次结果 */
+    if(g_scalar_var) { free(g_scalar_var); g_scalar_var = NULL; }
+    if(g_scalar_kind) { free(g_scalar_kind); g_scalar_kind = NULL; }
+    if(g_scalar_count) { free(g_scalar_count); g_scalar_count = NULL; }
+    if(g_scalar_keys) {
+        for(int v = 0; v < g_scalar_sym_cnt; v++)
+            if(g_scalar_keys[v]) free(g_scalar_keys[v]);
+        free(g_scalar_keys);
+        g_scalar_keys = NULL;
+    }
+    g_scalar_sym_cnt = 0;
+    if(sc == 0) return;
+
+    g_scalar_var = (uint8_t*)calloc(sc, sizeof(uint8_t));
+    g_scalar_kind = (uint8_t*)calloc(sc, sizeof(uint8_t));
+    g_scalar_count = (int*)calloc(sc, sizeof(int));
+    g_scalar_keys = (int**)calloc(sc, sizeof(int*));
+    g_scalar_sym_cnt = sc;
+
+    for(int i = 0; i < n; i++) {
+        int is_arr = (fn->code[i].op == OPC_ARRAY_LIT);
+        int is_map = (fn->code[i].op == OPC_MAP_LIT);
+        if(!is_arr && !is_map) continue;
+
+        /* 必须紧跟 STORE_VAR + POP（语句级赋值） */
+        if(i + 2 >= n) continue;
+        if(fn->code[i+1].op != OPC_STORE_VAR) continue;
+        if(fn->code[i+2].op != OPC_POP) continue;
+
+        int v = fn->code[i+1].a;
+        if(v < 0 || v >= sc) continue;
+        /* 必须是局部变量（非全局） */
+        if(ea_is_global(fn, v)) continue;
+
+        int cnt = fn->code[i].b;
+        if(cnt <= 0 || cnt > SCALAR_REPL_MAX) continue;
+
+        /* map：所有键值必须是单条 LOAD_CONST（常量 map 字面量）。
+         * 值为多指令表达式时，键的偏移不固定，无法安全提取键映射 → 不标量替换。 */
+        int* key_consts = NULL;
+        if(is_map) {
+            key_consts = (int*)malloc(sizeof(int) * cnt);
+            int ok = 1;
+            for(int k = 0; k < cnt; k++) {
+                int kidx = i - 2 * cnt + 2 * k;       /* 键指令位置 */
+                int vidx = i - 2 * cnt + 2 * k + 1;   /* 值指令位置 */
+                if(kidx < 0 || vidx < 0) { ok = 0; break; }
+                if(fn->code[kidx].op != OPC_LOAD_CONST) { ok = 0; break; }
+                if(fn->code[vidx].op != OPC_LOAD_CONST) { ok = 0; break; }
+                int ci = fn->code[kidx].a;
+                if(ci < 0 || ci >= fn->const_cnt) { ok = 0; break; }
+                if(fn->consts[ci].type != VAL_STRING) { ok = 0; break; }
+                key_consts[k] = ci;
+            }
+            if(!ok) { free(key_consts); continue; }
+        }
+
+        /* 扫描该变量的所有使用：必须全部是常量下标 INDEX_GET/INDEX_SET 或 BUILTIN_LEN */
+        int eligible = 1;
+        int assign_count = 0;
+        for(int j = 0; j < n; j++) {
+            Instruction in = fn->code[j];
+            if(in.op == OPC_STORE_VAR && in.a == v) {
+                assign_count++;
+                if(assign_count > 1) { eligible = 0; break; }
+                continue;
+            }
+            if(in.op != OPC_LOAD_VAR || in.a != v) continue;
+
+            /* LOAD_VAR 之后必须是：
+             *   LOAD_CONST + INDEX_GET（常量下标读）
+             *   LOAD_CONST + ... + INDEX_SET（常量下标写，值可以是任意表达式）
+             *   BUILTIN_LEN
+             */
+            if(j + 1 >= n) { eligible = 0; break; }
+            Instruction next = fn->code[j+1];
+
+            if(next.op == OPC_BUILTIN && next.a == BUILTIN_LEN) {
+                continue;  /* len(a) → 常量替换 */
+            }
+
+            if(next.op != OPC_LOAD_CONST) { eligible = 0; break; }
+            int ci = next.a;
+            if(ci < 0 || ci >= fn->const_cnt) { eligible = 0; break; }
+
+            if(is_arr) {
+                /* 数组下标必须是整数常量且在边界内 */
+                if(fn->consts[ci].type != VAL_INT) { eligible = 0; break; }
+                long long idx = fn->consts[ci].v.i;
+                if(idx < 0 || idx >= cnt) { eligible = 0; break; }
+            } else {
+                /* map 键必须是字符串常量且匹配字面量中的某个键 */
+                if(fn->consts[ci].type != VAL_STRING) { eligible = 0; break; }
+                int key_match = 0;
+                const char* access_key = lumin_str_cstr(&fn->consts[ci]);
+                for(int k = 0; k < cnt; k++) {
+                    int kci = key_consts[k];
+                    if(kci >= 0 && kci < fn->const_cnt && fn->consts[kci].type == VAL_STRING) {
+                        if(strcmp(lumin_str_cstr(&fn->consts[kci]), access_key) == 0) {
+                            key_match = 1; break;
+                        }
+                    }
+                }
+                if(!key_match) { eligible = 0; break; }
+            }
+
+            /* 检查 LOAD_CONST 之后是 INDEX_GET 还是 INDEX_SET */
+            if(j + 2 >= n) { eligible = 0; break; }
+            Instruction next2 = fn->code[j+2];
+            if(next2.op == OPC_INDEX_GET) {
+                continue;  /* a[idx] 读 */
+            }
+            /* INDEX_SET：LOAD_VAR + LOAD_CONST(idx) + 值 + INDEX_SET，值占 1 条指令 */
+            if(next2.op != OPC_INDEX_SET) {
+                /* 值可能是多条指令（如表达式），找到对应的 INDEX_SET */
+                /* 简化：要求值是单条指令（LOAD_CONST/LOAD_VAR/GETFUNC 等） */
+                if(j + 3 >= n || fn->code[j+3].op != OPC_INDEX_SET) {
+                    eligible = 0; break;
+                }
+            }
+            /* INDEX_SET 合法 */
+        }
+
+        if(eligible && assign_count == 1) {
+            g_scalar_var[v] = 1;
+            g_scalar_kind[v] = is_arr ? 0 : 1;
+            g_scalar_count[v] = cnt;
+            if(is_map) {
+                g_scalar_keys[v] = key_consts;
+            } else {
+                free(key_consts);
+            }
+        } else {
+            if(key_consts) free(key_consts);
+        }
+    }
+}
+
 // ---------------- 函数/主函数发射 ----------------
 
 static void emit_func_proto(BytecodeFunc* fn)
@@ -1480,6 +1754,7 @@ static void emit_func_def(BytecodeFunc* fn)
     g_map_stack_alloc = (uint8_t*)calloc(n, sizeof(uint8_t));
     analyze_escape_for(fn, OPC_ARRAY_LIT, g_stack_alloc, g_items_stack_alloc, 1);
     analyze_escape_for(fn, OPC_MAP_LIT, g_map_stack_alloc, NULL, 0);
+    analyze_scalar_replacement(fn);
     /* 收集本函数内 FIN_PUSH 的目标（finally/循环结束 label） */
     fin_lab_cnt = 0;
     for(int i = 0; i < fn->code_len; i++) {
@@ -1526,6 +1801,14 @@ static void emit_func_def(BytecodeFunc* fn)
             fprintf(out, "    ValueMap __map_stk_%d;\n", i);
         }
     }
+    /* 标量替换变量声明：每个被标量替换的变量的每个元素一个标量 */
+    for(int v = 0; v < fn->sym_cnt; v++) {
+        if(g_scalar_var && g_scalar_var[v]) {
+            for(int k = 0; k < g_scalar_count[v]; k++) {
+                fprintf(out, "    Value __sr_v%d_e%d = val_none();\n", v, k);
+            }
+        }
+    }
     emit_insns(fn);
     g_cur_fn = NULL;
     if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
@@ -1534,6 +1817,16 @@ static void emit_func_def(BytecodeFunc* fn)
     g_items_stack_alloc_len = 0;
     if(g_map_stack_alloc) { free(g_map_stack_alloc); g_map_stack_alloc = NULL; }
     g_map_stack_alloc_len = 0;
+    if(g_scalar_var) { free(g_scalar_var); g_scalar_var = NULL; }
+    if(g_scalar_kind) { free(g_scalar_kind); g_scalar_kind = NULL; }
+    if(g_scalar_count) { free(g_scalar_count); g_scalar_count = NULL; }
+    if(g_scalar_keys) {
+        for(int v = 0; v < g_scalar_sym_cnt; v++)
+            if(g_scalar_keys[v]) free(g_scalar_keys[v]);
+        free(g_scalar_keys);
+        g_scalar_keys = NULL;
+    }
+    g_scalar_sym_cnt = 0;
     fprintf(out, "}\n\n");
 }
 
@@ -1608,6 +1901,7 @@ static void emit_main(BytecodeFunc* main_fn)
         g_map_stack_alloc = (uint8_t*)calloc(mn, sizeof(uint8_t));
         analyze_escape_for(main_fn, OPC_ARRAY_LIT, g_stack_alloc, g_items_stack_alloc, 1);
         analyze_escape_for(main_fn, OPC_MAP_LIT, g_map_stack_alloc, NULL, 0);
+        analyze_scalar_replacement(main_fn);
     }
     fprintf(out, "int main(void){\n");
     fprintf(out, "    Value __stk[%d];\n", maxd + 2);
@@ -1629,6 +1923,14 @@ static void emit_main(BytecodeFunc* main_fn)
     for(int i = 0; i < main_fn->code_len; i++) {
         if(g_map_stack_alloc && g_map_stack_alloc[i]) {
             fprintf(out, "    ValueMap __map_stk_%d;\n", i);
+        }
+    }
+    /* 标量替换变量声明（main 中全为全局变量，通常不会触发） */
+    for(int v = 0; v < main_fn->sym_cnt; v++) {
+        if(g_scalar_var && g_scalar_var[v]) {
+            for(int k = 0; k < g_scalar_count[v]; k++) {
+                fprintf(out, "    Value __sr_v%d_e%d = val_none();\n", v, k);
+            }
         }
     }
     /* 函数边界保存（RETURN/FINISH act=5 恢复用），与 emit_func_def 一致 */
@@ -1653,6 +1955,16 @@ static void emit_main(BytecodeFunc* main_fn)
     g_items_stack_alloc_len = 0;
     if(g_map_stack_alloc) { free(g_map_stack_alloc); g_map_stack_alloc = NULL; }
     g_map_stack_alloc_len = 0;
+    if(g_scalar_var) { free(g_scalar_var); g_scalar_var = NULL; }
+    if(g_scalar_kind) { free(g_scalar_kind); g_scalar_kind = NULL; }
+    if(g_scalar_count) { free(g_scalar_count); g_scalar_count = NULL; }
+    if(g_scalar_keys) {
+        for(int v = 0; v < g_scalar_sym_cnt; v++)
+            if(g_scalar_keys[v]) free(g_scalar_keys[v]);
+        free(g_scalar_keys);
+        g_scalar_keys = NULL;
+    }
+    g_scalar_sym_cnt = 0;
     fprintf(out, "}\n\n");
 }
 
