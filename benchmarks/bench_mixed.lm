@@ -1,0 +1,37 @@
+// ============================================================
+// bench_mixed.lm — 混合场景基准（模拟真实业务代码）
+// 循环中交替创建字符串、数组、map，做简单运算
+// 数组/map 采用只读模式以触发标量替换
+// 迭代 50 万次
+// ============================================================
+
+func bench_mixed(iter) {
+    acc = 0;
+    for (i = 0; i < iter; i = i + 1) {
+        // 字符串创建 + 拼接（SSO 收益）
+        name = "item_" + i;
+        label = name + "_label";
+
+        // 只读小数组（坐标/向量，标量替换命中）
+        pos = [1, 2, 3];
+        x = pos[0] + i;
+        y = pos[1] + i + 1;
+        z = pos[2] + i + 2;
+
+        // 只读小 map（属性包，标量替换命中）
+        props = {"base": 10, "scale": 2, "offset": 5};
+        px = props["base"] + x * props["scale"] + props["offset"];
+        pz = props["base"] + z * props["scale"] + props["offset"];
+
+        // 混合累加
+        acc = acc + len(name) + len(label) + x + y + z + px + pz + len(pos) + len(props);
+    }
+    return acc;
+}
+
+before = gc_count();
+result = bench_mixed(500000);
+after = gc_count();
+
+print("bench_mixed result=" + result);
+print("gc_delta=" + (after - before));

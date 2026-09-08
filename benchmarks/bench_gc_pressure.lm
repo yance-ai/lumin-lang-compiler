@@ -1,0 +1,47 @@
+// ============================================================
+// bench_gc_pressure.lm — GC 压力场景（大量临时对象）
+// 创建超过栈分配阈值的大数组/map（必须堆分配），然后丢弃
+// 触发频繁 GC，测量 GC 开销
+// 迭代 10 万次
+// ============================================================
+
+func make_big_array(n) {
+    a = [];
+    for (j = 0; j < n; j = j + 1) {
+        a.add(j);
+    }
+    return a;
+}
+
+func make_big_map(n) {
+    m = {};
+    for (j = 0; j < n; j = j + 1) {
+        m["key_" + j] = j;
+    }
+    return m;
+}
+
+func bench_gc_pressure(iter) {
+    acc = 0;
+    for (i = 0; i < iter; i = i + 1) {
+        // 大数组（>256 元素，超过栈分配阈值，必须堆分配）
+        big_arr = make_big_array(500);
+        acc = acc + big_arr[0] + big_arr[499] + len(big_arr);
+
+        // 大 map（多键值对，必须堆分配）
+        big_map = make_big_map(20);
+        acc = acc + big_map["key_0"] + big_map["key_19"] + len(big_map);
+
+        // 显式丢弃引用，下一轮迭代覆盖变量
+        big_arr = null;
+        big_map = null;
+    }
+    return acc;
+}
+
+before = gc_count();
+result = bench_gc_pressure(100000);
+after = gc_count();
+
+print("bench_gc_pressure result=" + result);
+print("gc_delta=" + (after - before));
