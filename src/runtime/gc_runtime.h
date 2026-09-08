@@ -83,6 +83,19 @@ void gc_unregister_thread(void);
 /* 协作式 STW 安全点：VM 解释循环每条指令前调用，GC 运行时自旋等待 */
 void gc_stw_check(void);
 
+/* STW 全局标志：GC 运行时置 1 通知所有线程暂停，置 0 恢复。
+ * 暴露为 extern 以供 gc_stw_check_fast() 内联快速路径使用，
+ * 避免非 GC 时每次检查都产生函数调用开销。 */
+extern volatile int g_gc_stw;
+
+/* 内联 STW 快速路径：非 GC 时仅一次 volatile 读 + 分支（通常预测不跳转），
+ * 无函数调用开销；GC 时才调用 gc_stw_check() 进入自旋等待。
+ * 编译通道生成的 C 代码和 VM 解释循环应优先调用此函数。 */
+static inline void gc_stw_check_fast(void) {
+    if (!g_gc_stw) return;
+    gc_stw_check();
+}
+
 /* ============================================================
  * 编译通道（C 代码生成）帧链表
  *

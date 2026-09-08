@@ -228,7 +228,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     }
 
     for(;;) {
-        gc_stw_check();  /* 协作式 STW 安全点：GC 运行时自旋等待 */
+        gc_stw_check_fast();  /* 协作式 STW 安全点：内联快速路径，非 GC 时无函数调用开销 */
         Instruction in = bf->code[pc++];
         switch(in.op) {
             case OPC_NOP:

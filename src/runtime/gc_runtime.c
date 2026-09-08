@@ -54,7 +54,7 @@ static int g_gc_disable = 0;  /* GC 暂停计数器（构造复合对象时使�
  * 线程进入 gc_stw_check() 自旋时设置 at_safepoint=1，退出时设置 0。
  * GC 线程轮询所有注册线程直到全部 at_safepoint==1（带超时保护），
  * 确保标记时所有线程栈稳定，彻底消除 torn Value 竞态。 */
-static volatile int g_gc_stw = 0;
+volatile int g_gc_stw = 0;
 
 /* 当前线程的根（VM 执行循环注册，供 gc_alloc 自动触发 GC 使用） */
 static _Thread_local Value*   tls_stack = NULL;

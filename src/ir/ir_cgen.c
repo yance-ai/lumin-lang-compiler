@@ -360,7 +360,7 @@ static void emit_insns(BytecodeFunc* fn)
             } else if (in.op != OPC_NOP) {
                 stw_counter++;
                 if (stw_counter >= STW_CHECK_INTERVAL) {
-                    fprintf(out, "    gc_stw_check();\n");
+                    fprintf(out, "    gc_stw_check_fast();\n");
                     stw_counter = 0;
                 }
             }
@@ -483,7 +483,7 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_set(__arr, __idx, __val); }\n");
                 break;
             case OPC_BUILTIN:
-                fprintf(out, "    gc_stw_check();\n");
+                fprintf(out, "    gc_stw_check_fast();\n");
                 switch(in.a) {
                     case BUILTIN_LEN:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_len(__v); }\n");
@@ -1118,7 +1118,7 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_JMP:
                 /* 循环回边（向后跳转）插入 STW 安全点：编译通道无解释循环安全点，
                  * 长循环中需主动检查 GC 是否运行，避免标记期间并发修改栈值 */
-                if(in.a < i) fprintf(out, "    gc_stw_check();\n");
+                if(in.a < i) fprintf(out, "    gc_stw_check_fast();\n");
                 fprintf(out, "    goto L%d;\n", in.a);
                 break;
             case OPC_JMP_IF_FALSE:
@@ -1129,7 +1129,7 @@ static void emit_insns(BytecodeFunc* fn)
                 break;
             case OPC_CALL: {
                 /* STW 安全点：函数调用前检查 GC，避免参数弹出期间并发标记读到 torn Value */
-                fprintf(out, "    gc_stw_check();\n");
+                fprintf(out, "    gc_stw_check_fast();\n");
                 /* 帧链优先（VM 语义）：名字是局部/全局变量时按函数值动态调用，
                    与具名全局函数冲突时以变量为准（局部闭包遮蔽全局函数） */
                 int is_var = (g_cur_fn && (fn_has_param(g_cur_fn, nm) || ns_has(&fn_locals, nm))) ||
@@ -1188,7 +1188,7 @@ static void emit_insns(BytecodeFunc* fn)
             }
             case OPC_CALLV: {
                 /* STW 安全点：函数调用前检查 GC */
-                fprintf(out, "    gc_stw_check();\n");
+                fprintf(out, "    gc_stw_check_fast();\n");
                 // 动态调用链 f(1)(2)：栈上函数值调用（wrap 指针签名 Value(*)(Value*, int)）
                 int argc = in.b;
                 fprintf(out, "    {\n");
@@ -1902,7 +1902,7 @@ static void emit_func_def(BytecodeFunc* fn)
         fprintf(out, "    __frame.local_ptrs = __local_ptrs;\n");
         fprintf(out, "    __frame.nlocals = %d;\n", _nlocals);
         fprintf(out, "    gc_push_cframe(&__frame);\n");
-        fprintf(out, "    gc_stw_check();\n");
+        fprintf(out, "    gc_stw_check_fast();\n");
     }
     emit_insns(fn);
     g_cur_fn = NULL;
@@ -2074,7 +2074,7 @@ static void emit_main(BytecodeFunc* main_fn)
         fprintf(out, "    __frame.local_ptrs = __local_ptrs;\n");
         fprintf(out, "    __frame.nlocals = %d;\n", _nlocals);
         fprintf(out, "    gc_push_cframe(&__frame);\n");
-        fprintf(out, "    gc_stw_check();\n");
+        fprintf(out, "    gc_stw_check_fast();\n");
     }
     g_cur_fn = NULL;
     emit_insns(main_fn);

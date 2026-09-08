@@ -155,10 +155,27 @@ Value lumin_add(Value a, Value b) {
     // 3) 其它（含 char 参与）→ double（char 按数值提升）
     if(is_string(a,b) || a.type == VAL_BOOL || b.type == VAL_BOOL)
     {
-        char* sa = value_to_str(a);
-        char* sb = value_to_str(b);
-        size_t la = strlen(sa);
-        size_t lb = strlen(sb);
+        /* 性能优化：已是字符串的操作数直接引用其数据，不调用 value_to_str() 做
+         * 多余的 malloc+strlen+memcpy+free（strdup）。仅非字符串操作数需要转换。 */
+        const char *sa, *sb;
+        char *sa_alloc = NULL, *sb_alloc = NULL;
+        size_t la, lb;
+        if (a.type == VAL_STRING) {
+            sa = a.str_inline ? a.v.sso.data : a.v.s;
+            la = a.str_inline ? (size_t)a.v.sso.len : (sa ? strlen(sa) : 0);
+        } else {
+            sa_alloc = value_to_str(a);
+            sa = sa_alloc;
+            la = strlen(sa);
+        }
+        if (b.type == VAL_STRING) {
+            sb = b.str_inline ? b.v.sso.data : b.v.s;
+            lb = b.str_inline ? (size_t)b.v.sso.len : (sb ? strlen(sb) : 0);
+        } else {
+            sb_alloc = value_to_str(b);
+            sb = sb_alloc;
+            lb = strlen(sb);
+        }
         size_t total = la + lb;
         Value res;
         res.type = VAL_STRING;
@@ -176,8 +193,8 @@ Value lumin_add(Value a, Value b) {
             out[total] = '\0';
             res.v.s = out;
         }
-        free(sa);
-        free(sb);
+        if (sa_alloc) free(sa_alloc);
+        if (sb_alloc) free(sb_alloc);
         return res;
     }
     if(a.type == VAL_INT && b.type == VAL_INT)
@@ -257,7 +274,11 @@ Value lumin_array_get(Value arr, Value idx) {
 // len(x)：数组长度 / 字符串字符数
 Value lumin_len(Value v) {
     if(v.type == VAL_ARRAY) return lumin_make_int(v.v.array->len);
-    if(v.type == VAL_STRING) return lumin_make_int((long long)lumin_str_len(&v));
+    if(v.type == VAL_STRING) {
+        /* 已知是字符串，直接内联访问，跳过 lumin_str_len 的冗余 type 检查 */
+        int l = v.str_inline ? (int)v.v.sso.len : (int)(v.v.s ? strlen(v.v.s) : 0);
+        return lumin_make_int((long long)l);
+    }
     if(v.type == VAL_MAP) return lumin_make_int(v.v.map->len);
     runtime_error("len() 参数必须是数组、字符串或字典");
     return lumin_make_int(0);
@@ -435,8 +456,9 @@ Value lumin_le(Value a, Value b) {
 // == 弱相等：一边字符串，全部转字符串比较；两边字符串strcmp；其余数值比较
 Value lumin_eq(Value a, Value b) {
     if (a.type == VAL_STRING && b.type == VAL_STRING) {
-        const char* sa = lumin_str_cstr(&a);
-        const char* sb = lumin_str_cstr(&b);
+        /* 已知两边都是字符串，直接内联访问，跳过 lumin_str_cstr 的冗余 type 检查 */
+        const char* sa = a.str_inline ? a.v.sso.data : a.v.s;
+        const char* sb = b.str_inline ? b.v.sso.data : b.v.s;
         if (sa == NULL && sb == NULL) return lumin_make_bool(1);
         if (sa == NULL || sb == NULL) return lumin_make_bool(0);
         return lumin_make_bool(strcmp(sa, sb) == 0);
