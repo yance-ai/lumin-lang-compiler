@@ -392,6 +392,7 @@ Value lumin_array_set(Value arr, Value idx, Value val) {
         runtime_error(buf);
     }
     Value* slot = &arr.v.array->items[i];
+    gc_write_barrier(val);  /* 增量标记写屏障：新值引用白色堆对象时变灰入栈 */
     *slot = val;
     return val;
 }
@@ -795,8 +796,11 @@ Value lumin_cast_bool(Value v) {
 Value lumin_cast_string(Value v) {
     if(v.type == VAL_ARRAY) {
         Value r = val_array(v.v.array->len);
-        for(int i = 0; i < v.v.array->len; i++)
-            r.v.array->items[i] = lumin_cast_string(v.v.array->items[i]);
+        for(int i = 0; i < v.v.array->len; i++) {
+            Value __cv = lumin_cast_string(v.v.array->items[i]);
+            gc_write_barrier(__cv);
+            r.v.array->items[i] = __cv;
+        }
         return r;
     }
     if(v.type == VAL_MAP) {

@@ -3,6 +3,7 @@
 // 双通道共享（VM 与 C 编译通道都调用本模块）
 #include "lm_value.h"
 #include "lm_charset.h"
+#include "gc_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -177,7 +178,7 @@ static Value jp_parse_value(JP* j)
         size_t cap = 8, len = 0;
         Value* items = (Value*)malloc(cap * sizeof(Value));
         jp_ws(j);
-        if(j->p < j->end && *j->p == ']') { j->p++; Value r = val_array(len); for(size_t i = 0; i < len; i++) r.v.array->items[i] = items[i]; free(items); return r; }
+        if(j->p < j->end && *j->p == ']') { j->p++; Value r = val_array(len); for(size_t i = 0; i < len; i++) { gc_write_barrier(items[i]); r.v.array->items[i] = items[i]; } free(items); return r; }
         for(;;) {
             Value val = jp_parse_value(j);
             if(len >= cap) { cap *= 2; items = (Value*)realloc(items, cap * sizeof(Value)); }
@@ -189,7 +190,7 @@ static Value jp_parse_value(JP* j)
             break;
         }
         Value r = val_array(len);
-        for(size_t i = 0; i < len; i++) r.v.array->items[i] = items[i];
+        for(size_t i = 0; i < len; i++) { gc_write_barrier(items[i]); r.v.array->items[i] = items[i]; }
         free(items);
         return r;
     }

@@ -431,8 +431,10 @@ static void emit_insns(BytecodeFunc* fn)
                         /* 完全栈分配：ValueArray 结构体 + items 缓冲区均在 C 栈上，免 GC */
                         fprintf(out, "    {\n");
                         fprintf(out, "        Value __arr = val_array_from_stack_items(&__arr_stk_%d, __items_stk_%d, %d);\n", i, i, n);
-                        for(int k = 0; k < n; k++)
+                        for(int k = 0; k < n; k++) {
+                            fprintf(out, "        gc_write_barrier(__stk[__sp - %d + %d]);\n", n, k);
                             fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
+                        }
                         fprintf(out, "        __sp = __sp - %d + 1;\n", n);
                         fprintf(out, "        __stk[__sp - 1] = __arr;\n");
                         fprintf(out, "    }\n");
@@ -440,8 +442,10 @@ static void emit_insns(BytecodeFunc* fn)
                         /* 半栈分配：ValueArray 结构体在 C 栈上，items 仍走 gc_alloc */
                         fprintf(out, "    {\n");
                         fprintf(out, "        Value __arr = val_array_from_stack(&__arr_stk_%d, %d);\n", i, n);
-                        for(int k = 0; k < n; k++)
+                        for(int k = 0; k < n; k++) {
+                            fprintf(out, "        gc_write_barrier(__stk[__sp - %d + %d]);\n", n, k);
                             fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
+                        }
                         fprintf(out, "        __sp = __sp - %d + 1;\n", n);
                         fprintf(out, "        __stk[__sp - 1] = __arr;\n");
                         fprintf(out, "    }\n");
@@ -449,8 +453,10 @@ static void emit_insns(BytecodeFunc* fn)
                 } else {
                     fprintf(out, "    {\n");
                     fprintf(out, "        Value __arr = val_array(%d);\n", n);
-                    for(int k = 0; k < n; k++)
+                    for(int k = 0; k < n; k++) {
+                        fprintf(out, "        gc_write_barrier(__stk[__sp - %d + %d]);\n", n, k);
                         fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
+                    }
                     fprintf(out, "        __sp = __sp - %d + 1;\n", n);
                     fprintf(out, "        __stk[__sp - 1] = __arr;\n");
                     fprintf(out, "    }\n");
@@ -1002,6 +1008,7 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "        for(int __i = 0; __i < __n; __i++) {\n");
                             fprintf(out, "            Value __a1[1]; __a1[0] = __arr.v.array->items[__i];\n");
                             fprintf(out, "            Value __r = __cf(__a1, 1);\n");
+                            fprintf(out, "            gc_write_barrier(__r);\n");
                             fprintf(out, "            __out.v.array->items[__i] = __r;\n");
                             fprintf(out, "        }\n");
                             fprintf(out, "        __stk[__sp++] = __out;\n");
@@ -1010,7 +1017,7 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "        for(int __i = 0; __i < __n; __i++) {\n");
                             fprintf(out, "            Value __a1[1]; __a1[0] = __arr.v.array->items[__i];\n");
                             fprintf(out, "            Value __r = __cf(__a1, 1);\n");
-                            fprintf(out, "            if(lumin_to_bool(__r)) __out.v.array->items[__cnt++] = __arr.v.array->items[__i];\n");
+                            fprintf(out, "            if(lumin_to_bool(__r)) { gc_write_barrier(__arr.v.array->items[__i]); __out.v.array->items[__cnt++] = __arr.v.array->items[__i]; }\n");
                             fprintf(out, "        }\n");
                             fprintf(out, "        __out.v.array->len = __cnt;\n");
                             fprintf(out, "        __stk[__sp++] = __out;\n");
@@ -1164,8 +1171,10 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "        __sp -= __argc;\n");
                 if(callee->has_variadic) {
                     fprintf(out, "        Value __rest = val_array(%d);\n", restn);
-                    for(int k = 0; k < restn; k++)
+                    for(int k = 0; k < restn; k++) {
+                        fprintf(out, "        gc_write_barrier(__args[%d]);\n", fixed + k);
                         fprintf(out, "        __rest.v.array->items[%d] = __args[%d];\n", k, fixed + k);
+                    }
                     fprintf(out, "        __stk[__sp++] = lumin_func_%s(", nm);
                     for(int k = 0; k < fixed; k++) {
                         if(k) fprintf(out, ", ");
@@ -1937,7 +1946,7 @@ static void emit_func_wraps(void)
         if(fn->has_variadic) {
             // 变参打包：n - fixed 个尾部实参进数组（动态调用经 wrap 时实参在 a[]）
             fprintf(out, "    Value __rest = val_array(n > %d ? n - %d : 0);\n", fn->param_cnt, fn->param_cnt);
-            fprintf(out, "    for(int __k = 0; __k < __rest.v.array->len; __k++) __rest.v.array->items[__k] = a[%d + __k];\n", fn->param_cnt);
+            fprintf(out, "    for(int __k = 0; __k < __rest.v.array->len; __k++) { gc_write_barrier(a[%d + __k]); __rest.v.array->items[__k] = a[%d + __k]; }\n", fn->param_cnt, fn->param_cnt);
         }
         fprintf(out, "    return lumin_func_%s(", fn->name);
         int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);

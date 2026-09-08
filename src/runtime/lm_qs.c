@@ -5,6 +5,7 @@
 // 注意：数组空段追加语法 tags[]= 暂不支持（须用显式索引 tags[0]=）
 #include "lm_qs.h"
 #include "lm_charset.h"
+#include "gc_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -93,10 +94,18 @@ static void qs_arr_set_grow(Value* arr, int idx, Value v) {
     else if(idx >= arr->v.array->len) {
         Value nv = val_array(idx + 1);
         /* val_clone：旧数组可能被 map_set 替换时 val_destroy，必须深拷贝 */
-        for(int k = 0; k < arr->v.array->len; k++) nv.v.array->items[k] = val_clone(&arr->v.array->items[k]);
+        for(int k = 0; k < arr->v.array->len; k++) {
+            Value __cv = val_clone(&arr->v.array->items[k]);
+            gc_write_barrier(__cv);
+            nv.v.array->items[k] = __cv;
+        }
         *arr = nv;
     }
-    arr->v.array->items[idx] = val_clone(&v);
+    {
+        Value __cv = val_clone(&v);
+        gc_write_barrier(__cv);
+        arr->v.array->items[idx] = __cv;
+    }
 }
 static Value qs_child_get(Value container, const char* seg) {
     if(seg_is_num(seg)) {

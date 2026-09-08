@@ -1,5 +1,6 @@
 // lm_string.c —— 字符串操作内置函数
 #include "lm_string.h"
+#include "gc_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,11 +74,13 @@ Value lumin_split(Value s, Value sep)
         piece[len] = '\0';
         Value item = lumin_make_string(piece);
         free(piece);
+        gc_write_barrier(item);
         arr.v.array->items[idx++] = item;
         start = hit + splen;
         hit = strstr(start, sp);
     }
     Value item = lumin_make_string(start);
+    gc_write_barrier(item);
     arr.v.array->items[idx++] = item;
     return arr;
 }

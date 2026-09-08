@@ -131,4 +131,49 @@ void gc_unregister_cframe_thread(void);
 size_t gc_bytes(void);
 size_t gc_count(void);
 
+/* ============================================================
+ * 增量标记（Incremental Marking）—— 三色标记 + 写屏障
+ *
+ * marked 值定义：
+ *   0 = 白色（未访问）
+ *   1 = 黑色（已处理，子对象已全部标记）
+ *   2 = 永生（pin / 空闲链表预分配，不变）
+ *   3 = 新对象预标记（非标记期分配，标记期开始时视同白色需遍历）
+ *   4 = 灰色（已访问，子对象未处理，在标记栈中）
+ *
+ * 标记栈：全局灰色对象队列，GC 线程 pop 处理，应用线程写屏障 push。
+ * 内部缓冲区（buckets/tree/MapEntry）与 ValueMap 共用 vtype=VAL_MAP，
+ * 因此内部缓冲区直接标记为黑色（不入灰色栈），由父级 ValueMap 的
+ * gc_mark_one 显式扫描其 key/value 子引用。
+ * ============================================================ */
+
+/* 并发标记阶段标志：1=写屏障生效，0=写屏障空操作 */
+extern volatile int g_gc_marking;
+
+/* 写屏障实现（gc_runtime.c）：对新值中的白色堆对象变灰入栈 */
+void gc_write_barrier_impl(Value new_val);
+
+/* Dijkstra 风格写屏障：并发标记期间，若新值引用白色堆对象，将其变灰入标记栈，
+ * 防止黑色对象引用白色对象破坏三色不变式。
+ * 内联快速路径：非标记期仅一次 volatile 读 + 分支，无函数调用开销。 */
+static inline void gc_write_barrier(Value new_val) {
+    if (!g_gc_marking) return;
+    gc_write_barrier_impl(new_val);
+}
+
+/* 迭代式标记：将白色/预标记对象变灰入标记栈（返回 1=新入栈，0=已处理/永生/空） */
+int gc_mark_ptr_to_stack(void* ptr);
+
+/* 对 Value 中的堆对象调用 gc_mark_ptr_to_stack；stack_alloc 容器直接扫描子元素 */
+void gc_mark_value_to_stack(Value v);
+
+/* 处理一个灰色对象的子对象（白色子对象变灰入栈），完成后自身设为黑色 */
+void gc_mark_one(GCObject* obj);
+
+/* 扫描所有线程根（VM 栈 + 帧链 + CFrame 链），白色对象变灰入栈 */
+void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame);
+
+/* 累计 STW 停顿时间（纳秒），用于性能验证 */
+unsigned long long gc_stw_time_ns(void);
+
 #endif /* GC_RUNTIME_H */

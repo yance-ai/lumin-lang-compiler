@@ -61,6 +61,7 @@ Value lumin_array_add(Value* arr, Value val)
         arr->v.array->items = (Value*)gc_realloc(arr->v.array->items, sizeof(Value) * newcap);
         arr->v.array->cap = newcap;
     }
+    gc_write_barrier(val);  /* 增量标记写屏障 */
     arr->v.array->items[n] = val;
     arr->v.array->len++;
     return *arr;
@@ -83,6 +84,7 @@ Value lumin_insert(Value* arr, Value idx, Value val)
     arr->v.array->len++;
     // 后移
     for(int k = n; k > (int)i; k--) arr->v.array->items[k] = arr->v.array->items[k - 1];
+    gc_write_barrier(val);  /* 增量标记写屏障 */
     arr->v.array->items[(int)i] = val;
     return *arr;
 }
@@ -127,6 +129,7 @@ Value lumin_array_set_method(Value arr, Value idx, Value val)
         runtime_error(b);
     }
     Value* slot = &arr.v.array->items[i];
+    gc_write_barrier(val);  /* 增量标记写屏障 */
     *slot = val;
     return arr;
 }
@@ -251,7 +254,10 @@ Value lumin_sort(Value arr) {
     if(!all_num && !all_str) runtime_error("sort() 数组元素须全为数字或全为字符串");
     int numeric = all_num;
     Value r = val_array(n);
-    for(int i = 0; i < n; i++) r.v.array->items[i] = arr.v.array->items[i];
+    for(int i = 0; i < n; i++) {
+        gc_write_barrier(arr.v.array->items[i]);  /* 增量标记写屏障 */
+        r.v.array->items[i] = arr.v.array->items[i];
+    }
     if(n > 1) {
         g_sort_numeric = numeric;
         qsort(r.v.array->items, (size_t)n, sizeof(Value), sort_cmp);
@@ -265,7 +271,10 @@ Value lumin_reverse(Value arr) {
     if(arr.type != VAL_ARRAY) runtime_error("reverse() 参数必须是数组");
     int n = arr.v.array->len;
     Value r = val_array(n);
-    for(int i = 0; i < n; i++) r.v.array->items[i] = arr.v.array->items[n - 1 - i];
+    for(int i = 0; i < n; i++) {
+        gc_write_barrier(arr.v.array->items[n - 1 - i]);  /* 增量标记写屏障 */
+        r.v.array->items[i] = arr.v.array->items[n - 1 - i];
+    }
     return r;
 }
 
@@ -276,6 +285,7 @@ Value lumin_reverse(Value arr) {
 typedef struct { Value* items; int len; int cap; } FlatBuf;
 static void flat_push(FlatBuf* b, Value v) {
     if(b->len >= b->cap) { b->cap = b->cap ? b->cap * 2 : 16; b->items = (Value*)gc_realloc(b->items, b->cap * sizeof(Value)); }
+    gc_write_barrier(v);  /* 增量标记写屏障 */
     b->items[b->len++] = v;
 }
 static void flat_rec(Value v, int depth, FlatBuf* b) {
@@ -308,7 +318,10 @@ Value lumin_array_flat(Value v, int depth) {
         flat_rec(v, depth, &b);
     }
     Value r = val_array(b.len);
-    for(int i = 0; i < b.len; i++) r.v.array->items[i] = b.items[i];
+    for(int i = 0; i < b.len; i++) {
+        gc_write_barrier(b.items[i]);  /* 增量标记写屏障 */
+        r.v.array->items[i] = b.items[i];
+    }
     return r;
 }
 
@@ -322,7 +335,10 @@ Value lumin_array_addall(Value* a, Value b) {
             a->v.array->items = (Value*)gc_realloc(a->v.array->items, sizeof(Value) * newcap);
             a->v.array->cap = newcap;
         }
-        for(int i = 0; i < nb; i++) a->v.array->items[na + i] = b.v.array->items[i];
+        for(int i = 0; i < nb; i++) {
+            gc_write_barrier(b.v.array->items[i]);  /* 增量标记写屏障 */
+            a->v.array->items[na + i] = b.v.array->items[i];
+        }
         a->v.array->len = na + nb;
         return *a;
     }

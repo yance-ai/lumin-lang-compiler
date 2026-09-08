@@ -131,7 +131,9 @@ static int key_eq(Value a, Value b) {
 // ============ Entry 管理 ============
 static MapEntry* entry_new(Value key, Value val, uint32_t hash) {
     MapEntry* e = (MapEntry*)gc_alloc(sizeof(MapEntry), VAL_MAP);
+    gc_write_barrier(key);  /* 增量标记写屏障 */
     e->key = key;
+    gc_write_barrier(val);  /* 增量标记写屏障 */
     e->value = val;
     e->hash = hash;
     e->color = MAP_RED;
@@ -503,12 +505,12 @@ void lumin_map_set(Value* map, Value key, Value val) {
     int idx = bucket_idx(h, m->cap);
     if(m->tree[idx]) {
         MapEntry* e = tree_find(m->buckets[idx], key, h);
-        if(e) { e->value = val; return; }
+        if(e) { gc_write_barrier(val); e->value = val; return; }
         MapEntry* ne = entry_new(key, val, h);
         tree_insert(m, idx, ne);
     } else {
         MapEntry* e = list_find(m->buckets[idx], key, h);
-        if(e) { e->value = val; return; }
+        if(e) { gc_write_barrier(val); e->value = val; return; }
         MapEntry* ne = entry_new(key, val, h);
         ne->next = m->buckets[idx];
         m->buckets[idx] = ne;
@@ -592,11 +594,13 @@ Value lumin_map_keys(Value map) {
             while(cur || top > 0) {
                 while(cur) { stack[top++] = cur; cur = cur->left; }
                 cur = stack[--top];
+                gc_write_barrier(cur->key);  /* 增量标记写屏障 */
                 r.v.array->items[pos++] = cur->key;
                 cur = cur->right;
             }
         } else {
             while(e) {
+                gc_write_barrier(e->key);  /* 增量标记写屏障 */
                 r.v.array->items[pos++] = e->key;
                 e = e->next;
             }
@@ -619,11 +623,13 @@ Value lumin_map_values(Value map) {
             while(cur || top > 0) {
                 while(cur) { stack[top++] = cur; cur = cur->left; }
                 cur = stack[--top];
+                gc_write_barrier(cur->value);  /* 增量标记写屏障 */
                 r.v.array->items[pos++] = cur->value;
                 cur = cur->right;
             }
         } else {
             while(e) {
+                gc_write_barrier(e->value);  /* 增量标记写屏障 */
                 r.v.array->items[pos++] = e->value;
                 e = e->next;
             }
