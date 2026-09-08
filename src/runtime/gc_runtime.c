@@ -178,7 +178,12 @@ void gc_mark(Value v)
     case VAL_MAP: {
         ValueMap* m = v.v.map;
         if (!m) break;
-        if (!gc_mark_ptr(m)) break;  /* 已标记，跳过递归 */
+        if (m->stack_alloc) {
+            /* 编译通道栈分配的 ValueMap：无 GCObject 头，不能 gc_mark_ptr；
+             * 只标记 buckets/tree 及递归键值（buckets/entries 仍由 gc_alloc 管理） */
+        } else {
+            if (!gc_mark_ptr(m)) break;  /* 已标记，跳过递归 */
+        }
         if (m->buckets) gc_mark_ptr(m->buckets);
         if (m->tree) gc_mark_ptr(m->tree);
         /* 遍历所有桶的 entry */

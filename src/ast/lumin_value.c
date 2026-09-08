@@ -282,6 +282,28 @@ Value val_map(void) {
     r.v.map->cap = 16;
     r.v.map->buckets = buckets;
     r.v.map->tree = tree;
+    r.v.map->stack_alloc = 0;
+    gc_enable();
+    return r;
+}
+
+/* 编译通道栈分配 map：ValueMap 结构体在 C 栈上，buckets/entries 仍堆分配。
+ * 设置 stack_alloc=1，返回 Value。GC 标记时跳过 ValueMap 自身（无 GCObject 头），
+ * 但仍标记 buckets/tree 及递归键值。VM 路径不使用此函数。 */
+Value val_map_from_stack(ValueMap* vm) {
+    Value r;
+    r.type = VAL_MAP;
+    gc_disable();
+    MapEntry** buckets = (MapEntry**)gc_alloc(16 * sizeof(MapEntry*), VAL_MAP);
+    memset(buckets, 0, 16 * sizeof(MapEntry*));
+    unsigned char* tree = (unsigned char*)gc_alloc(16 * sizeof(unsigned char), VAL_MAP);
+    memset(tree, 0, 16 * sizeof(unsigned char));
+    vm->len = 0;
+    vm->cap = 16;
+    vm->buckets = buckets;
+    vm->tree = tree;
+    vm->stack_alloc = 1;
+    r.v.map = vm;
     gc_enable();
     return r;
 }

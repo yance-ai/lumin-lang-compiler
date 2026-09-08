@@ -128,11 +128,13 @@ struct MapEntry {
 // 字典运行时对象，VAL_MAP 使用（哈希表 + 红黑树自适应，Java HashMap 策略）
 // GC 管理：ValueMap* 本身由 gc_alloc(vtype=VAL_MAP) 管理；
 //          buckets/tree 数组及 MapEntry 节点也由 gc_alloc(vtype=VAL_MAP) 管理（独立 GC 对象，各自 sweep）。
+// stack_alloc：0=堆分配（默认，有 GCObject 头），1=编译通道栈分配（无 GCObject 头，GC 标记时跳过自身但仍标记 buckets/entries）
 struct ValueMap {
     MapEntry** buckets;   // 桶数组（每桶是链表或红黑树根）
     unsigned char* tree;  // 桶类型标记：0=链表, 1=红黑树
     int len;              // 元素数
     int cap;              // 桶数（2的幂）
+    uint8_t stack_alloc;  // 0=堆分配，1=编译通道栈分配
 };
 
 // 解释器执行上下文：只负责控制流 break/continue/return，不存局部变量

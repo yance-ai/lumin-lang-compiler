@@ -52,6 +52,10 @@ Value val_array_from_stack(ValueArray* va, int len);
 // 编译通道专用：VM 通道不使用。
 Value val_array_from_stack_items(ValueArray* va, Value* items, int len);
 Value val_map(void);
+// 编译通道栈分配 map：初始化调用方提供的栈上 ValueMap（buckets/entries 仍堆分配），
+// 设置 stack_alloc=1，返回 Value。GC 标记时跳过 ValueMap 自身（无 GCObject 头），
+// 但仍标记 buckets/tree 及递归键值。VM 路径不使用此函数。
+Value val_map_from_stack(ValueMap* vm);
 
 // ---------------- 内存管理 ----------------
 void val_destroy(Value* v);

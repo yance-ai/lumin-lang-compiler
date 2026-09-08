@@ -33,13 +33,17 @@ static NameSet g_globals;      // 全局变量（main 指令流引用）
 static NameSet fn_locals;      // 当前函数局部变量（非参数、非全局）
 static BytecodeFunc* g_cur_fn; // 当前生成所在函数（NULL=main）
 
-/* 逃逸分析结果：g_stack_alloc[i]=1 表示指令 i 处的 OPC_ARRAY_LIT 栈分配（ValueArray 结构体）；
- * g_items_stack_alloc[i]=1 表示 items 缓冲区也栈分配（完全免堆）。
- * 每次 analyze_escape 后有效，emit_insns 消费，函数结束后释放。 */
+/* 逃逸分析结果：
+ * g_stack_alloc[i]=1：指令 i 处的 OPC_ARRAY_LIT 栈分配（ValueArray 结构体）
+ * g_items_stack_alloc[i]=1：items 缓冲区也栈分配（完全免堆）
+ * g_map_stack_alloc[i]=1：指令 i 处的 OPC_MAP_LIT 栈分配（ValueMap 结构体）
+ * 每次 analyze_escape* 后有效，emit_insns 消费，函数结束后释放。 */
 static uint8_t* g_stack_alloc = NULL;
 static int g_stack_alloc_len = 0;
 static uint8_t* g_items_stack_alloc = NULL;
 static int g_items_stack_alloc_len = 0;
+static uint8_t* g_map_stack_alloc = NULL;
+static int g_map_stack_alloc_len = 0;
 
 /* items 栈分配最大元素数（每个 Value 32 字节，256 个 = 8KB，防止栈溢出） */
 #define ITEMS_STACK_MAX 256
@@ -298,11 +302,21 @@ static void emit_insns(BytecodeFunc* fn)
             }
             case OPC_MAP_LIT: {
                 int n = in.b;
-                fprintf(out, "    {\n");
-                fprintf(out, "        Value __m = lumin_map_lit(&__stk[__sp - %d], %d);\n", 2 * n, n);
-                fprintf(out, "        __sp = __sp - %d + 1;\n", 2 * n);
-                fprintf(out, "        __stk[__sp - 1] = __m;\n");
-                fprintf(out, "    }\n");
+                if(g_map_stack_alloc && g_map_stack_alloc[i]) {
+                    /* 栈分配：ValueMap 结构体在 C 栈上，buckets/entries 仍堆分配 */
+                    fprintf(out, "    {\n");
+                    fprintf(out, "        Value __m = val_map_from_stack(&__map_stk_%d);\n", i);
+                    fprintf(out, "        for(int __k = 0; __k < %d; __k++) lumin_map_set(&__m, __stk[__sp - %d + __k * 2], __stk[__sp - %d + __k * 2 + 1]);\n", n, 2 * n, 2 * n);
+                    fprintf(out, "        __sp = __sp - %d + 1;\n", 2 * n);
+                    fprintf(out, "        __stk[__sp - 1] = __m;\n");
+                    fprintf(out, "    }\n");
+                } else {
+                    fprintf(out, "    {\n");
+                    fprintf(out, "        Value __m = lumin_map_lit(&__stk[__sp - %d], %d);\n", 2 * n, n);
+                    fprintf(out, "        __sp = __sp - %d + 1;\n", 2 * n);
+                    fprintf(out, "        __stk[__sp - 1] = __m;\n");
+                    fprintf(out, "    }\n");
+                }
                 break;
             }
             case OPC_INDEX_GET:
@@ -1076,32 +1090,34 @@ static int ea_is_global(BytecodeFunc* fn, int sym_idx)
     return 1;  /* main 中所有变量都是全局 */
 }
 
-static void analyze_escape(BytecodeFunc* fn)
+/* 泛化逃逸分析：对 target_op（OPC_ARRAY_LIT 或 OPC_MAP_LIT）的字面量做逃逸分析。
+ * struct_result[i]=1：指令 i 处的 target_op 字面量不逃逸，结构体可栈分配。
+ * items_result[i]=1：仅数组（track_items=1），items 缓冲区也可栈分配。
+ * 调用方需预分配 struct_result / items_result（大小 fn->code_len，已 zero）。
+ * track_items=0 时 items_result 可为 NULL。 */
+static void analyze_escape_for(BytecodeFunc* fn, int target_op,
+                                uint8_t* struct_result, uint8_t* items_result,
+                                int track_items)
 {
     int n = fn->code_len;
+    int other_op = (target_op == OPC_ARRAY_LIT) ? OPC_MAP_LIT : OPC_ARRAY_LIT;
 
-    /* 释放上一次的结果 */
-    if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
-    g_stack_alloc_len = 0;
-    if(g_items_stack_alloc) { free(g_items_stack_alloc); g_items_stack_alloc = NULL; }
-    g_items_stack_alloc_len = 0;
-
-    /* 1. 为每个 OPC_ARRAY_LIT 分配 bit 位 */
-    int* array_bit = (int*)malloc(sizeof(int) * n);
-    int array_cnt = 0;
+    /* 1. 为每个 target_op 字面量分配 bit 位 */
+    int* lit_bit = (int*)malloc(sizeof(int) * n);
+    int lit_cnt = 0;
     for(int i = 0; i < n; i++) {
-        array_bit[i] = -1;
-        if(fn->code[i].op == OPC_ARRAY_LIT) {
-            if(array_cnt < 64) {
-                array_bit[i] = array_cnt++;
+        lit_bit[i] = -1;
+        if(fn->code[i].op == target_op) {
+            if(lit_cnt < 64) {
+                lit_bit[i] = lit_cnt++;
             } else {
-                /* >64 个数组：保守回退，全部堆分配 */
-                free(array_bit);
+                /* >64 个字面量：保守回退，全部堆分配 */
+                free(lit_bit);
                 return;
             }
         }
     }
-    if(array_cnt == 0) { free(array_bit); return; }
+    if(lit_cnt == 0) { free(lit_bit); return; }
 
     /* 2. 获取每条指令的栈深 */
     int maxd = bc_analyze_stack(fn, NULL, 0);
@@ -1112,12 +1128,11 @@ static void analyze_escape(BytecodeFunc* fn)
     int stk_stride = maxd + 2;
     uint64_t* entry_stk = (uint64_t*)calloc((size_t)n * stk_stride, sizeof(uint64_t));
     uint64_t* entry_var = (uint64_t*)calloc((size_t)n * fn->sym_cnt, sizeof(uint64_t));
-    /* 临时工作区（避免循环内反复分配） */
     uint64_t* tmp_stk = (uint64_t*)malloc(sizeof(uint64_t) * stk_stride);
     uint64_t* tmp_var = (uint64_t*)malloc(sizeof(uint64_t) * (fn->sym_cnt > 0 ? fn->sym_cnt : 1));
 
-    uint64_t escaped = 0;  /* 累积逃逸的数组位掩码 */
-    uint64_t may_grow = 0; /* 累积可能被扩容的数组位掩码（add/insert/addAll receiver） */
+    uint64_t escaped = 0;   /* 累积逃逸的位掩码 */
+    uint64_t may_grow = 0;  /* 累积可能被扩容的位掩码（仅数组 track_items 时使用） */
 
     /* 4. 不动点前向传播 */
     for(int iter = 0; iter < 20; iter++) {
@@ -1126,20 +1141,18 @@ static void analyze_escape(BytecodeFunc* fn)
         for(int i = 0; i < n; i++) {
             Instruction in = fn->code[i];
             int depth = depths[i];
-            if(depth < 0) continue;  /* 不可达指令跳过 */
+            if(depth < 0) continue;
 
-            /* 拷贝入口状态到工作区 */
             memcpy(tmp_stk, &entry_stk[i * stk_stride], sizeof(uint64_t) * stk_stride);
             memcpy(tmp_var, &entry_var[i * fn->sym_cnt], sizeof(uint64_t) * fn->sym_cnt);
 
             int sp = depth;
-            uint64_t esc = 0;  /* 本指令逃逸的位 */
+            uint64_t esc = 0;
 
             switch(in.op) {
-                /* ---- 压栈 ---- */
                 case OPC_LOAD_CONST:
                 case OPC_GETFUNC:
-                    tmp_stk[sp] = 0;  /* 常量/函数值不是追踪数组 */
+                    tmp_stk[sp] = 0;
                     sp++;
                     break;
 
@@ -1148,72 +1161,59 @@ static void analyze_escape(BytecodeFunc* fn)
                     sp++;
                     break;
 
-                /* ---- 存变量：弹值写变量，原值压回（表达式值） ---- */
                 case OPC_STORE_VAR: {
                     uint64_t m = (sp > 0) ? tmp_stk[sp - 1] : 0;
                     sp--;
                     if(in.a >= 0 && in.a < fn->sym_cnt) tmp_var[in.a] |= m;
-                    tmp_stk[sp] = m;  /* 压回表达式值 */
+                    tmp_stk[sp] = m;
                     sp++;
-                    if(ea_is_global(fn, in.a)) esc |= m;  /* 存全局 → 逃逸 */
+                    if(ea_is_global(fn, in.a)) esc |= m;
                     break;
                 }
 
-                /* ---- 数组字面量：弹 n 元素，压当前数组 bit。
-                 * 存入数组的元素标记逃逸（元素可能随数组逃逸，或被取出后修改） ---- */
-                case OPC_ARRAY_LIT: {
-                    int ne = in.b;
-                    for(int k = 0; k < ne && (sp - ne + k) >= 0; k++)
-                        esc |= tmp_stk[sp - ne + k];
-                    sp -= ne;
-                    if(sp < 0) sp = 0;
-                    tmp_stk[sp] = (array_bit[i] >= 0) ? (1ULL << array_bit[i]) : 0;
-                    sp++;
-                    break;
-                }
-
-                /* ---- map 字面量：弹 2n 键值，压 0。
-                 * 存入 map 的键值标记逃逸（map 是堆对象，键值可能被取出修改或随 map 逃逸） ---- */
+                /* 目标字面量：弹元素，标记逃逸，压自身 bit */
+                case OPC_ARRAY_LIT:
                 case OPC_MAP_LIT: {
-                    int ne = in.b * 2;
+                    int ne = (in.op == OPC_MAP_LIT) ? in.b * 2 : in.b;
                     for(int k = 0; k < ne && (sp - ne + k) >= 0; k++)
                         esc |= tmp_stk[sp - ne + k];
                     sp -= ne;
                     if(sp < 0) sp = 0;
-                    tmp_stk[sp] = 0;  /* map 不是追踪数组 */
+                    if(in.op == target_op && lit_bit[i] >= 0) {
+                        tmp_stk[sp] = (1ULL << lit_bit[i]);
+                    } else {
+                        tmp_stk[sp] = 0;  /* 非目标字面量：不追踪 */
+                    }
                     sp++;
                     break;
                 }
 
-                /* ---- 索引操作 ---- */
                 case OPC_INDEX_GET:
-                    sp -= 2;  /* 弹 idx, arr */
+                    sp -= 2;
                     if(sp < 0) sp = 0;
-                    tmp_stk[sp] = 0;  /* 取出的元素不是数组本身 */
+                    tmp_stk[sp] = 0;
                     sp++;
                     break;
 
                 case OPC_INDEX_SET: {
-                    /* 弹 val, idx, arr；容器和元素都标记逃逸（保守） */
                     uint64_t val_m = (sp > 0) ? tmp_stk[sp - 1] : 0;
                     uint64_t arr_m = (sp > 2) ? tmp_stk[sp - 3] : 0;
                     sp -= 3;
                     if(sp < 0) sp = 0;
-                    esc |= arr_m;   /* 被写入的容器逃逸 */
-                    esc |= val_m;   /* 被存入的元素逃逸（可能随容器逃逸） */
-                    tmp_stk[sp] = 0;  /* 返回 val，但 val 已逃逸 */
+                    esc |= arr_m;
+                    esc |= val_m;
+                    tmp_stk[sp] = 0;
                     sp++;
                     break;
                 }
 
-                /* ---- 函数调用：所有参数逃逸 ---- */
                 case OPC_CALL: {
                     int argc = in.b;
                     for(int k = 0; k < argc && (sp - argc + k) >= 0; k++)
                         esc |= tmp_stk[sp - argc + k];
                     sp -= argc;
                     if(sp < 0) sp = 0;
-                    tmp_stk[sp] = 0;  /* 返回值不是追踪数组 */
+                    tmp_stk[sp] = 0;
                     sp++;
                     break;
                 }
@@ -1221,14 +1221,13 @@ static void analyze_escape(BytecodeFunc* fn)
                     int argc = in.b;
                     for(int k = 0; k < argc && (sp - argc + k) >= 0; k++)
                         esc |= tmp_stk[sp - argc + k];
-                    sp -= (argc + 1);  /* 弹参数 + 函数值 */
+                    sp -= (argc + 1);
                     if(sp < 0) sp = 0;
                     tmp_stk[sp] = 0;
                     sp++;
                     break;
                 }
 
-                /* ---- 返回：返回值逃逸 ---- */
                 case OPC_RETURN: {
                     uint64_t m = (sp > 0) ? tmp_stk[sp - 1] : 0;
                     esc |= m;
@@ -1237,24 +1236,19 @@ static void analyze_escape(BytecodeFunc* fn)
                 }
                 case OPC_PEND_RETURN: {
                     uint64_t m = (sp > 0) ? tmp_stk[sp - 1] : 0;
-                    esc |= m;  /* 挂起返回值逃逸 */
+                    esc |= m;
                     sp--;
                     break;
                 }
                 case OPC_THROW: {
                     uint64_t m = (sp > 0) ? tmp_stk[sp - 1] : 0;
-                    esc |= m;  /* 抛出值可能被捕获后逃逸 */
+                    esc |= m;
                     sp--;
                     break;
                 }
 
-                /* ---- 内置函数 ---- */
                 case OPC_BUILTIN: {
                     int argc = in.b;
-                    /* receiver-returning 内置函数：修改 receiver 后将 receiver 留在栈顶（返回自身）。
-                     * 必须保留 receiver 的位掩码，否则后续 RETURN/存全局等逃逸上下文看不到它，
-                     * 导致本应逃逸的数组被错误栈分配 → use-after-free。
-                     * receiver 是第一个参数（参数组底部），位于 sp - argc。 */
                     int is_recv_returning = 0;
                     switch(in.a) {
                         case BUILTIN_ARRAY_CLEAR:
@@ -1271,59 +1265,44 @@ static void analyze_escape(BytecodeFunc* fn)
                     }
                     uint64_t recv_m = (argc > 0 && sp >= argc) ? tmp_stk[sp - argc] : 0;
 
-                    /* 扩容检测：add(val)/insert/addAll 可能触发 gc_realloc，
-                     * 此类数组的 items 不能栈分配（栈内存无法 realloc）。
-                     * clear/del/remove/set 不扩容，仅修改 len 或原地改值，items 栈分配安全。 */
-                    switch(in.a) {
-                        case BUILTIN_ARRAY_ADD:
-                            if(in.b >= 2) may_grow |= recv_m;  /* arr.add(val)；map.add(k,v) 的 recv_m=0 */
-                            break;
-                        case BUILTIN_INSERT:
-                        case BUILTIN_ARRAY_ADDALL:
-                            may_grow |= recv_m;
-                            break;
-                        default:
-                            break;
+                    /* 扩容检测（仅数组 items 栈分配时需要） */
+                    if(track_items) {
+                        switch(in.a) {
+                            case BUILTIN_ARRAY_ADD:
+                                if(in.b >= 2) may_grow |= recv_m;
+                                break;
+                            case BUILTIN_INSERT:
+                            case BUILTIN_ARRAY_ADDALL:
+                                may_grow |= recv_m;
+                                break;
+                            default:
+                                break;
+                        }
                     }
 
-                    /* THREAD / THREADLOCAL_SET：所有参数逃逸（跨线程/全局存储） */
                     if(in.a == BUILTIN_THREAD || in.a == BUILTIN_THREADLOCAL_SET) {
                         for(int k = 0; k < argc && (sp - argc + k) >= 0; k++)
                             esc |= tmp_stk[sp - argc + k];
                     }
-                    /* 存入数组/字典的值参数逃逸（保守：元素可能随容器逃逸）。
-                     * 注意：receiver 本身不因被写入而逃逸，仅被存入的值逃逸。 */
                     else if(in.a == BUILTIN_ARRAY_ADD) {
-                        if(in.b == 1) {
-                            /* arr.add() 无额外参数：无值逃逸 */
-                        } else if(in.b == 2) {
-                            /* arr.add(val)：val（栈顶）逃逸 */
-                            if(sp > 0) esc |= tmp_stk[sp - 1];
-                        } else {
-                            /* map.add(k, v)（b>=3）：v（栈顶）逃逸 */
+                        if(in.b >= 2) {
                             if(sp > 0) esc |= tmp_stk[sp - 1];
                         }
                     }
                     else if(in.a == BUILTIN_INSERT || in.a == BUILTIN_ARRAY_SET) {
-                        /* insert(arr, idx, val) / set(arr, i, v)：val（栈顶）逃逸 */
                         if(sp > 0) esc |= tmp_stk[sp - 1];
                     }
                     else if(in.a == BUILTIN_ARRAY_ADDALL) {
-                        /* addAll(arr, other)：保守标记源数组（other，栈顶）逃逸 */
                         if(sp > 0) esc |= tmp_stk[sp - 1];
                     }
-                    /* 其余内置函数（len/sum/sort/reverse/join 等）：参数不逃逸，
-                     * sort/reverse 返回新堆数组（不在追踪范围），压入 0 */
 
                     sp -= argc;
                     if(sp < 0) sp = 0;
-                    /* receiver-returning：压入 receiver 位掩码；否则压入 0 */
                     tmp_stk[sp] = is_recv_returning ? recv_m : 0;
                     sp++;
                     break;
                 }
 
-                /* ---- 二元运算：弹 2 压 1（结果不是数组） ---- */
                 case OPC_ADD: case OPC_SUB: case OPC_MUL: case OPC_DIV: case OPC_MOD:
                 case OPC_GT: case OPC_LT: case OPC_GE: case OPC_LE: case OPC_EQ: case OPC_NE:
                     sp -= 2;
@@ -1332,7 +1311,6 @@ static void analyze_escape(BytecodeFunc* fn)
                     sp++;
                     break;
 
-                /* ---- 一元运算/类型转换：弹 1 压 1 ---- */
                 case OPC_NEG: case OPC_POS: case OPC_LOGIC_NOT: case OPC_TO_BOOL:
                 case OPC_CAST_INT: case OPC_CAST_DOUBLE: case OPC_CAST_CHAR:
                 case OPC_CAST_BOOL: case OPC_CAST_STRING: case OPC_CAST_ASCII:
@@ -1346,14 +1324,12 @@ static void analyze_escape(BytecodeFunc* fn)
                     sp++;
                     break;
 
-                /* ---- 变量自增自减：操作变量，压结果（不是数组） ---- */
                 case OPC_PRE_INC: case OPC_POST_INC:
                 case OPC_PRE_DEC: case OPC_POST_DEC:
                     tmp_stk[sp] = 0;
                     sp++;
                     break;
 
-                /* ---- 栈操作 ---- */
                 case OPC_POP:
                     sp--;
                     if(sp < 0) sp = 0;
@@ -1362,24 +1338,20 @@ static void analyze_escape(BytecodeFunc* fn)
                     if(sp > 0) { tmp_stk[sp] = tmp_stk[sp - 1]; sp++; }
                     break;
                 case OPC_PRINT:
-                    break;  /* 不弹栈，不逃逸 */
+                    break;
 
-                /* ---- 错误处理 ---- */
                 case OPC_GET_ERR:
-                    tmp_stk[sp] = 0;  /* 错误对象不是追踪数组 */
+                    tmp_stk[sp] = 0;
                     sp++;
                     break;
                 case OPC_TRY:
                 case OPC_ENDTRY:
                 case OPC_FIN_PUSH:
-                    break;  /* 不改变值栈 */
+                    break;
                 case OPC_FINISH:
-                    /* 保守：finally 完成动作目标在运行时确定（跳转表），
-                     * 栈上所有值可能被带到未知位置 → 全部标记逃逸 */
                     for(int d = 0; d < sp; d++) esc |= tmp_stk[d];
                     break;
 
-                /* ---- 跳转：条件跳转弹条件 ---- */
                 case OPC_JMP_IF_FALSE:
                 case OPC_JMP_IF_TRUE:
                     sp--;
@@ -1388,7 +1360,6 @@ static void analyze_escape(BytecodeFunc* fn)
                 case OPC_JMP:
                     break;
 
-                /* ---- 终止 ---- */
                 case OPC_RETURN_NIL:
                 case OPC_HALT:
                 case OPC_NOP:
@@ -1400,7 +1371,7 @@ static void analyze_escape(BytecodeFunc* fn)
 
             escaped |= esc;
 
-            /* ---- 计算后继指令并合并输出状态 ---- */
+            /* 后继指令合并 */
             int succ[3];
             int succ_cnt = 0;
             if(in.op == OPC_JMP) {
@@ -1409,17 +1380,15 @@ static void analyze_escape(BytecodeFunc* fn)
                 if(in.a >= 0 && in.a < n) succ[succ_cnt++] = in.a;
                 if(i + 1 < n) succ[succ_cnt++] = i + 1;
             } else if(in.op == OPC_TRY) {
-                /* TRY: setjmp 成功 goto body(i+1)，失败 goto catch(in.a) */
                 if(i + 1 < n) succ[succ_cnt++] = i + 1;
                 if(in.a > 0 && in.a < n) succ[succ_cnt++] = in.a;
             } else if(in.op == OPC_ENDTRY) {
                 if(i + 1 < n) succ[succ_cnt++] = i + 1;
             } else if(in.op == OPC_PEND_RETURN) {
-                if(in.b > 0 && in.b < n) succ[succ_cnt++] = in.b;  /* 跳 finally */
+                if(in.b > 0 && in.b < n) succ[succ_cnt++] = in.b;
             } else if(in.op == OPC_RETURN || in.op == OPC_RETURN_NIL ||
                       in.op == OPC_HALT || in.op == OPC_THROW ||
                       in.op == OPC_FINISH) {
-                /* 无后继（或后继未知，保守不传播） */
             } else {
                 if(i + 1 < n) succ[succ_cnt++] = i + 1;
             }
@@ -1441,10 +1410,10 @@ static void analyze_escape(BytecodeFunc* fn)
             }
         }
 
-        if(!changed) break;  /* 不动点收敛 */
+        if(!changed) break;
     }
 
-    /* 5. 循环检测：后向跳转 [target, src] 范围内的数组不栈分配 */
+    /* 5. 循环检测 */
     uint8_t* in_loop = (uint8_t*)calloc(n, sizeof(uint8_t));
     for(int i = 0; i < n; i++) {
         Instruction in = fn->code[i];
@@ -1454,39 +1423,37 @@ static void analyze_escape(BytecodeFunc* fn)
         }
     }
 
-    /* 6. 最终判定：非逃逸且非循环中的 OPC_ARRAY_LIT → 栈分配 */
-    g_stack_alloc = (uint8_t*)calloc(n, sizeof(uint8_t));
-    g_stack_alloc_len = n;
+    /* 6. 最终判定：非逃逸且非循环中的目标字面量 → 结构体栈分配 */
     for(int i = 0; i < n; i++) {
-        if(fn->code[i].op == OPC_ARRAY_LIT && array_bit[i] >= 0) {
-            uint64_t bit = 1ULL << array_bit[i];
+        if(fn->code[i].op == target_op && lit_bit[i] >= 0) {
+            uint64_t bit = 1ULL << lit_bit[i];
             if(!(escaped & bit) && !in_loop[i]) {
-                g_stack_alloc[i] = 1;
+                struct_result[i] = 1;
             }
         }
     }
 
-    /* 7. items 缓冲区栈分配判定：结构体已栈分配 + 不扩容 + 非空 + 元素数 <= 阈值 */
-    g_items_stack_alloc = (uint8_t*)calloc(n, sizeof(uint8_t));
-    g_items_stack_alloc_len = n;
-    for(int i = 0; i < n; i++) {
-        if(g_stack_alloc[i] && array_bit[i] >= 0) {
-            uint64_t bit = 1ULL << array_bit[i];
-            int ne = fn->code[i].b;
-            if(!(may_grow & bit) && ne > 0 && ne <= ITEMS_STACK_MAX) {
-                g_items_stack_alloc[i] = 1;
+    /* 7. items 栈分配判定（仅数组） */
+    if(track_items && items_result) {
+        for(int i = 0; i < n; i++) {
+            if(struct_result[i] && lit_bit[i] >= 0) {
+                uint64_t bit = 1ULL << lit_bit[i];
+                int ne = fn->code[i].b;
+                if(!(may_grow & bit) && ne > 0 && ne <= ITEMS_STACK_MAX) {
+                    items_result[i] = 1;
+                }
             }
         }
     }
 
-    /* 清理 */
-    free(array_bit);
+    free(lit_bit);
     free(depths);
     free(entry_stk);
     free(entry_var);
     free(tmp_stk);
     free(tmp_var);
     free(in_loop);
+    (void)other_op;
 }
 
 // ---------------- 函数/主函数发射 ----------------
@@ -1506,7 +1473,13 @@ static void emit_func_def(BytecodeFunc* fn)
 {
     collect_func_locals(fn);
     g_cur_fn = fn;  /* 逃逸分析中用于全局/局部判定 */
-    analyze_escape(fn);
+    /* 逃逸分析：数组（含 items）+ map */
+    int n = fn->code_len;
+    g_stack_alloc = (uint8_t*)calloc(n, sizeof(uint8_t));
+    g_items_stack_alloc = (uint8_t*)calloc(n, sizeof(uint8_t));
+    g_map_stack_alloc = (uint8_t*)calloc(n, sizeof(uint8_t));
+    analyze_escape_for(fn, OPC_ARRAY_LIT, g_stack_alloc, g_items_stack_alloc, 1);
+    analyze_escape_for(fn, OPC_MAP_LIT, g_map_stack_alloc, NULL, 0);
     /* 收集本函数内 FIN_PUSH 的目标（finally/循环结束 label） */
     fin_lab_cnt = 0;
     for(int i = 0; i < fn->code_len; i++) {
@@ -1547,12 +1520,20 @@ static void emit_func_def(BytecodeFunc* fn)
             fprintf(out, "    Value __items_stk_%d[%d];\n", i, ne);
         }
     }
+    /* map 栈分配声明：不逃逸的 OPC_MAP_LIT */
+    for(int i = 0; i < fn->code_len; i++) {
+        if(g_map_stack_alloc && g_map_stack_alloc[i]) {
+            fprintf(out, "    ValueMap __map_stk_%d;\n", i);
+        }
+    }
     emit_insns(fn);
     g_cur_fn = NULL;
     if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
     g_stack_alloc_len = 0;
     if(g_items_stack_alloc) { free(g_items_stack_alloc); g_items_stack_alloc = NULL; }
     g_items_stack_alloc_len = 0;
+    if(g_map_stack_alloc) { free(g_map_stack_alloc); g_map_stack_alloc = NULL; }
+    g_map_stack_alloc_len = 0;
     fprintf(out, "}\n\n");
 }
 
@@ -1620,7 +1601,14 @@ static void emit_main(BytecodeFunc* main_fn)
     /* main 逃逸分析：g_cur_fn=NULL，所有变量视为全局（存全局即逃逸） */
     g_cur_fn = NULL;
     memset(&fn_locals, 0, sizeof(fn_locals));
-    analyze_escape(main_fn);
+    {
+        int mn = main_fn->code_len;
+        g_stack_alloc = (uint8_t*)calloc(mn, sizeof(uint8_t));
+        g_items_stack_alloc = (uint8_t*)calloc(mn, sizeof(uint8_t));
+        g_map_stack_alloc = (uint8_t*)calloc(mn, sizeof(uint8_t));
+        analyze_escape_for(main_fn, OPC_ARRAY_LIT, g_stack_alloc, g_items_stack_alloc, 1);
+        analyze_escape_for(main_fn, OPC_MAP_LIT, g_map_stack_alloc, NULL, 0);
+    }
     fprintf(out, "int main(void){\n");
     fprintf(out, "    Value __stk[%d];\n", maxd + 2);
     fprintf(out, "    int __sp = 0;\n");
@@ -1635,6 +1623,12 @@ static void emit_main(BytecodeFunc* main_fn)
         if(g_items_stack_alloc && g_items_stack_alloc[i]) {
             int ne = main_fn->code[i].b;
             fprintf(out, "    Value __items_stk_%d[%d];\n", i, ne);
+        }
+    }
+    /* map 栈分配声明 */
+    for(int i = 0; i < main_fn->code_len; i++) {
+        if(g_map_stack_alloc && g_map_stack_alloc[i]) {
+            fprintf(out, "    ValueMap __map_stk_%d;\n", i);
         }
     }
     /* 函数边界保存（RETURN/FINISH act=5 恢复用），与 emit_func_def 一致 */
@@ -1657,6 +1651,8 @@ static void emit_main(BytecodeFunc* main_fn)
     g_stack_alloc_len = 0;
     if(g_items_stack_alloc) { free(g_items_stack_alloc); g_items_stack_alloc = NULL; }
     g_items_stack_alloc_len = 0;
+    if(g_map_stack_alloc) { free(g_map_stack_alloc); g_map_stack_alloc = NULL; }
+    g_map_stack_alloc_len = 0;
     fprintf(out, "}\n\n");
 }
 
