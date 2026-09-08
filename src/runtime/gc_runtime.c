@@ -1,13 +1,21 @@
-/* gc_runtime.c —— 完整标记-清除 GC 实现
+/* gc_runtime.c —— 完整标记-清除 GC 实现（含线程本地分配 TLA）
  *
  * 设计要点：
- *   - 所有 GC 管理的堆块前面统一加 GCObject 头
- *   - 全局链表 g_gc_objects 跟踪所有存活块
+ *   - 所有 GC 管理的堆块前面统一加 GCObject 头（16 字节）
+ *   - 全局链表 g_gc_objects 跟踪所有活跃块（含本地空闲链表中的预分配块）
  *   - gc_alloc 超过阈值时自动触发 gc_collect
  *   - g_in_gc 防止 GC 递归重入
  *   - 全局链表操作加 mutex（线程安全）
- *   - ValueArray/ValueError 内联在 Value 里，GC 只管理其内部缓冲区/字符串
- *   - ValueMap 是指针，GC 管理 ValueMap* 本身及内部 buckets/tree/entry
+ *
+ * TLA（Thread-Local Allocation）：
+ *   - 小对象（user_size <= TLA_MAX_SIZE）优先从线程本地空闲链表分配（无锁）
+ *   - 本地链表空时：先从全局空闲链表批量取用（一次加锁），仍不够则批量 malloc
+ *   - 空闲链表直接用 GCObject.next 字段链接，回收时不触碰用户数据区域，
+ *     避免多线程 GC（只扫当前线程栈）误回收其他线程对象时立即破坏其内容
+ *   - 本地空闲链表中的对象保留在 g_gc_objects 中（marked=2 永生），分配无锁
+ *   - 全局空闲链表中的对象不在 g_gc_objects 中，取用时空闲→活跃需插入全局链表（已持锁）
+ *   - sweep 时小对象不 free，从 g_gc_objects 摘除后移入全局空闲链表
+ *   - 大对象（user_size > TLA_MAX_SIZE）走原有直接 malloc + free 路径
  */
 #include "gc_runtime.h"
 #include <stdlib.h>
@@ -15,10 +23,25 @@
 #include <stdio.h>
 #include <pthread.h>
 
+/* 编译期断言：GCObject 必须保持 16 字节（user_size 利用原填充空间） */
+_Static_assert(sizeof(GCObject) == 16, "GCObject must be 16 bytes");
+
+/* ---- TLA 常量 ---- */
+#define TLA_MAX_SIZE   256   /* 用户数据 <=256 字节走 TLA */
+#define TLA_BATCH      16    /* 本地链表空时批量分配/取用的对象数 */
+
+/* 线程本地空闲链表（无锁访问）：对象在 g_gc_objects 中，marked=2 */
+static _Thread_local GCObject* tla_local_free = NULL;
+static _Thread_local int tla_local_count = 0;
+
+/* 全局空闲链表（sweep 回收，线程批量取用时加锁）：对象不在 g_gc_objects 中，marked=2 */
+static GCObject* tla_global_free = NULL;
+static int tla_global_count = 0;
+
 /* ---- 全局状态 ---- */
 static GCObject* g_gc_objects = NULL;
 static size_t g_gc_bytes = 0;
-static size_t g_gc_threshold = 64 * 1024 * 1024;  /* 初始阈值 64MB（多线程安全：减少跨线程 sweep 风险） */
+static size_t g_gc_threshold = 64 * 1024 * 1024;  /* 初始阈值 64MB */
 static pthread_mutex_t g_gc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int g_in_gc = 0;
 static int g_gc_disable = 0;  /* GC 暂停计数器（构造复合对象时使用） */
@@ -36,11 +59,128 @@ static inline void* obj_to_ptr(GCObject* obj) {
     return (void*)((char*)obj + sizeof(GCObject));
 }
 
+/* TLA 实际分配大小：用户数据至少 16 字节（确保小对象也能存下未来的内部指针等） */
+static inline size_t tla_real_size(size_t size) {
+    return (size < 16) ? 16 : size;
+}
+
 /* ============================================================
  * 分配
  * ============================================================ */
 void* gc_alloc(size_t size, int vtype)
 {
+    /* ---- TLA 快速路径：小对象从本地空闲链表分配（无锁） ----
+     * 注意：GC 运行期间（g_in_gc）跳过本地空闲链表，强制走加锁路径，
+     * 避免无锁修改 marked 位与并发 sweep 产生竞态。 */
+    if (size <= TLA_MAX_SIZE && !g_in_gc) {
+        size_t real_sz = tla_real_size(size);
+
+        /* 1. 扫描本地空闲链表，找第一个 user_size >= 请求大小的对象 */
+        GCObject* prev = NULL;
+        GCObject* cur = tla_local_free;
+        while (cur) {
+            if (cur->user_size >= real_sz) {
+                /* 从本地链表摘除 */
+                if (prev) prev->next = cur->next;
+                else tla_local_free = cur->next;
+                tla_local_count--;
+                /* 初始化：对象已在 g_gc_objects 中，marked 从 2 改为 0 */
+                cur->marked = 0;
+                cur->vtype = (unsigned char)vtype;
+                memset(obj_to_ptr(cur), 0, size);
+                /* 不增加 g_gc_bytes（对象一直在全局链表中，已被统计） */
+                return obj_to_ptr(cur);
+            }
+            prev = cur;
+            cur = cur->next;
+        }
+
+        /* 2. 本地链表没找到，尝试从全局空闲链表批量取用 */
+        if (tla_global_count > 0) {
+            pthread_mutex_lock(&g_gc_mutex);
+            int taken = 0;
+            while (tla_global_free && taken < TLA_BATCH) {
+                GCObject* obj = tla_global_free;
+                tla_global_free = obj->next;
+                tla_global_count--;
+                /* 全局空闲对象不在 g_gc_objects 中，需插入 */
+                obj->next = g_gc_objects;
+                g_gc_objects = obj;
+                g_gc_bytes += sizeof(GCObject) + obj->user_size;
+                /* 移入本地空闲链表（marked 保持 2） */
+                obj->next = tla_local_free;
+                tla_local_free = obj;
+                tla_local_count++;
+                taken++;
+            }
+            pthread_mutex_unlock(&g_gc_mutex);
+
+            /* 重试一次本地分配 */
+            prev = NULL;
+            cur = tla_local_free;
+            while (cur) {
+                if (cur->user_size >= real_sz) {
+                    if (prev) prev->next = cur->next;
+                    else tla_local_free = cur->next;
+                    tla_local_count--;
+                    cur->marked = 0;
+                    cur->vtype = (unsigned char)vtype;
+                    memset(obj_to_ptr(cur), 0, size);
+                    return obj_to_ptr(cur);
+                }
+                prev = cur;
+                cur = cur->next;
+            }
+        }
+
+        /* 3. 还是没有，批量 malloc 新对象 */
+        size_t total = sizeof(GCObject) + real_sz;
+        GCObject* batch[TLA_BATCH];
+        for (int i = 0; i < TLA_BATCH; i++) {
+            batch[i] = (GCObject*)malloc(total);
+            if (!batch[i]) {
+                fprintf(stderr, "GC: out of memory (requested %zu bytes)\n", size);
+                abort();
+            }
+            batch[i]->marked = 0;
+            batch[i]->vtype = 0;
+            batch[i]->user_size = (uint32_t)real_sz;
+            batch[i]->next = NULL;
+        }
+
+        /* 预分配块（i>=1）先标记为永生，防止释放锁后被 GC sweep */
+        for (int i = 1; i < TLA_BATCH; i++) batch[i]->marked = 2;
+
+        int need_collect = 0;
+        pthread_mutex_lock(&g_gc_mutex);
+        for (int i = 0; i < TLA_BATCH; i++) {
+            batch[i]->next = g_gc_objects;
+            g_gc_objects = batch[i];
+            g_gc_bytes += total;
+        }
+        if (g_gc_bytes > g_gc_threshold && !g_in_gc && g_gc_disable == 0) {
+            need_collect = 1;
+        }
+        pthread_mutex_unlock(&g_gc_mutex);
+
+        /* 第 0 个作为返回值（活跃对象） */
+        batch[0]->vtype = (unsigned char)vtype;
+        memset(obj_to_ptr(batch[0]), 0, size);
+
+        /* 剩余 TLA_BATCH-1 个放入本地空闲链表（marked=2 永生，保留在 g_gc_objects） */
+        for (int i = 1; i < TLA_BATCH; i++) {
+            batch[i]->next = tla_local_free;
+            tla_local_free = batch[i];
+            tla_local_count++;
+        }
+
+        if (need_collect && tls_stack && tls_sp && tls_frame) {
+            gc_collect(tls_stack, *tls_sp, tls_frame);
+        }
+        return obj_to_ptr(batch[0]);
+    }
+
+    /* ---- 大对象：原有直接 malloc + 插入链表路径 ---- */
     size_t total = sizeof(GCObject) + size;
     GCObject* obj = (GCObject*)malloc(total);
     if (!obj) {
@@ -49,6 +189,7 @@ void* gc_alloc(size_t size, int vtype)
     }
     obj->marked = 0;
     obj->vtype = (unsigned char)vtype;
+    obj->user_size = (uint32_t)size;
     obj->next = NULL;
     memset(obj_to_ptr(obj), 0, size);
 
@@ -77,10 +218,10 @@ void* gc_realloc(void* ptr, size_t new_size)
     if (!ptr) return gc_alloc(new_size, VAL_ARRAY);
 
     GCObject* old_obj = ptr_to_obj(ptr);
-    size_t old_total = sizeof(GCObject) + 0; /* 旧大小未知，从链表移除即可 */
+    size_t old_total = sizeof(GCObject) + old_obj->user_size;
     unsigned char vtype = old_obj->vtype;
 
-    /* 从链表移除 */
+    /* 从链表移除并精确扣减旧大小 */
     pthread_mutex_lock(&g_gc_mutex);
     GCObject** pp = &g_gc_objects;
     while (*pp) {
@@ -90,8 +231,7 @@ void* gc_realloc(void* ptr, size_t new_size)
         }
         pp = &(*pp)->next;
     }
-    /* 估算旧块大小（无法精确，用实际分配大小的近似；
-     * 这里不维护精确旧大小，sweep 时 free 由 malloc 自己记录） */
+    g_gc_bytes -= old_total;
     pthread_mutex_unlock(&g_gc_mutex);
 
     /* realloc（可能移动） */
@@ -103,15 +243,15 @@ void* gc_realloc(void* ptr, size_t new_size)
     }
     new_obj->marked = 0;
     new_obj->vtype = vtype;
+    new_obj->user_size = (uint32_t)new_size;
     new_obj->next = NULL;
 
     pthread_mutex_lock(&g_gc_mutex);
     new_obj->next = g_gc_objects;
     g_gc_objects = new_obj;
-    g_gc_bytes += new_total;  /* 近似：不精确扣减旧块，保守估计 */
+    g_gc_bytes += new_total;
     pthread_mutex_unlock(&g_gc_mutex);
 
-    (void)old_total;
     return obj_to_ptr(new_obj);
 }
 
@@ -119,14 +259,11 @@ void* gc_realloc(void* ptr, size_t new_size)
  * 标记原始 GC 指针（buckets/tree/MapEntry 等内部缓冲区）
  * 不递归 Value，仅标记该 GCObject 不被 sweep
  * ============================================================ */
-/* 标记原始 GC 指针（buckets/tree/MapEntry 等内部缓冲区）
- * 不递归 Value，仅标记该 GCObject 不被 sweep。
- * 返回 1 表示新标记（需要递归子对象），0 表示已标记/永生/空 */
 int gc_mark_ptr(void* ptr)
 {
     if (!ptr) return 0;
     GCObject* obj = ptr_to_obj(ptr);
-    if (obj->marked) return 0;  /* 已标记或永生 */
+    if (obj->marked) return 0;  /* 已标记或永生（含空闲链表对象 marked=2） */
     obj->marked = 1;
     return 1;
 }
@@ -146,26 +283,22 @@ void gc_mark(Value v)
 {
     switch (v.type) {
     case VAL_STRING: {
-        if (!v.str_inline && v.v.s) gc_mark_ptr(v.v.s);  // 内联字符串无GCObject头，不标记
+        if (!v.str_inline && v.v.s) gc_mark_ptr(v.v.s);
         break;
     }
     case VAL_ARRAY: {
         if (!v.v.array) break;
         if (v.v.array->stack_alloc) {
-            /* 编译通道栈分配的 ValueArray：无 GCObject 头，不能 gc_mark_ptr；
-             * 只标记 items 缓冲区及其内容 */
             if (v.v.array->items) {
                 if (!v.v.array->items_stack_alloc) {
-                    /* items 仍堆分配：标记 GCObject 头 */
                     gc_mark_ptr(v.v.array->items);
                 }
-                /* 无论 items 是否栈分配，都递归标记元素（元素可能是堆对象） */
                 for (int i = 0; i < v.v.array->len; i++) {
                     gc_mark(v.v.array->items[i]);
                 }
             }
         } else {
-            if (!gc_mark_ptr(v.v.array)) break;  /* 已标记，跳过递归（循环引用检测） */
+            if (!gc_mark_ptr(v.v.array)) break;
             if (v.v.array->items) {
                 gc_mark_ptr(v.v.array->items);
                 for (int i = 0; i < v.v.array->len; i++) {
@@ -179,19 +312,16 @@ void gc_mark(Value v)
         ValueMap* m = v.v.map;
         if (!m) break;
         if (m->stack_alloc) {
-            /* 编译通道栈分配的 ValueMap：无 GCObject 头，不能 gc_mark_ptr；
-             * 只标记 buckets/tree 及递归键值（buckets/entries 仍由 gc_alloc 管理） */
+            /* 栈分配 ValueMap：无 GCObject 头，只标记内部缓冲区和递归键值 */
         } else {
-            if (!gc_mark_ptr(m)) break;  /* 已标记，跳过递归 */
+            if (!gc_mark_ptr(m)) break;
         }
         if (m->buckets) gc_mark_ptr(m->buckets);
         if (m->tree) gc_mark_ptr(m->tree);
-        /* 遍历所有桶的 entry */
         for (int i = 0; i < m->cap; i++) {
             MapEntry* e = m->buckets[i];
             if (!e) continue;
             if (m->tree[i]) {
-                /* 红黑树：迭代式 DFS */
                 MapEntry* stk[256];
                 int top = 0;
                 MapEntry* cur = e;
@@ -208,7 +338,6 @@ void gc_mark(Value v)
                     cur = cur->right;
                 }
             } else {
-                /* 链表 */
                 while (e) {
                     gc_mark_ptr(e);
                     gc_mark(e->key);
@@ -235,7 +364,7 @@ void gc_mark(Value v)
         break;
     }
     default:
-        break;  /* 标量类型（INT/DOUBLE/BOOL/CHAR/BYTE/NONE）无堆引用 */
+        break;
     }
 }
 
@@ -244,13 +373,11 @@ void gc_mark(Value v)
  * ============================================================ */
 void gc_mark_roots(Value* stack, int sp, StackFrame* frame)
 {
-    /* 1. VM 栈 */
     if (stack) {
         for (int i = 0; i < sp; i++) {
             gc_mark(stack[i]);
         }
     }
-    /* 2. 帧链局部变量 */
     StackFrame* f = frame;
     while (f) {
         if (f->vals) {
@@ -263,7 +390,12 @@ void gc_mark_roots(Value* stack, int sp, StackFrame* frame)
 }
 
 /* ============================================================
- * 清除：遍历全局链表，未标记的释放，清除标记位
+ * 清除：遍历全局链表，未标记的释放/回收，清除标记位
+ *
+ * 小对象（user_size <= TLA_MAX_SIZE）：不 free，从 g_gc_objects 摘除
+ *   后移入全局空闲链表（marked=2，用 next 链接，不触碰用户数据区域）
+ * 大对象：free()，从链表摘除
+ * 永生对象（marked==2，含钉住对象和本地空闲链表对象）：跳过
  * ============================================================ */
 void gc_sweep(void)
 {
@@ -271,12 +403,27 @@ void gc_sweep(void)
     while (*pp) {
         GCObject* cur = *pp;
         if (cur->marked == 2) {
-            /* 永生对象：跳过，不清除标记 */
+            /* 永生对象（钉住 / 本地空闲链表预分配）：跳过 */
             pp = &cur->next;
         } else if (!cur->marked) {
-            *pp = cur->next;
-            free(cur);  /* 内部子对象（buckets/entries/strings）是独立 GC 对象，各自 sweep */
+            /* 未标记：需要回收 */
+            if (cur->user_size <= TLA_MAX_SIZE) {
+                /* 小对象：从 g_gc_objects 摘除，移入全局空闲链表
+                 * 不触碰用户数据区域（避免多线程 GC 误回收时立即破坏对象内容） */
+                *pp = cur->next;
+                g_gc_bytes -= sizeof(GCObject) + cur->user_size;
+                cur->marked = 2;
+                cur->next = tla_global_free;
+                tla_global_free = cur;
+                tla_global_count++;
+            } else {
+                /* 大对象：free */
+                *pp = cur->next;
+                g_gc_bytes -= sizeof(GCObject) + cur->user_size;
+                free(cur);
+            }
         } else {
+            /* 已标记（活跃）：清除标记位，继续 */
             cur->marked = 0;
             pp = &cur->next;
         }
@@ -294,14 +441,10 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
     pthread_mutex_lock(&g_gc_mutex);
     gc_mark_roots(stack, sp, frame);
     gc_sweep();
-    /* 重新计算 g_gc_bytes（sweep 后精确统计） */
+    /* 精确重新计算 g_gc_bytes（利用 user_size 字段） */
     g_gc_bytes = 0;
-    size_t cnt = 0;
     for (GCObject* o = g_gc_objects; o; o = o->next) {
-        /* 无法精确知道每块大小，用 malloc_usable_size 不可移植；
-         * 保守估计：每块至少 sizeof(GCObject)，阈值用对象数辅助 */
-        g_gc_bytes += sizeof(GCObject) + 16;  /* 近似平均负载 */
-        cnt++;
+        g_gc_bytes += sizeof(GCObject) + o->user_size;
     }
     /* 阈值：至少 1MB，且不小于当前用量的 2 倍 */
     size_t new_threshold = g_gc_bytes * 2;
@@ -310,7 +453,6 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
     pthread_mutex_unlock(&g_gc_mutex);
 
     g_in_gc = 0;
-    (void)cnt;
 }
 
 /* ============================================================
@@ -325,9 +467,6 @@ void gc_disable(void)
 
 void gc_enable(void)
 {
-    /* 只减计数器，不立即触发 GC。
-       下一次 gc_alloc 时若超过阈值会自动触发，
-       那时构造的对象已被调用方存入 VM 栈/帧，可达安全。 */
     pthread_mutex_lock(&g_gc_mutex);
     if (g_gc_disable > 0) g_gc_disable--;
     pthread_mutex_unlock(&g_gc_mutex);

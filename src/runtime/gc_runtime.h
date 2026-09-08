@@ -2,6 +2,7 @@
 #define GC_RUNTIME_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include "ast/lumin_value_type.h"
 
 /* ============================================================
@@ -18,6 +19,7 @@
 typedef struct GCObject {
     unsigned char marked;
     unsigned char vtype;      /* VAL_STRING / VAL_ARRAY / VAL_MAP / VAL_ERROR / VAL_FUNC */
+    uint32_t user_size;       /* 用户数据大小（不含 GCObject 头），利用原 6 字节填充空间，结构体仍为 16 字节 */
     struct GCObject* next;
 } GCObject;
 
