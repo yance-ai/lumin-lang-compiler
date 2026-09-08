@@ -236,6 +236,7 @@ Value val_array_from_stack(ValueArray* va, int len) {
     /* GC 安全：构造期间暂停自动 GC，items 分配期间 va 尚未被任何根引用 */
     gc_disable();
     va->stack_alloc = 1;
+    va->items_stack_alloc = 0;
     va->len = len;
     va->cap = len > 0 ? len : 0;
     if(len > 0) {
@@ -246,6 +247,24 @@ Value val_array_from_stack(ValueArray* va, int len) {
     }
     r.v.array = va;
     gc_enable();
+    return r;
+}
+
+/* 编译通道完全栈分配数组：ValueArray 结构体和 items 缓冲区均在 C 栈上，
+ * 完全消除 GC 对象。设置 stack_alloc=1 + items_stack_alloc=1。
+ * 调用方需保证 items 缓冲区至少 len 个 Value（建议已 memset 为 0）。
+ * GC 标记时跳过 ValueArray 和 items 自身（均无 GCObject 头），
+ * 但仍递归标记 items[i]（元素可能是堆对象如字符串/嵌套数组）。
+ * VM 路径不使用此函数。 */
+Value val_array_from_stack_items(ValueArray* va, Value* items, int len) {
+    Value r;
+    r.type = VAL_ARRAY;
+    va->stack_alloc = 1;
+    va->items_stack_alloc = 1;
+    va->len = len;
+    va->cap = len > 0 ? len : 0;
+    va->items = items;
+    r.v.array = va;
     return r;
 }
 

@@ -153,9 +153,13 @@ void gc_mark(Value v)
         if (!v.v.array) break;
         if (v.v.array->stack_alloc) {
             /* 编译通道栈分配的 ValueArray：无 GCObject 头，不能 gc_mark_ptr；
-             * 只标记 items 缓冲区及其内容（items 仍由 gc_alloc 管理） */
+             * 只标记 items 缓冲区及其内容 */
             if (v.v.array->items) {
-                gc_mark_ptr(v.v.array->items);
+                if (!v.v.array->items_stack_alloc) {
+                    /* items 仍堆分配：标记 GCObject 头 */
+                    gc_mark_ptr(v.v.array->items);
+                }
+                /* 无论 items 是否栈分配，都递归标记元素（元素可能是堆对象） */
                 for (int i = 0; i < v.v.array->len; i++) {
                     gc_mark(v.v.array->items[i]);
                 }

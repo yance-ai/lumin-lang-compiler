@@ -46,6 +46,11 @@ Value val_array(int len);
 // 初始化调用方提供的栈上 ValueArray（items 仍走 gc_alloc），设置 stack_alloc=1，返回 Value
 // 编译通道专用：VM 通道始终用 val_array（堆分配）
 Value val_array_from_stack(ValueArray* va, int len);
+// 初始化调用方提供的栈上 ValueArray + 栈上 items 缓冲区（完全免堆），
+// 设置 stack_alloc=1 + items_stack_alloc=1，返回 Value。
+// 调用方需保证 items 缓冲区至少 len 个 Value 且已初始化为 val_none()。
+// 编译通道专用：VM 通道不使用。
+Value val_array_from_stack_items(ValueArray* va, Value* items, int len);
 Value val_map(void);
 
 // ---------------- 内存管理 ----------------

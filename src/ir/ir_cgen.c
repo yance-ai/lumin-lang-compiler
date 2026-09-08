@@ -33,10 +33,16 @@ static NameSet g_globals;      // 全局变量（main 指令流引用）
 static NameSet fn_locals;      // 当前函数局部变量（非参数、非全局）
 static BytecodeFunc* g_cur_fn; // 当前生成所在函数（NULL=main）
 
-/* 逃逸分析结果：g_stack_alloc[i]=1 表示指令 i 处的 OPC_ARRAY_LIT 栈分配；
+/* 逃逸分析结果：g_stack_alloc[i]=1 表示指令 i 处的 OPC_ARRAY_LIT 栈分配（ValueArray 结构体）；
+ * g_items_stack_alloc[i]=1 表示 items 缓冲区也栈分配（完全免堆）。
  * 每次 analyze_escape 后有效，emit_insns 消费，函数结束后释放。 */
 static uint8_t* g_stack_alloc = NULL;
 static int g_stack_alloc_len = 0;
+static uint8_t* g_items_stack_alloc = NULL;
+static int g_items_stack_alloc_len = 0;
+
+/* items 栈分配最大元素数（每个 Value 32 字节，256 个 = 8KB，防止栈溢出） */
+#define ITEMS_STACK_MAX 256
 
 // ---------------- NameSet ----------------
 
@@ -260,14 +266,25 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_ARRAY_LIT: {
                 int n = in.b;
                 if(g_stack_alloc && g_stack_alloc[i]) {
-                    /* 栈分配：ValueArray 结构体在 C 栈上，items 仍走 gc_alloc */
-                    fprintf(out, "    {\n");
-                    fprintf(out, "        Value __arr = val_array_from_stack(&__arr_stk_%d, %d);\n", i, n);
-                    for(int k = 0; k < n; k++)
-                        fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
-                    fprintf(out, "        __sp = __sp - %d + 1;\n", n);
-                    fprintf(out, "        __stk[__sp - 1] = __arr;\n");
-                    fprintf(out, "    }\n");
+                    if(g_items_stack_alloc && g_items_stack_alloc[i]) {
+                        /* 完全栈分配：ValueArray 结构体 + items 缓冲区均在 C 栈上，免 GC */
+                        fprintf(out, "    {\n");
+                        fprintf(out, "        Value __arr = val_array_from_stack_items(&__arr_stk_%d, __items_stk_%d, %d);\n", i, i, n);
+                        for(int k = 0; k < n; k++)
+                            fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
+                        fprintf(out, "        __sp = __sp - %d + 1;\n", n);
+                        fprintf(out, "        __stk[__sp - 1] = __arr;\n");
+                        fprintf(out, "    }\n");
+                    } else {
+                        /* 半栈分配：ValueArray 结构体在 C 栈上，items 仍走 gc_alloc */
+                        fprintf(out, "    {\n");
+                        fprintf(out, "        Value __arr = val_array_from_stack(&__arr_stk_%d, %d);\n", i, n);
+                        for(int k = 0; k < n; k++)
+                            fprintf(out, "        __arr.v.array->items[%d] = __stk[__sp - %d + %d];\n", k, n, k);
+                        fprintf(out, "        __sp = __sp - %d + 1;\n", n);
+                        fprintf(out, "        __stk[__sp - 1] = __arr;\n");
+                        fprintf(out, "    }\n");
+                    }
                 } else {
                     fprintf(out, "    {\n");
                     fprintf(out, "        Value __arr = val_array(%d);\n", n);
@@ -1066,6 +1083,8 @@ static void analyze_escape(BytecodeFunc* fn)
     /* 释放上一次的结果 */
     if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
     g_stack_alloc_len = 0;
+    if(g_items_stack_alloc) { free(g_items_stack_alloc); g_items_stack_alloc = NULL; }
+    g_items_stack_alloc_len = 0;
 
     /* 1. 为每个 OPC_ARRAY_LIT 分配 bit 位 */
     int* array_bit = (int*)malloc(sizeof(int) * n);
@@ -1098,6 +1117,7 @@ static void analyze_escape(BytecodeFunc* fn)
     uint64_t* tmp_var = (uint64_t*)malloc(sizeof(uint64_t) * (fn->sym_cnt > 0 ? fn->sym_cnt : 1));
 
     uint64_t escaped = 0;  /* 累积逃逸的数组位掩码 */
+    uint64_t may_grow = 0; /* 累积可能被扩容的数组位掩码（add/insert/addAll receiver） */
 
     /* 4. 不动点前向传播 */
     for(int iter = 0; iter < 20; iter++) {
@@ -1139,9 +1159,12 @@ static void analyze_escape(BytecodeFunc* fn)
                     break;
                 }
 
-                /* ---- 数组字面量：弹 n 元素，压当前数组 bit ---- */
+                /* ---- 数组字面量：弹 n 元素，压当前数组 bit。
+                 * 存入数组的元素标记逃逸（元素可能随数组逃逸，或被取出后修改） ---- */
                 case OPC_ARRAY_LIT: {
                     int ne = in.b;
+                    for(int k = 0; k < ne && (sp - ne + k) >= 0; k++)
+                        esc |= tmp_stk[sp - ne + k];
                     sp -= ne;
                     if(sp < 0) sp = 0;
                     tmp_stk[sp] = (array_bit[i] >= 0) ? (1ULL << array_bit[i]) : 0;
@@ -1149,8 +1172,12 @@ static void analyze_escape(BytecodeFunc* fn)
                     break;
                 }
 
+                /* ---- map 字面量：弹 2n 键值，压 0。
+                 * 存入 map 的键值标记逃逸（map 是堆对象，键值可能被取出修改或随 map 逃逸） ---- */
                 case OPC_MAP_LIT: {
                     int ne = in.b * 2;
+                    for(int k = 0; k < ne && (sp - ne + k) >= 0; k++)
+                        esc |= tmp_stk[sp - ne + k];
                     sp -= ne;
                     if(sp < 0) sp = 0;
                     tmp_stk[sp] = 0;  /* map 不是追踪数组 */
@@ -1243,6 +1270,21 @@ static void analyze_escape(BytecodeFunc* fn)
                             break;
                     }
                     uint64_t recv_m = (argc > 0 && sp >= argc) ? tmp_stk[sp - argc] : 0;
+
+                    /* 扩容检测：add(val)/insert/addAll 可能触发 gc_realloc，
+                     * 此类数组的 items 不能栈分配（栈内存无法 realloc）。
+                     * clear/del/remove/set 不扩容，仅修改 len 或原地改值，items 栈分配安全。 */
+                    switch(in.a) {
+                        case BUILTIN_ARRAY_ADD:
+                            if(in.b >= 2) may_grow |= recv_m;  /* arr.add(val)；map.add(k,v) 的 recv_m=0 */
+                            break;
+                        case BUILTIN_INSERT:
+                        case BUILTIN_ARRAY_ADDALL:
+                            may_grow |= recv_m;
+                            break;
+                        default:
+                            break;
+                    }
 
                     /* THREAD / THREADLOCAL_SET：所有参数逃逸（跨线程/全局存储） */
                     if(in.a == BUILTIN_THREAD || in.a == BUILTIN_THREADLOCAL_SET) {
@@ -1424,6 +1466,19 @@ static void analyze_escape(BytecodeFunc* fn)
         }
     }
 
+    /* 7. items 缓冲区栈分配判定：结构体已栈分配 + 不扩容 + 非空 + 元素数 <= 阈值 */
+    g_items_stack_alloc = (uint8_t*)calloc(n, sizeof(uint8_t));
+    g_items_stack_alloc_len = n;
+    for(int i = 0; i < n; i++) {
+        if(g_stack_alloc[i] && array_bit[i] >= 0) {
+            uint64_t bit = 1ULL << array_bit[i];
+            int ne = fn->code[i].b;
+            if(!(may_grow & bit) && ne > 0 && ne <= ITEMS_STACK_MAX) {
+                g_items_stack_alloc[i] = 1;
+            }
+        }
+    }
+
     /* 清理 */
     free(array_bit);
     free(depths);
@@ -1485,10 +1540,19 @@ static void emit_func_def(BytecodeFunc* fn)
             fprintf(out, "    ValueArray __arr_stk_%d;\n", i);
         }
     }
+    /* items 栈缓冲区声明：完全栈分配数组的 items 在 C 栈上 */
+    for(int i = 0; i < fn->code_len; i++) {
+        if(g_items_stack_alloc && g_items_stack_alloc[i]) {
+            int ne = fn->code[i].b;
+            fprintf(out, "    Value __items_stk_%d[%d];\n", i, ne);
+        }
+    }
     emit_insns(fn);
     g_cur_fn = NULL;
     if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
     g_stack_alloc_len = 0;
+    if(g_items_stack_alloc) { free(g_items_stack_alloc); g_items_stack_alloc = NULL; }
+    g_items_stack_alloc_len = 0;
     fprintf(out, "}\n\n");
 }
 
@@ -1566,6 +1630,13 @@ static void emit_main(BytecodeFunc* main_fn)
             fprintf(out, "    ValueArray __arr_stk_%d;\n", i);
         }
     }
+    /* items 栈缓冲区声明 */
+    for(int i = 0; i < main_fn->code_len; i++) {
+        if(g_items_stack_alloc && g_items_stack_alloc[i]) {
+            int ne = main_fn->code[i].b;
+            fprintf(out, "    Value __items_stk_%d[%d];\n", i, ne);
+        }
+    }
     /* 函数边界保存（RETURN/FINISH act=5 恢复用），与 emit_func_def 一致 */
     fprintf(out, "    int __g_d0 = __g_depth; jmp_buf* __g_gj0 = g_err_jmp; int __g_fin0 = __g_fin_n;\n");
     /* main 内 finally 完成动作目标收集（与 emit_func_def 一致，否则 FINISH 引用未定义的 __g_fin_labs） */
@@ -1584,6 +1655,8 @@ static void emit_main(BytecodeFunc* main_fn)
     emit_insns(main_fn);
     if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
     g_stack_alloc_len = 0;
+    if(g_items_stack_alloc) { free(g_items_stack_alloc); g_items_stack_alloc = NULL; }
+    g_items_stack_alloc_len = 0;
     fprintf(out, "}\n\n");
 }
 
