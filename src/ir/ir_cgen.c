@@ -236,6 +236,11 @@ static int is_jump_target(BytecodeFunc* fn, int idx)
 static void emit_insns(BytecodeFunc* fn)
 {
     int i = 0;
+    /* STW 检查点密度计数器：每 STW_CHECK_INTERVAL 条直线指令插入一次 gc_stw_check，
+     * 确保长直线代码中 GC 能在微秒级暂停线程，消除 torn Value 竞态。
+     * 已有 STW 检查的指令（BUILTIN/CALL/CALLV/后向JMP）重置计数器。 */
+    #define STW_CHECK_INTERVAL 8
+    int stw_counter = 0;
     while(i < fn->code_len) {
         if(is_jump_target(fn, i)) fprintf(out, "L%d:;\n", i);
         Instruction in = fn->code[i];
@@ -340,6 +345,24 @@ static void emit_insns(BytecodeFunc* fn)
                     }
                 }
                 /* elem_idx < 0 或模式不匹配：回退正常处理 */
+            }
+        }
+
+        /* STW 检查点密度：每 STW_CHECK_INTERVAL 条直线指令插入一次 gc_stw_check。
+         * 已有检查的指令（BUILTIN/CALL/CALLV/后向JMP）重置计数器，避免重复检查。
+         * OPC_NOP 不计数（不生成实际代码）。 */
+        {
+            int has_own_check = (in.op == OPC_BUILTIN || in.op == OPC_CALL ||
+                                 in.op == OPC_CALLV ||
+                                 (in.op == OPC_JMP && in.a < i));
+            if (has_own_check) {
+                stw_counter = 0;
+            } else if (in.op != OPC_NOP) {
+                stw_counter++;
+                if (stw_counter >= STW_CHECK_INTERVAL) {
+                    fprintf(out, "    gc_stw_check();\n");
+                    stw_counter = 0;
+                }
             }
         }
 

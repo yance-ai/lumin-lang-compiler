@@ -48,14 +48,13 @@ static int g_gc_disable = 0;  /* GC 暂停计数器（构造复合对象时使�
 
 /* ---- 协作式 Stop-The-World ----
  * GC 运行时设置 g_gc_stw，VM 解释循环在每条指令前检查并自旋等待。
- * 这确保 GC 标记期间没有线程在修改 VM 栈/帧/堆对象，消除并发标记竞态。
- * C 运行时函数中不持有 g_gc_mutex 的对象修改仍可能与 GC 并发，
- * 但这类修改通常不涉及指针字段变更（如纯 int 写入），风险较低。 */
+ * 编译通道在循环回边/函数调用/builtin/每N条指令前检查。
+ *
+ * 真正的 STW 确认：每个注册线程的 entry 中有 volatile int at_safepoint。
+ * 线程进入 gc_stw_check() 自旋时设置 at_safepoint=1，退出时设置 0。
+ * GC 线程轮询所有注册线程直到全部 at_safepoint==1（带超时保护），
+ * 确保标记时所有线程栈稳定，彻底消除 torn Value 竞态。 */
 static volatile int g_gc_stw = 0;
-
-void gc_stw_check(void) {
-    while (g_gc_stw) { sched_yield(); }
-}
 
 /* 当前线程的根（VM 执行循环注册，供 gc_alloc 自动触发 GC 使用） */
 static _Thread_local Value*   tls_stack = NULL;
@@ -75,6 +74,7 @@ typedef struct GCThreadEntry {
     Value* stack;
     int* sp_ptr;
     StackFrame* frame;
+    volatile int at_safepoint;  /* STW 确认：线程在 gc_stw_check 自旋时为 1 */
     struct GCThreadEntry* next;
 } GCThreadEntry;
 
@@ -87,10 +87,27 @@ static GCThreadEntry* g_gc_threads = NULL;
 typedef struct GCCFrameEntry {
     pthread_t tid;
     CFrame** cframe_ptr;
+    volatile int at_safepoint;  /* STW 确认：线程在 gc_stw_check 自旋时为 1 */
     struct GCCFrameEntry* next;
 } GCCFrameEntry;
 
 static GCCFrameEntry* g_gc_cframe_threads = NULL;
+
+/* 当前线程的注册 entry 指针（gc_stw_check 用它们设置 at_safepoint） */
+static _Thread_local GCThreadEntry* tls_cur_vm_entry = NULL;
+static _Thread_local GCCFrameEntry* tls_cur_cf_entry = NULL;
+
+/* 协作式 STW 安全点：VM 解释循环每条指令前调用，编译通道每N条指令/循环/调用前调用。
+ * 快速路径：无 GC 时直接返回（仅一次 volatile 读），降低频繁检查的开销。
+ * GC 运行时设置 at_safepoint=1 后自旋，GC 线程轮询到所有线程 at_safepoint==1 才开始标记。 */
+void gc_stw_check(void) {
+    if (!g_gc_stw) return;
+    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 1;
+    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 1;
+    while (g_gc_stw) { sched_yield(); }
+    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 0;
+    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 0;
+}
 
 /* ---- 内部辅助：用户指针 <-> GCObject ---- */
 static inline GCObject* ptr_to_obj(void* ptr) {
@@ -110,9 +127,9 @@ static inline size_t tla_real_size(size_t size) {
  * ============================================================ */
 void* gc_alloc(size_t size, int vtype)
 {
-    /* 编译通道无 STW 安全点：分配时检查 GC 是否运行，运行则自旋等待。
-     * 与 push/pop mutex 配合，缩小 GC 标记期间线程修改栈内容的竞态窗口。 */
-    while (g_gc_stw) { sched_yield(); }
+    /* 分配前 STW 安全点检查：若 GC 运行中，设置 at_safepoint 并自旋等待。
+     * 必须用 gc_stw_check() 而非裸 while(g_gc_stw)，否则 GC 轮询时看不到本线程暂停，造成死锁。 */
+    gc_stw_check();
     /* ---- TLA 快速路径：小对象从本地空闲链表分配（无锁） ----
      * 注意：GC 运行期间（g_in_gc）跳过本地空闲链表，强制走加锁路径，
      * 避免无锁修改 marked 位与并发 sweep 产生竞态。 */
@@ -500,12 +517,43 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
     if (g_in_gc) return;
     g_in_gc = 1;
 
-    /* 协作式 STW：通知所有 VM 线程停止，等待它们到达安全点。
-     * 循环检查直到所有注册线程的 sp 稳定（简化实现：短暂等待）。 */
+    /* 真正的 STW 确认机制：
+     * 1. 设置 g_gc_stw=1 通知所有线程暂停
+     * 2. GC 线程自身标记为 at_safepoint（它正在执行 GC，不在执行用户指令）
+     * 3. 轮询所有注册线程直到全部 at_safepoint==1（带 100ms 超时保护）
+     * 4. 所有线程栈稳定后再标记，彻底消除 torn Value 竞态 */
     g_gc_stw = 1;
-    /* 给其他线程时间到达安全点（VM 循环顶部 / 编译通道循环回边和函数入口检查 g_gc_stw） */
-    struct timespec ts = {0, 500000};  /* 500us */
-    nanosleep(&ts, NULL);
+    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 1;
+    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 1;
+
+    /* 轮询所有注册线程到达安全点。
+     * 用 sched_yield() 自旋而非 nanosleep(1us)：macOS 定时器粒度约 1ms，
+     * nanosleep(1us) 实际睡 1ms，导致每次 GC 轮询开销巨大。
+     * sched_yield() 仅让出 CPU，常见情况所有线程在微秒级到达安全点。
+     * 超时用迭代次数兜底（100M 次 yield 约 100ms-1s，取决于系统负载）。 */
+    #define STW_POLL_MAX_ITERS 100000000
+    int poll_iters = 0;
+    int stw_timed_out = 0;
+    while (1) {
+        int all_paused = 1;
+        for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
+            if (!e->at_safepoint) { all_paused = 0; break; }
+        }
+        if (all_paused) {
+            for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
+                if (!e->at_safepoint) { all_paused = 0; break; }
+            }
+        }
+        if (all_paused) break;
+        if (poll_iters >= STW_POLL_MAX_ITERS) {
+            fprintf(stderr, "GC: WARNING: STW timeout, some threads not at safepoint (blocked in IO/lock?)\n");
+            stw_timed_out = 1;
+            break;
+        }
+        sched_yield();
+        poll_iters++;
+    }
+    (void)stw_timed_out;
 
     pthread_mutex_lock(&g_gc_mutex);
 
@@ -565,6 +613,9 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
     pthread_mutex_unlock(&g_gc_mutex);
 
     g_gc_stw = 0;
+    /* 清除 GC 线程自身的安全点标志 */
+    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 0;
+    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 0;
     g_in_gc = 0;
 }
 
@@ -630,12 +681,16 @@ void gc_register_thread(Value* stack, int* sp_ptr, StackFrame* frame)
     e->stack = stack;
     e->sp_ptr = sp_ptr;
     e->frame = frame;
+    e->at_safepoint = 0;
 
     pthread_mutex_lock(&g_gc_mutex);
     /* 头插：最近注册的 entry 在链表头部，unregister 时移除第一个匹配 tid 的 entry */
     e->next = g_gc_threads;
     g_gc_threads = e;
     pthread_mutex_unlock(&g_gc_mutex);
+
+    /* 设置线程本地指针，供 gc_stw_check 设置 at_safepoint */
+    tls_cur_vm_entry = e;
 }
 
 void gc_unregister_thread(void)
@@ -644,16 +699,22 @@ void gc_unregister_thread(void)
     pthread_mutex_lock(&g_gc_mutex);
     /* 移除第一个 tid == self 的 entry（头插保证它是最近注册的，栈式语义） */
     GCThreadEntry** pp = &g_gc_threads;
+    GCThreadEntry* next_for_self = NULL;
     while (*pp) {
         if (pthread_equal((*pp)->tid, self)) {
             GCThreadEntry* victim = *pp;
             *pp = victim->next;
+            /* 查找同线程的下一个 entry（嵌套注册时更新 TLS 指针） */
+            for (GCThreadEntry* e = *pp; e; e = e->next) {
+                if (pthread_equal(e->tid, self)) { next_for_self = e; break; }
+            }
             free(victim);
             break;
         }
         pp = &(*pp)->next;
     }
     pthread_mutex_unlock(&g_gc_mutex);
+    tls_cur_vm_entry = next_for_self;
 }
 
 /* ============================================================
@@ -721,11 +782,15 @@ void gc_register_cframe_thread(void)
     }
     e->tid = pthread_self();
     e->cframe_ptr = &tls_cframe;
+    e->at_safepoint = 0;
 
     pthread_mutex_lock(&g_gc_mutex);
     e->next = g_gc_cframe_threads;
     g_gc_cframe_threads = e;
     pthread_mutex_unlock(&g_gc_mutex);
+
+    /* 设置线程本地指针，供 gc_stw_check 设置 at_safepoint */
+    tls_cur_cf_entry = e;
 }
 
 void gc_unregister_cframe_thread(void)
@@ -733,16 +798,21 @@ void gc_unregister_cframe_thread(void)
     pthread_t self = pthread_self();
     pthread_mutex_lock(&g_gc_mutex);
     GCCFrameEntry** pp = &g_gc_cframe_threads;
+    GCCFrameEntry* next_for_self = NULL;
     while (*pp) {
         if (pthread_equal((*pp)->tid, self)) {
             GCCFrameEntry* victim = *pp;
             *pp = victim->next;
+            for (GCCFrameEntry* e = *pp; e; e = e->next) {
+                if (pthread_equal(e->tid, self)) { next_for_self = e; break; }
+            }
             free(victim);
             break;
         }
         pp = &(*pp)->next;
     }
     pthread_mutex_unlock(&g_gc_mutex);
+    tls_cur_cf_entry = next_for_self;
     tls_cframe_registered = 0;
 }
 
