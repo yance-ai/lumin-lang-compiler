@@ -69,6 +69,20 @@ void gc_collect_now(void);
 /* 钉住对象：标记为永生，GC 永不回收（用于常量表中的字符串/数组等） */
 void gc_pin(void* ptr);
 
+/* ---- 多线程栈根注册表 ---- */
+/* 注册当前线程的操作数栈/栈指针/帧链指针到全局注册表。
+ * GC 时遍历所有注册线程，扫描每个线程的 stack[0..*sp] + frame 链局部变量。
+ * sp_ptr 和 frame 是指针（动态变化），GC 时解引用获取当前值。
+ * 线程退出时必须调用 gc_unregister_thread()。
+ * 支持同一线程嵌套注册（栈式语义），unregister 移除最近注册的 entry。 */
+void gc_register_thread(Value* stack, int* sp_ptr, StackFrame* frame);
+
+/* 从全局注册表移除当前线程最近注册的 entry（栈式语义） */
+void gc_unregister_thread(void);
+
+/* 协作式 STW 安全点：VM 解释循环每条指令前调用，GC 运行时自旋等待 */
+void gc_stw_check(void);
+
 /* 统计 */
 size_t gc_bytes(void);
 size_t gc_count(void);

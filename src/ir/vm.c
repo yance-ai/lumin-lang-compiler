@@ -209,6 +209,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     Value* old_gc_stack; int* old_gc_sp; StackFrame* old_gc_frame;
     gc_get_roots(&old_gc_stack, &old_gc_sp, &old_gc_frame);
     gc_set_roots(stack, &sp, frame);
+    /* 注册当前线程到全局 GC 线程注册表：GC 时扫描所有注册线程的栈和帧链，
+     * 防止其他线程栈上持有的对象引用被误回收（多线程 UAF 根因）。 */
+    gc_register_thread(stack, &sp, frame);
     /* 函数边界隔离 try 状态：进入保存，所有退出点恢复（try 内 return 不能泄漏） */
     int saved_depth = vm_depth;
     jmp_buf* saved_gj = g_err_jmp;
@@ -225,6 +228,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     }
 
     for(;;) {
+        gc_stw_check();  /* 协作式 STW 安全点：GC 运行时自旋等待 */
         Instruction in = bf->code[pc++];
         switch(in.op) {
             case OPC_NOP:
@@ -319,14 +323,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 for(int k = 0; k < n; k++)
                     arr.v.array->items[k] = stack[sp - n + k];
                 sp = sp - n + 1;
-                stack[sp - 1] = arr;
+                sp--; stack[sp++] = arr;   /* 安全原地写：先 pop 使槽位对 GC 不可见，再 push */
                 break;
             }
             case OPC_MAP_LIT: {
                 int n = in.b;
                 Value m = lumin_map_lit(&stack[sp - 2 * n], n);
                 sp = sp - 2 * n + 1;
-                stack[sp - 1] = m;
+                sp--; stack[sp++] = m;     /* 安全原地写 */
                 break;
             }
             case OPC_INDEX_GET: {
@@ -362,8 +366,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_RANGE: {
                         int n = in.b;
                         Value r = lumin_range_n(&stack[sp - n], n);
-                        stack[sp - n] = r;
                         sp = sp - n + 1;
+                        sp--; stack[sp++] = r;
                         break;
                     }
                     case BUILTIN_SUBSTR: {
@@ -408,8 +412,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_MIN: {
                         int n = in.b;
                         Value r = (in.a == BUILTIN_MAX) ? lumin_max(&stack[sp - n], n) : lumin_min(&stack[sp - n], n);
-                        stack[sp - n] = r;
                         sp = sp - n + 1;
+                        sp--; stack[sp++] = r;
                         break;
                     }
                     case BUILTIN_JOIN: {
@@ -442,8 +446,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_FORMAT: {
                         int n = in.b;
                         Value r = lumin_format(&stack[sp - n], n);
-                        stack[sp - n] = r;
                         sp = sp - n + 1;
+                        sp--; stack[sp++] = r;
                         break;
                     }
                     case BUILTIN_SORT:    { Value v = stack[--sp]; stack[sp++] = lumin_sort(v); break; }
@@ -451,11 +455,11 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_STRIP:   { Value v = stack[--sp]; stack[sp++] = lumin_strip(v); break; }
                     case BUILTIN_STARTSWITH: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_startswith(l, r); break; }
                     case BUILTIN_ENDSWITH:   { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_endswith(l, r); break; }
-                    case BUILTIN_READ_FILE:  { int n2 = in.b; Value r = lumin_read_file(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
-                    case BUILTIN_WRITE_FILE: { int n2 = in.b; Value r = lumin_write_file(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
-                    case BUILTIN_FILE_EXISTS:{ int n2 = in.b; Value r = lumin_file_exists(&stack[sp - n2], n2); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
-                    case BUILTIN_KEYS:     { int n2 = in.b; Value r = lumin_map_keys(stack[sp - n2]); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
-                    case BUILTIN_VALUES:   { int n2 = in.b; Value r = lumin_map_values(stack[sp - n2]); stack[sp - n2] = r; sp = sp - n2 + 1; break; }
+                    case BUILTIN_READ_FILE:  { int n2 = in.b; Value r = lumin_read_file(&stack[sp - n2], n2); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
+                    case BUILTIN_WRITE_FILE: { int n2 = in.b; Value r = lumin_write_file(&stack[sp - n2], n2); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
+                    case BUILTIN_FILE_EXISTS:{ int n2 = in.b; Value r = lumin_file_exists(&stack[sp - n2], n2); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
+                    case BUILTIN_KEYS:     { int n2 = in.b; Value r = lumin_map_keys(stack[sp - n2]); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
+                    case BUILTIN_VALUES:   { int n2 = in.b; Value r = lumin_map_values(stack[sp - n2]); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
                     case BUILTIN_THREAD: {
                         int argc = in.b;
                         if(argc < 1) runtime_error("thread() 至少需要一个函数参数");
@@ -468,8 +472,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         a->rf = rf;
                         a->global_frame = s_global_frame;
                         int tid = lumin_thread_start(vm_thread_body, (void*)a, (nargs > 0) ? &stack[sp - nargs] : NULL, nargs);
-                        stack[sp - argc] = lumin_make_int(tid);
                         sp = sp - argc + 1;
+                        sp--; stack[sp++] = lumin_make_int(tid);
                         break;
                     }
                     case BUILTIN_THREAD_JOIN: {
@@ -1101,8 +1105,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value url    = stack[sp - n];
                         Value params = (n >= 2) ? stack[sp - n + 1] : val_none();
                         Value config = (n >= 3) ? stack[sp - n + 2] : val_none();
-                        stack[sp - n] = lumin_http_request(m, url, params, config);
+                        Value r = lumin_http_request(m, url, params, config);
                         sp = sp - n + 1;
+                        sp--; stack[sp++] = r;
                         break;
                     }
                     case BUILTIN_MAP:
@@ -1268,6 +1273,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     vm_depth = saved_depth;
                     g_err_jmp = saved_gj;
                     gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
+                    gc_unregister_thread();
                     free(stack);
                     return v;
                 } else {
@@ -1398,6 +1404,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
                 gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
+                gc_unregister_thread();
                 free(stack);
                 return v;
             }
@@ -1406,6 +1413,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
                 gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
+                gc_unregister_thread();
                 free(stack);
                 return val_none();
             case OPC_HALT:
@@ -1413,6 +1421,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
                 gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
+                gc_unregister_thread();
                 free(stack);
                 return val_none();
             default:

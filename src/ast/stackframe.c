@@ -38,18 +38,45 @@ void stackframe_set_shared(StackFrame* f)
     if(f) f->shared = 1;
 }
 
-/* 帧内变量槽扩容：翻倍，无硬上限。调用方必须已持有该帧的写锁（若 shared） */
+/* 帧内变量槽扩容：翻倍，无硬上限。调用方必须已持有该帧的写锁（若 shared）
+ *
+ * 注意：使用 malloc + memcpy 而非 realloc，因为 realloc 可能释放旧缓冲区，
+ * 而 f->vals/f->names 指针在 realloc 返回后才更新。在这个窗口内，另一个线程
+ * 的 GC 可能扫描该帧并读到已释放的旧指针 → UAF → segfault。
+ * 改用 malloc + memcpy 后，先更新指针再 free 旧缓冲区，GC 永远不会读到已释放指针。 */
 static void frame_ensure(StackFrame* f, int need)
 {
     if(need <= f->cap) return;
     int newcap = f->cap > 0 ? f->cap : 16;
     while(newcap < need) newcap *= 2;
-    char** nn = (char**)realloc(f->names, (size_t)newcap * sizeof(char*));
+
+    /* 扩容 names：malloc + memcpy，更新指针后 free 旧缓冲区 */
+    char** nn = (char**)malloc((size_t)newcap * sizeof(char*));
     if(!nn) { perror("stackframe expand names"); exit(EXIT_FAILURE); }
+    if(f->names) {
+        memcpy(nn, f->names, (size_t)f->cap * sizeof(char*));
+    }
+    /* 新槽位初始化为 NULL */
+    for(int i = f->cap; i < newcap; i++) nn[i] = NULL;
+    char** old_names = f->names;
     f->names = nn;
-    Value* nv = (Value*)realloc(f->vals, (size_t)newcap * sizeof(Value));
+    free(old_names);
+
+    /* 扩容 vals：malloc + memcpy，更新指针后 free 旧缓冲区 */
+    Value* nv = (Value*)malloc((size_t)newcap * sizeof(Value));
     if(!nv) { perror("stackframe expand vals"); exit(EXIT_FAILURE); }
+    if(f->vals) {
+        memcpy(nv, f->vals, (size_t)f->cap * sizeof(Value));
+    }
+    /* 新槽位初始化为 VAL_NONE */
+    for(int i = f->cap; i < newcap; i++) {
+        nv[i].type = VAL_NONE;
+        nv[i].v.i = 0;
+    }
+    Value* old_vals = f->vals;
     f->vals = nv;
+    free(old_vals);
+
     f->cap = newcap;
 }
 

@@ -46,10 +46,35 @@ static pthread_mutex_t g_gc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int g_in_gc = 0;
 static int g_gc_disable = 0;  /* GC 暂停计数器（构造复合对象时使用） */
 
+/* ---- 协作式 Stop-The-World ----
+ * GC 运行时设置 g_gc_stw，VM 解释循环在每条指令前检查并自旋等待。
+ * 这确保 GC 标记期间没有线程在修改 VM 栈/帧/堆对象，消除并发标记竞态。
+ * C 运行时函数中不持有 g_gc_mutex 的对象修改仍可能与 GC 并发，
+ * 但这类修改通常不涉及指针字段变更（如纯 int 写入），风险较低。 */
+static volatile int g_gc_stw = 0;
+
+void gc_stw_check(void) {
+    while (g_gc_stw) { sched_yield(); }
+}
+
 /* 当前线程的根（VM 执行循环注册，供 gc_alloc 自动触发 GC 使用） */
 static _Thread_local Value*   tls_stack = NULL;
 static _Thread_local int*     tls_sp = NULL;
 static _Thread_local StackFrame* tls_frame = NULL;
+
+/* ---- 多线程栈根注册表 ----
+ * GC 时遍历所有注册线程，扫描每个线程的操作数栈 + 帧链局部变量。
+ * 用 g_gc_mutex 保护（gc_collect 已持有该锁，遍历无需额外加锁）。
+ * 支持同一线程嵌套注册（头插，栈式语义），unregister 移除最近的 entry。 */
+typedef struct GCThreadEntry {
+    pthread_t tid;
+    Value* stack;
+    int* sp_ptr;
+    StackFrame* frame;
+    struct GCThreadEntry* next;
+} GCThreadEntry;
+
+static GCThreadEntry* g_gc_threads = NULL;
 
 /* ---- 内部辅助：用户指针 <-> GCObject ---- */
 static inline GCObject* ptr_to_obj(void* ptr) {
@@ -84,8 +109,10 @@ void* gc_alloc(size_t size, int vtype)
                 if (prev) prev->next = cur->next;
                 else tla_local_free = cur->next;
                 tla_local_count--;
-                /* 初始化：对象已在 g_gc_objects 中，marked 从 2 改为 0 */
-                cur->marked = 0;
+                /* 初始化：对象已在 g_gc_objects 中，marked 从 2 改为 3（新分配预标记）。
+                 * marked=3 确保对象在被调用方存入根之前的首个 GC 周期不被 sweep；
+                 * gc_mark_ptr 视 3 为未标记（需遍历内部引用），sweep 视 3 为活跃（清为 0）。 */
+                cur->marked = 3;
                 cur->vtype = (unsigned char)vtype;
                 memset(obj_to_ptr(cur), 0, size);
                 /* 不增加 g_gc_bytes（对象一直在全局链表中，已被统计） */
@@ -123,7 +150,7 @@ void* gc_alloc(size_t size, int vtype)
                     if (prev) prev->next = cur->next;
                     else tla_local_free = cur->next;
                     tla_local_count--;
-                    cur->marked = 0;
+                    cur->marked = 3;  /* 新分配预标记 */
                     cur->vtype = (unsigned char)vtype;
                     memset(obj_to_ptr(cur), 0, size);
                     return obj_to_ptr(cur);
@@ -148,8 +175,11 @@ void* gc_alloc(size_t size, int vtype)
             batch[i]->next = NULL;
         }
 
-        /* 预分配块（i>=1）先标记为永生，防止释放锁后被 GC sweep */
+        /* 预分配块（i>=1）标记为永生（本地空闲链表）；
+         * batch[0] 标记为 3（新分配预标记），确保插入 g_gc_objects 后、
+         * 调用方存入根之前的首个 GC 周期不被 sweep */
         for (int i = 1; i < TLA_BATCH; i++) batch[i]->marked = 2;
+        batch[0]->marked = 3;
 
         int need_collect = 0;
         pthread_mutex_lock(&g_gc_mutex);
@@ -187,7 +217,7 @@ void* gc_alloc(size_t size, int vtype)
         fprintf(stderr, "GC: out of memory (requested %zu bytes)\n", size);
         abort();
     }
-    obj->marked = 0;
+    obj->marked = 3;  /* 新分配预标记：确保随后 gc_collect 不 sweep 尚未入根的对象 */
     obj->vtype = (unsigned char)vtype;
     obj->user_size = (uint32_t)size;
     obj->next = NULL;
@@ -211,45 +241,49 @@ void* gc_alloc(size_t size, int vtype)
 
 /* ============================================================
  * 重分配（仅用于内部缓冲区：array items 等）
- * 从链表移除旧节点 → realloc → 重新挂入
+ * 改用 malloc + memcpy，旧对象保留在链表中不释放。
+ *
+ * 为什么不用 realloc：realloc 可能移动内存并释放旧块，但调用方
+ * （如 lumin_array_add）在锁外更新 items 指针。在 gc_realloc 返回
+ * 和调用方更新指针之间，另一个线程的 GC 可能扫描到已释放的旧指针，
+ * 导致 gc_mark_ptr 读取已释放内存 → segfault。
+ *
+ * 改用 malloc + memcpy 后：旧对象保留在 g_gc_objects 中，内存不被
+ * 释放。调用方更新指针后，旧对象不再被引用，下一次 GC sweep 回收它。
  * ============================================================ */
 void* gc_realloc(void* ptr, size_t new_size)
 {
     if (!ptr) return gc_alloc(new_size, VAL_ARRAY);
 
     GCObject* old_obj = ptr_to_obj(ptr);
-    size_t old_total = sizeof(GCObject) + old_obj->user_size;
     unsigned char vtype = old_obj->vtype;
+    size_t old_user = old_obj->user_size;
+    size_t copy_size = old_user < new_size ? old_user : new_size;
 
-    /* 从链表移除并精确扣减旧大小 */
-    pthread_mutex_lock(&g_gc_mutex);
-    GCObject** pp = &g_gc_objects;
-    while (*pp) {
-        if (*pp == old_obj) {
-            *pp = old_obj->next;
-            break;
-        }
-        pp = &(*pp)->next;
-    }
-    g_gc_bytes -= old_total;
-    pthread_mutex_unlock(&g_gc_mutex);
-
-    /* realloc（可能移动） */
+    /* 分配新对象 + 复制（不使用 realloc，避免旧块被提前释放） */
     size_t new_total = sizeof(GCObject) + new_size;
-    GCObject* new_obj = (GCObject*)realloc(old_obj, new_total);
+    GCObject* new_obj = (GCObject*)malloc(new_total);
     if (!new_obj) {
         fprintf(stderr, "GC: realloc out of memory (requested %zu bytes)\n", new_size);
         abort();
     }
+    memcpy(new_obj, old_obj, sizeof(GCObject) + copy_size);
+    new_obj->user_size = (uint32_t)new_size;
     new_obj->marked = 0;
     new_obj->vtype = vtype;
-    new_obj->user_size = (uint32_t)new_size;
     new_obj->next = NULL;
+    if (new_size > copy_size) {
+        memset((char*)new_obj + sizeof(GCObject) + copy_size, 0, new_size - copy_size);
+    }
 
     pthread_mutex_lock(&g_gc_mutex);
+    /* 新对象插入全局链表 */
     new_obj->next = g_gc_objects;
     g_gc_objects = new_obj;
     g_gc_bytes += new_total;
+    /* 旧对象保留在链表中，marked 保持原值（通常为 0）。
+     * 调用方更新指针后，旧对象不再被引用，下一次 GC sweep 释放它。
+     * 在调用方更新指针前，并发 GC 可安全扫描旧对象（内存未被释放）。 */
     pthread_mutex_unlock(&g_gc_mutex);
 
     return obj_to_ptr(new_obj);
@@ -263,7 +297,9 @@ int gc_mark_ptr(void* ptr)
 {
     if (!ptr) return 0;
     GCObject* obj = ptr_to_obj(ptr);
-    if (obj->marked) return 0;  /* 已标记或永生（含空闲链表对象 marked=2） */
+    /* marked=1 已标记；marked=2 永生（钉住/空闲链表）；
+     * marked=3 新分配预标记（需遍历，视同未标记） */
+    if (obj->marked == 1 || obj->marked == 2) return 0;
     obj->marked = 1;
     return 1;
 }
@@ -278,16 +314,23 @@ void gc_pin(void* ptr)
 
 /* ============================================================
  * 标记 Value：堆类型标记其 GCObject + 递归标记内部引用
+ *
+ * 指针校验：并发标记时，GC 基于 sp 快照扫描栈，线程可能在扫描期间
+ * pop 槽位再 push 新值覆盖，导致 GC 读到撕裂 Value（type 合法但 pointer
+ * 为旧 int 值或垃圾）。此处校验指针范围，跳过明显非法的指针，防止
+ * gc_mark_ptr 访问非法地址导致 segfault。
  * ============================================================ */
+#define GC_VALID_PTR(p) ((p) && (unsigned long long)(p) >= 4096 && (unsigned long long)(p) <= 0x00007fffffffffffULL)
+
 void gc_mark(Value v)
 {
     switch (v.type) {
     case VAL_STRING: {
-        if (!v.str_inline && v.v.s) gc_mark_ptr(v.v.s);
+        if (!v.str_inline && GC_VALID_PTR(v.v.s)) gc_mark_ptr(v.v.s);
         break;
     }
     case VAL_ARRAY: {
-        if (!v.v.array) break;
+        if (!GC_VALID_PTR(v.v.array)) break;
         if (v.v.array->stack_alloc) {
             if (v.v.array->items) {
                 if (!v.v.array->items_stack_alloc) {
@@ -310,7 +353,7 @@ void gc_mark(Value v)
     }
     case VAL_MAP: {
         ValueMap* m = v.v.map;
-        if (!m) break;
+        if (!GC_VALID_PTR(m)) break;
         if (m->stack_alloc) {
             /* 栈分配 ValueMap：无 GCObject 头，只标记内部缓冲区和递归键值 */
         } else {
@@ -431,15 +474,33 @@ void gc_sweep(void)
 }
 
 /* ============================================================
- * 回收：mark_roots → sweep → 更新阈值
+ * 回收：mark_roots（遍历所有注册线程）→ sweep → 更新阈值
  * ============================================================ */
 void gc_collect(Value* stack, int sp, StackFrame* frame)
 {
     if (g_in_gc) return;
     g_in_gc = 1;
 
+    /* 协作式 STW：通知所有 VM 线程停止，等待它们到达安全点。
+     * 循环检查直到所有注册线程的 sp 稳定（简化实现：短暂等待）。 */
+    g_gc_stw = 1;
+    /* 给其他线程时间到达安全点（VM 循环顶部检查 g_gc_stw） */
+    struct timespec ts = {0, 100000};  /* 100us */
+    nanosleep(&ts, NULL);
+
     pthread_mutex_lock(&g_gc_mutex);
-    gc_mark_roots(stack, sp, frame);
+
+    /* 标记阶段：遍历全局线程注册表，扫描每个注册线程的栈 + 帧链。
+     * 注册表非空时以注册表为准（覆盖所有活跃线程）；
+     * 注册表为空时回退到扫传入参数（兼容 gc_collect_now / 未注册的调用方）。 */
+    if (g_gc_threads) {
+        for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
+            gc_mark_roots(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
+        }
+    } else {
+        gc_mark_roots(stack, sp, frame);
+    }
+
     gc_sweep();
     /* 精确重新计算 g_gc_bytes（利用 user_size 字段） */
     g_gc_bytes = 0;
@@ -452,6 +513,7 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
     g_gc_threshold = new_threshold;
     pthread_mutex_unlock(&g_gc_mutex);
 
+    g_gc_stw = 0;
     g_in_gc = 0;
 }
 
@@ -495,6 +557,46 @@ void gc_collect_now(void)
     if (tls_stack && tls_sp && tls_frame) {
         gc_collect(tls_stack, *tls_sp, tls_frame);
     }
+}
+
+/* ============================================================
+ * 多线程栈根注册表
+ * ============================================================ */
+void gc_register_thread(Value* stack, int* sp_ptr, StackFrame* frame)
+{
+    GCThreadEntry* e = (GCThreadEntry*)malloc(sizeof(GCThreadEntry));
+    if (!e) {
+        fprintf(stderr, "GC: out of memory registering thread\n");
+        abort();
+    }
+    e->tid = pthread_self();
+    e->stack = stack;
+    e->sp_ptr = sp_ptr;
+    e->frame = frame;
+
+    pthread_mutex_lock(&g_gc_mutex);
+    /* 头插：最近注册的 entry 在链表头部，unregister 时移除第一个匹配 tid 的 entry */
+    e->next = g_gc_threads;
+    g_gc_threads = e;
+    pthread_mutex_unlock(&g_gc_mutex);
+}
+
+void gc_unregister_thread(void)
+{
+    pthread_t self = pthread_self();
+    pthread_mutex_lock(&g_gc_mutex);
+    /* 移除第一个 tid == self 的 entry（头插保证它是最近注册的，栈式语义） */
+    GCThreadEntry** pp = &g_gc_threads;
+    while (*pp) {
+        if (pthread_equal((*pp)->tid, self)) {
+            GCThreadEntry* victim = *pp;
+            *pp = victim->next;
+            free(victim);
+            break;
+        }
+        pp = &(*pp)->next;
+    }
+    pthread_mutex_unlock(&g_gc_mutex);
 }
 
 /* 统计 */
