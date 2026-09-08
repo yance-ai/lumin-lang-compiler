@@ -16,10 +16,15 @@
  * 与 ValueType 枚举一致，用于标记阶段递归遍历内部引用。
  * ============================================================ */
 
+/* 分代 GC：对象年龄阈值，达到该值后从新生代晋升老年代 */
+#define PROMOTE_AGE 3
+
 typedef struct GCObject {
     unsigned char marked;
     unsigned char vtype;      /* VAL_STRING / VAL_ARRAY / VAL_MAP / VAL_ERROR / VAL_FUNC */
-    uint32_t user_size;       /* 用户数据大小（不含 GCObject 头），利用原 6 字节填充空间，结构体仍为 16 字节 */
+    unsigned char age;         /* 分代年龄：<PROMOTE_AGE=新生代，>=PROMOTE_AGE=老年代 */
+    unsigned char _pad;        /* 对齐填充，保持结构体 16 字节 */
+    uint32_t user_size;       /* 用户数据大小（不含 GCObject 头） */
     struct GCObject* next;
 } GCObject;
 
@@ -46,8 +51,14 @@ void gc_mark_roots(Value* stack, int sp, StackFrame* frame);
 /* 遍历 g_gc_objects，未标记的释放，清除标记位 */
 void gc_sweep(void);
 
-/* mark_roots → sweep → 更新阈值 */
+/* mark_roots → sweep → 更新阈值（分代 GC 调度入口：启用时触发 Minor，禁用时触发 Major） */
 void gc_collect(Value* stack, int sp, StackFrame* frame);
+
+/* Major GC：全量增量标记-清除（sweep 全部对象，age 不变） */
+void gc_collect_major(Value* stack, int sp, StackFrame* frame);
+
+/* Minor GC：全量标记 + 只 sweep 新生代（存活对象 age++，达到阈值晋升老年代） */
+void gc_collect_minor(Value* stack, int sp, StackFrame* frame);
 
 /* ---- 根注册（供 gc_alloc 内部触发 GC 时使用） ---- */
 /* VM 执行循环入口调用，注册当前线程的栈/帧；退出时置 NULL */
@@ -130,6 +141,8 @@ void gc_unregister_cframe_thread(void);
 /* 统计 */
 size_t gc_bytes(void);
 size_t gc_count(void);
+size_t gc_young_bytes(void);
+size_t gc_old_bytes(void);
 
 /* ============================================================
  * 增量标记（Incremental Marking）—— 三色标记 + 写屏障

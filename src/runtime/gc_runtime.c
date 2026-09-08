@@ -47,6 +47,22 @@ static pthread_mutex_t g_gc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int g_in_gc = 0;
 static int g_gc_disable = 0;  /* GC 暂停计数器（构造复合对象时使用） */
 
+/* ---- 分代 GC：全局状态 ----
+ * g_gc_generational=1 启用分代 GC（默认），可通过 LUMIN_GC_GENERATIONAL=0 关闭。
+ * 新生代：age < PROMOTE_AGE，Minor GC 只 sweep 新生代，存活对象 age++。
+ * 老年代：age >= PROMOTE_AGE，仅 Major GC  sweep，大对象（>TLA_MAX_SIZE）直接进入老年代。
+ * Remembered Set（老年代→新生代引用追踪）：第一版未实现，Minor GC 采用全量标记简化方案。
+ *   未来优化方向：写屏障中追踪老年代对象引用新生代的情况，Minor GC 时只扫描 remembered set
+ *   中的老年代对象而非全部老年代，减少标记开销。 */
+static int g_gc_generational = 1;
+static int g_gc_generational_checked = 0;  /* 是否已读取环境变量 */
+static size_t g_young_bytes = 0;     /* 新生代对象总字节数（含 GCObject 头） */
+static size_t g_old_bytes = 0;       /* 老年代对象总字节数（含 GCObject 头） */
+static size_t g_young_threshold = 8 * 1024 * 1024;   /* 新生代阈值，超过触发 Minor GC */
+static size_t g_old_threshold = 64 * 1024 * 1024;    /* 老年代阈值，超过触发 Major GC */
+static unsigned long long g_minor_gc_count = 0;  /* Minor GC 次数 */
+static unsigned long long g_major_gc_count = 0;  /* Major GC 次数 */
+
 /* ---- 增量标记：运行时开关 ----
  * 1=启用增量标记（初始STW + 并发标记 + 最终STW），0=全量 STW 标记（fallback）
  * 可通过环境变量 LUMIN_GC_INCREMENTAL=0 关闭 */
@@ -119,16 +135,27 @@ static GCCFrameEntry* g_gc_cframe_threads = NULL;
 static _Thread_local GCThreadEntry* tls_cur_vm_entry = NULL;
 static _Thread_local GCCFrameEntry* tls_cur_cf_entry = NULL;
 
+/* 设置当前线程所有注册 entry 的 at_safepoint（VM + CFrame）。
+ * 同一线程可能嵌套注册多次（vm_run 递归调用），必须全部标记，
+ * 否则 gc_wait_all_threads_at_safepoint 会因旧 entry at_safepoint=0 而永久自旋。 */
+static void gc_set_self_at_safepoint(int val) {
+    pthread_t self = pthread_self();
+    for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
+        if (pthread_equal(e->tid, self)) e->at_safepoint = val;
+    }
+    for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
+        if (pthread_equal(e->tid, self)) e->at_safepoint = val;
+    }
+}
+
 /* 协作式 STW 安全点：VM 解释循环每条指令前调用，编译通道每N条指令/循环/调用前调用。
  * 快速路径：无 GC 时直接返回（仅一次 volatile 读），降低频繁检查的开销。
  * GC 运行时设置 at_safepoint=1 后自旋，GC 线程轮询到所有线程 at_safepoint==1 才开始标记。 */
 void gc_stw_check(void) {
     if (!g_gc_stw) return;
-    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 1;
-    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 1;
+    gc_set_self_at_safepoint(1);
     while (g_gc_stw) { sched_yield(); }
-    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 0;
-    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 0;
+    gc_set_self_at_safepoint(0);
 }
 
 /* ---- 内部辅助：用户指针 <-> GCObject ---- */
@@ -143,6 +170,11 @@ static inline void* obj_to_ptr(GCObject* obj) {
 static inline size_t tla_real_size(size_t size) {
     return (size < 16) ? 16 : size;
 }
+
+/* ---- 前向声明（分代辅助函数定义在 gc_alloc 之后） ---- */
+static int gc_generational_enabled(void);
+static void gc_recount_bytes(void);
+static int gc_need_collect_locked(void);
 
 /* ============================================================
  * 分配
@@ -169,9 +201,11 @@ void* gc_alloc(size_t size, int vtype)
                 tla_local_count--;
                 /* 初始化：对象已在 g_gc_objects 中。
                  * 非标记期：marked=3（新分配预标记，确保首个 GC 周期不被 sweep）。
-                 * 并发标记期：marked=1（黑色），新对象不参与本轮回收，也不需要被扫描。 */
+                 * 并发标记期：marked=1（黑色），新对象不参与本轮回收，也不需要被扫描。
+                 * age=0：新分配对象进入新生代（TLA 快速路径不更新分代计数器，漂移在 GC 后 recalculation 修正）。 */
                 cur->marked = g_gc_marking ? 1 : 3;
                 cur->vtype = (unsigned char)vtype;
+                cur->age = 0;
                 memset(obj_to_ptr(cur), 0, size);
                 /* 不增加 g_gc_bytes（对象一直在全局链表中，已被统计） */
                 return obj_to_ptr(cur);
@@ -191,7 +225,11 @@ void* gc_alloc(size_t size, int vtype)
                 /* 全局空闲对象不在 g_gc_objects 中，需插入 */
                 obj->next = g_gc_objects;
                 g_gc_objects = obj;
-                g_gc_bytes += sizeof(GCObject) + obj->user_size;
+                size_t obj_bytes = sizeof(GCObject) + obj->user_size;
+                g_gc_bytes += obj_bytes;
+                /* 按对象当前 age 计入对应分代（全局空闲链表中的对象保留 sweep 时的 age） */
+                if (obj->age < PROMOTE_AGE) g_young_bytes += obj_bytes;
+                else g_old_bytes += obj_bytes;
                 /* 移入本地空闲链表（marked 保持 2） */
                 obj->next = tla_local_free;
                 tla_local_free = obj;
@@ -210,6 +248,7 @@ void* gc_alloc(size_t size, int vtype)
                     tla_local_count--;
                     cur->marked = g_gc_marking ? 1 : 3;  /* 新分配预标记 / 标记期黑色 */
                     cur->vtype = (unsigned char)vtype;
+                    cur->age = 0;  /* 新分配对象进入新生代 */
                     memset(obj_to_ptr(cur), 0, size);
                     return obj_to_ptr(cur);
                 }
@@ -229,6 +268,7 @@ void* gc_alloc(size_t size, int vtype)
             }
             batch[i]->marked = 0;
             batch[i]->vtype = 0;
+            batch[i]->age = 0;  /* 新对象进入新生代 */
             batch[i]->user_size = (uint32_t)real_sz;
             batch[i]->next = NULL;
         }
@@ -238,16 +278,15 @@ void* gc_alloc(size_t size, int vtype)
         for (int i = 1; i < TLA_BATCH; i++) batch[i]->marked = 2;
         batch[0]->marked = g_gc_marking ? 1 : 3;
 
-        int need_collect = 0;
+        int need_collect_type = 0;  /* 1=minor, 2=major */
         pthread_mutex_lock(&g_gc_mutex);
         for (int i = 0; i < TLA_BATCH; i++) {
             batch[i]->next = g_gc_objects;
             g_gc_objects = batch[i];
             g_gc_bytes += total;
+            g_young_bytes += total;  /* 小对象全部进入新生代 */
         }
-        if (g_gc_bytes > g_gc_threshold && !g_in_gc && g_gc_disable == 0) {
-            need_collect = 1;
-        }
+        need_collect_type = gc_need_collect_locked();
         pthread_mutex_unlock(&g_gc_mutex);
 
         /* 第 0 个作为返回值（活跃对象） */
@@ -261,13 +300,17 @@ void* gc_alloc(size_t size, int vtype)
             tla_local_count++;
         }
 
-        if (need_collect && tls_stack && tls_sp && (tls_frame || tls_cframe)) {
-            gc_collect(tls_stack, *tls_sp, tls_frame);
+        if (need_collect_type && tls_stack && tls_sp && (tls_frame || tls_cframe)) {
+            if (need_collect_type == 1) gc_collect_minor(tls_stack, *tls_sp, tls_frame);
+            else gc_collect_major(tls_stack, *tls_sp, tls_frame);
         }
         return obj_to_ptr(batch[0]);
     }
 
-    /* ---- 大对象：原有直接 malloc + 插入链表路径 ---- */
+    /* ---- 大对象：原有直接 malloc + 插入链表路径 ----
+     * 注意：此路径也处理 g_in_gc 期间的小对象分配（TLA 快速路径被跳过）。
+     * 大对象（>TLA_MAX_SIZE）直接进入老年代（age=PROMOTE_AGE），
+     * 因为大对象在新生代存活时间通常较长，直接晋升避免频繁拷贝/扫描。 */
     size_t total = sizeof(GCObject) + size;
     GCObject* obj = (GCObject*)malloc(total);
     if (!obj) {
@@ -276,22 +319,24 @@ void* gc_alloc(size_t size, int vtype)
     }
     obj->marked = g_gc_marking ? 1 : 3;  /* 新分配预标记 / 标记期黑色 */
     obj->vtype = (unsigned char)vtype;
+    obj->age = (size > TLA_MAX_SIZE) ? PROMOTE_AGE : 0;  /* 大对象直接老年代 */
     obj->user_size = (uint32_t)size;
     obj->next = NULL;
     memset(obj_to_ptr(obj), 0, size);
 
-    int need_collect = 0;
+    int need_collect_type = 0;  /* 1=minor, 2=major */
     pthread_mutex_lock(&g_gc_mutex);
     obj->next = g_gc_objects;
     g_gc_objects = obj;
     g_gc_bytes += total;
-    if (g_gc_bytes > g_gc_threshold && !g_in_gc && g_gc_disable == 0) {
-        need_collect = 1;
-    }
+    if (obj->age >= PROMOTE_AGE) g_old_bytes += total;
+    else g_young_bytes += total;
+    need_collect_type = gc_need_collect_locked();
     pthread_mutex_unlock(&g_gc_mutex);
 
-    if (need_collect && tls_stack && tls_sp && (tls_frame || tls_cframe)) {
-        gc_collect(tls_stack, *tls_sp, tls_frame);
+    if (need_collect_type && tls_stack && tls_sp && (tls_frame || tls_cframe)) {
+        if (need_collect_type == 1) gc_collect_minor(tls_stack, *tls_sp, tls_frame);
+        else gc_collect_major(tls_stack, *tls_sp, tls_frame);
     }
     return obj_to_ptr(obj);
 }
@@ -338,6 +383,9 @@ void* gc_realloc(void* ptr, size_t new_size)
     new_obj->next = g_gc_objects;
     g_gc_objects = new_obj;
     g_gc_bytes += new_total;
+    /* 按新对象 age（从旧对象复制）计入对应分代 */
+    if (new_obj->age < PROMOTE_AGE) g_young_bytes += new_total;
+    else g_old_bytes += new_total;
     /* 旧对象保留在链表中，marked 保持原值（通常为 0）。
      * 调用方更新指针后，旧对象不再被引用，下一次 GC sweep 释放它。
      * 在调用方更新指针前，并发 GC 可安全扫描旧对象（内存未被释放）。 */
@@ -849,6 +897,66 @@ void gc_sweep(void)
 }
 
 /* ============================================================
+ * Minor GC 专用 sweep：只回收新生代对象，存活对象 age++，达到阈值晋升老年代
+ *
+ * 与 gc_sweep 的区别：
+ *   - 新生代垃圾（age < PROMOTE_AGE 且 marked==0）：回收（同 gc_sweep）
+ *   - 新生代存活（age < PROMOTE_AGE 且 marked!=0）：age++，若 age>=PROMOTE_AGE 则晋升
+ *   - 老年代对象（age >= PROMOTE_AGE）：不回收，仅清除标记位（标记位不能残留到下一轮）
+ *   - 永生对象（marked==2）：跳过
+ * ============================================================ */
+static void gc_sweep_minor(void)
+{
+    GCObject** pp = &g_gc_objects;
+    while (*pp) {
+        GCObject* cur = *pp;
+        if (cur->marked == 2) {
+            /* 永生对象（钉住 / 本地空闲链表预分配）：跳过 */
+            pp = &cur->next;
+        } else if (cur->age < PROMOTE_AGE) {
+            /* ---- 新生代对象 ---- */
+            if (!cur->marked) {
+                /* 新生代垃圾：回收 */
+                size_t obj_bytes = sizeof(GCObject) + cur->user_size;
+                if (cur->user_size <= TLA_MAX_SIZE) {
+                    /* 小对象：移入全局空闲链表 */
+                    *pp = cur->next;
+                    g_gc_bytes -= obj_bytes;
+                    g_young_bytes -= obj_bytes;
+                    cur->marked = 2;
+                    cur->next = tla_global_free;
+                    tla_global_free = cur;
+                    tla_global_count++;
+                } else {
+                    /* 大对象：free（理论上大对象直接老年代，不会出现在新生代，但防御性处理） */
+                    *pp = cur->next;
+                    g_gc_bytes -= obj_bytes;
+                    g_young_bytes -= obj_bytes;
+                    free(cur);
+                }
+            } else {
+                /* 新生代存活：age++，可能晋升老年代 */
+                cur->age++;
+                if (cur->age >= PROMOTE_AGE) {
+                    /* 晋升：从新生代统计移到老年代统计 */
+                    size_t obj_bytes = sizeof(GCObject) + cur->user_size;
+                    g_young_bytes -= obj_bytes;
+                    g_old_bytes += obj_bytes;
+                }
+                cur->marked = 0;
+                pp = &cur->next;
+            }
+        } else {
+            /* ---- 老年代对象：不 sweep，仅清除标记位 ----
+             * Minor GC 期间老年代对象可能被标记（通过根和引用链），
+             * 但不回收（留到 Major GC）。标记位必须清除，否则残留到下一轮。 */
+            cur->marked = 0;
+            pp = &cur->next;
+        }
+    }
+}
+
+/* ============================================================
  * STW 轮询辅助 + 计时
  * ============================================================ */
 
@@ -901,23 +1009,69 @@ static int gc_incremental_enabled(void)
     return g_gc_incremental;
 }
 
+/* 读取分代 GC 开关（首次调用时读取环境变量） */
+static int gc_generational_enabled(void)
+{
+    if (!g_gc_generational_checked) {
+        g_gc_generational_checked = 1;
+        const char* env = getenv("LUMIN_GC_GENERATIONAL");
+        if (env && strcmp(env, "0") == 0) {
+            g_gc_generational = 0;
+        }
+    }
+    return g_gc_generational;
+}
+
+/* 精确重新计算 g_gc_bytes / g_young_bytes / g_old_bytes（GC sweep 后调用，消除计数器漂移） */
+static void gc_recount_bytes(void)
+{
+    g_gc_bytes = 0;
+    g_young_bytes = 0;
+    g_old_bytes = 0;
+    for (GCObject* o = g_gc_objects; o; o = o->next) {
+        size_t b = sizeof(GCObject) + o->user_size;
+        g_gc_bytes += b;
+        if (o->age < PROMOTE_AGE) g_young_bytes += b;
+        else g_old_bytes += b;
+    }
+}
+
+/* 判断是否需要触发 GC 及类型。
+ * 返回 1=需要 Minor GC，2=需要 Major GC，0=不需要。
+ * 调用方应在持有 g_gc_mutex 时调用（读取阈值和字节数）。 */
+static int gc_need_collect_locked(void)
+{
+    if (g_in_gc || g_gc_disable != 0) return 0;
+    if (gc_generational_enabled()) {
+        /* 老年代阈值优先：老年代满了必须 Major GC 才能回收 */
+        if (g_old_bytes > g_old_threshold) return 2;
+        if (g_young_bytes > g_young_threshold) return 1;
+        return 0;
+    } else {
+        return (g_gc_bytes > g_gc_threshold) ? 2 : 0;
+    }
+}
+
 /* 暴露累计 STW 停顿时间（纳秒） */
 unsigned long long gc_stw_time_ns(void) { return g_stw_total_ns; }
 
 /* ============================================================
- * 回收：增量标记模式（初始STW + 并发标记 + 最终STW）
- *       fallback：全量 STW 标记-清除
+ * Major GC：全量增量标记-清除（sweep 全部对象，age 不变）
+ *   - 增量模式：初始STW + 并发标记 + 最终STW + sweep
+ *   - fallback：全量 STW 标记-清除
+ *   - sweep 后所有存活对象 age 不变（老年代不降级）
+ *   - 更新老年代阈值（和新生代阈值，因为 Major 也 sweep 了新生代）
  * ============================================================ */
-void gc_collect(Value* stack, int sp, StackFrame* frame)
+void gc_collect_major(Value* stack, int sp, StackFrame* frame)
 {
     if (g_in_gc) return;
     g_in_gc = 1;
+    g_major_gc_count++;
 
     if (!gc_incremental_enabled()) {
         /* === Fallback：全量 STW 标记（原有逻辑） === */
         g_gc_stw = 1;
-        if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 1;
-        if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 1;
+        gc_set_self_at_safepoint(1);
         gc_wait_all_threads_at_safepoint();
 
         pthread_mutex_lock(&g_gc_mutex);
@@ -960,18 +1114,21 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
         }
 
         gc_sweep();
-        g_gc_bytes = 0;
-        for (GCObject* o = g_gc_objects; o; o = o->next) {
-            g_gc_bytes += sizeof(GCObject) + o->user_size;
-        }
+        gc_recount_bytes();
+        /* 更新阈值：非分代模式用总字节，分代模式用老年代字节 */
         size_t new_threshold = g_gc_bytes * 2;
         if (new_threshold < 1024 * 1024) new_threshold = 1024 * 1024;
         g_gc_threshold = new_threshold;
+        size_t new_old_thr = g_old_bytes * 2;
+        if (new_old_thr < 1024 * 1024) new_old_thr = 1024 * 1024;
+        g_old_threshold = new_old_thr;
+        size_t new_young_thr = g_young_bytes * 2;
+        if (new_young_thr < 1024 * 1024) new_young_thr = 1024 * 1024;
+        g_young_threshold = new_young_thr;
         pthread_mutex_unlock(&g_gc_mutex);
 
         g_gc_stw = 0;
-        if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 0;
-        if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 0;
+        gc_set_self_at_safepoint(0);
         g_in_gc = 0;
         return;
     }
@@ -981,8 +1138,7 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
     /* ---- 初始 STW ---- */
     unsigned long long t_stw_start = gc_now_ns();
     g_gc_stw = 1;
-    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 1;
-    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 1;
+    gc_set_self_at_safepoint(1);
     gc_wait_all_threads_at_safepoint();
 
     pthread_mutex_lock(&g_gc_mutex);
@@ -997,14 +1153,10 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
 
     /* 恢复应用线程（结束初始 STW） */
     g_gc_stw = 0;
-    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 0;
-    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 0;
+    gc_set_self_at_safepoint(0);
     unsigned long long t_initial_stw = gc_now_ns() - t_stw_start;
 
-    /* ---- 并发标记 ----
-     * GC 线程从标记栈取出灰色对象，处理其子对象，自身变黑色。
-     * 应用线程同时运行，写屏障保证三色不变式（新引用的白色对象变灰入栈）。
-     * 标记栈操作用 g_mark_stack_mutex 保护（此阶段无 g_gc_mutex）。 */
+    /* ---- 并发标记 ---- */
     while (1) {
         pthread_mutex_lock(&g_mark_stack_mutex);
         GCObject* obj = mark_stack_pop_locked();
@@ -1016,16 +1168,15 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
     /* ---- 最终 STW ---- */
     unsigned long long t_final_start = gc_now_ns();
     g_gc_stw = 1;
-    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 1;
-    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 1;
+    gc_set_self_at_safepoint(1);
     gc_wait_all_threads_at_safepoint();
 
     pthread_mutex_lock(&g_gc_mutex);
 
-    /* 重新扫描根（并发期间根可能变化，如栈上变量被重新赋值） */
+    /* 重新扫描根 */
     gc_scan_roots_to_stack(stack, sp, frame);
 
-    /* 排空标记栈（写屏障在并发期间推入的剩余灰色对象） */
+    /* 排空标记栈 */
     while (1) {
         pthread_mutex_lock(&g_mark_stack_mutex);
         GCObject* obj = mark_stack_pop_locked();
@@ -1037,36 +1188,215 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
     /* 关闭写屏障 */
     g_gc_marking = 0;
 
-    /* sweep 白色对象 */
+    /* Major GC：sweep 全部对象 */
     gc_sweep();
 
-    /* 精确重新计算 g_gc_bytes + 更新阈值 */
-    g_gc_bytes = 0;
-    for (GCObject* o = g_gc_objects; o; o = o->next) {
-        g_gc_bytes += sizeof(GCObject) + o->user_size;
-    }
+    /* 精确重新计算字节数 + 更新阈值 */
+    gc_recount_bytes();
     size_t new_threshold = g_gc_bytes * 2;
     if (new_threshold < 1024 * 1024) new_threshold = 1024 * 1024;
     g_gc_threshold = new_threshold;
+    size_t new_old_thr = g_old_bytes * 2;
+    if (new_old_thr < 1024 * 1024) new_old_thr = 1024 * 1024;
+    g_old_threshold = new_old_thr;
+    size_t new_young_thr = g_young_bytes * 2;
+    if (new_young_thr < 1024 * 1024) new_young_thr = 1024 * 1024;
+    g_young_threshold = new_young_thr;
 
     pthread_mutex_unlock(&g_gc_mutex);
 
     g_gc_stw = 0;
-    if (tls_cur_vm_entry) tls_cur_vm_entry->at_safepoint = 0;
-    if (tls_cur_cf_entry) tls_cur_cf_entry->at_safepoint = 0;
+    gc_set_self_at_safepoint(0);
     unsigned long long t_final_stw = gc_now_ns() - t_final_start;
 
-    /* 累计 STW 停顿（初始 + 最终） */
+    /* 累计 STW 停顿 */
     g_stw_total_ns += t_initial_stw + t_final_stw;
 
-    /* LUMIN_GC_STATS=1 时输出 STW 统计到 stderr */
+    /* LUMIN_GC_STATS=1 时输出统计 */
     const char* stats_env = getenv("LUMIN_GC_STATS");
     if (stats_env && strcmp(stats_env, "1") == 0) {
-        fprintf(stderr, "[GC] initial STW=%lluus final STW=%lluus total STW=%llums\n",
-                t_initial_stw / 1000, t_final_stw / 1000, g_stw_total_ns / 1000000);
+        fprintf(stderr, "[GC major] initial STW=%lluus final STW=%lluus total STW=%llums minor=%llu major=%llu young=%zuKB old=%zuKB\n",
+                t_initial_stw / 1000, t_final_stw / 1000, g_stw_total_ns / 1000000,
+                g_minor_gc_count, g_major_gc_count, g_young_bytes / 1024, g_old_bytes / 1024);
     }
 
     g_in_gc = 0;
+}
+
+/* ============================================================
+ * Minor GC：全量标记 + 只 sweep 新生代
+ *   - 标记阶段与 Major GC 完全相同（全量标记所有可达对象）
+ *   - 第一版简化方案：不实现 Remembered Set，Minor GC 标记所有根并遍历所有可达对象。
+ *     正确性有保证，sweep 只回收新生代（大多数垃圾在新生代），减少 sweep 时间。
+ *     未来优化：实现 Remembered Set，Minor GC 只扫描根 + remembered set 中的老年代对象，
+ *     减少标记开销。
+ *   - sweep：只回收新生代垃圾，存活新生代对象 age++，达到 PROMOTE_AGE 晋升老年代
+ *   - 老年代对象：不回收，仅清除标记位
+ *   - 更新新生代阈值
+ * ============================================================ */
+void gc_collect_minor(Value* stack, int sp, StackFrame* frame)
+{
+    if (g_in_gc) return;
+    g_in_gc = 1;
+    g_minor_gc_count++;
+
+    if (!gc_incremental_enabled()) {
+        /* === Fallback：全量 STW 标记 === */
+        g_gc_stw = 1;
+        gc_set_self_at_safepoint(1);
+        gc_wait_all_threads_at_safepoint();
+
+        pthread_mutex_lock(&g_gc_mutex);
+
+        /* 递归标记所有根（与 Major 相同，全量标记） */
+        if (g_gc_threads) {
+            for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
+                gc_mark_roots(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
+            }
+        } else {
+            gc_mark_roots(stack, sp, frame);
+        }
+        for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
+            CFrame* cf = *e->cframe_ptr;
+            while (cf) {
+                if (cf->stack && cf->sp) {
+                    for (int i = 0; i < *cf->sp; i++) gc_mark(cf->stack[i]);
+                }
+                if (cf->local_ptrs) {
+                    for (int i = 0; i < cf->nlocals; i++) {
+                        if (cf->local_ptrs[i]) gc_mark(*cf->local_ptrs[i]);
+                    }
+                }
+                cf = cf->parent;
+            }
+        }
+        if (tls_cframe && !g_gc_cframe_threads) {
+            CFrame* cf = tls_cframe;
+            while (cf) {
+                if (cf->stack && cf->sp) {
+                    for (int i = 0; i < *cf->sp; i++) gc_mark(cf->stack[i]);
+                }
+                if (cf->local_ptrs) {
+                    for (int i = 0; i < cf->nlocals; i++) {
+                        if (cf->local_ptrs[i]) gc_mark(*cf->local_ptrs[i]);
+                    }
+                }
+                cf = cf->parent;
+            }
+        }
+
+        /* Minor GC：只 sweep 新生代 */
+        gc_sweep_minor();
+        gc_recount_bytes();
+        /* 更新新生代阈值 */
+        size_t new_young_thr = g_young_bytes * 2;
+        if (new_young_thr < 1024 * 1024) new_young_thr = 1024 * 1024;
+        g_young_threshold = new_young_thr;
+        pthread_mutex_unlock(&g_gc_mutex);
+
+        g_gc_stw = 0;
+        gc_set_self_at_safepoint(0);
+        g_in_gc = 0;
+        return;
+    }
+
+    /* === 增量标记模式 === */
+
+    /* ---- 初始 STW ---- */
+    unsigned long long t_stw_start = gc_now_ns();
+    g_gc_stw = 1;
+    gc_set_self_at_safepoint(1);
+    gc_wait_all_threads_at_safepoint();
+
+    pthread_mutex_lock(&g_gc_mutex);
+
+    /* 开启写屏障 */
+    g_gc_marking = 1;
+
+    /* 扫描所有根（全量标记，与 Major 相同） */
+    gc_scan_roots_to_stack(stack, sp, frame);
+
+    pthread_mutex_unlock(&g_gc_mutex);
+
+    /* 恢复应用线程 */
+    g_gc_stw = 0;
+    gc_set_self_at_safepoint(0);
+    unsigned long long t_initial_stw = gc_now_ns() - t_stw_start;
+
+    /* ---- 并发标记 ---- */
+    while (1) {
+        pthread_mutex_lock(&g_mark_stack_mutex);
+        GCObject* obj = mark_stack_pop_locked();
+        pthread_mutex_unlock(&g_mark_stack_mutex);
+        if (!obj) break;
+        gc_mark_one(obj);
+    }
+
+    /* ---- 最终 STW ---- */
+    unsigned long long t_final_start = gc_now_ns();
+    g_gc_stw = 1;
+    gc_set_self_at_safepoint(1);
+    gc_wait_all_threads_at_safepoint();
+
+    pthread_mutex_lock(&g_gc_mutex);
+
+    /* 重新扫描根 */
+    gc_scan_roots_to_stack(stack, sp, frame);
+
+    /* 排空标记栈 */
+    while (1) {
+        pthread_mutex_lock(&g_mark_stack_mutex);
+        GCObject* obj = mark_stack_pop_locked();
+        pthread_mutex_unlock(&g_mark_stack_mutex);
+        if (!obj) break;
+        gc_mark_one(obj);
+    }
+
+    /* 关闭写屏障 */
+    g_gc_marking = 0;
+
+    /* Minor GC：只 sweep 新生代（存活对象 age++ + 晋升） */
+    gc_sweep_minor();
+
+    /* 精确重新计算字节数 + 更新新生代阈值 */
+    gc_recount_bytes();
+    size_t new_young_thr = g_young_bytes * 2;
+    if (new_young_thr < 1024 * 1024) new_young_thr = 1024 * 1024;
+    g_young_threshold = new_young_thr;
+
+    pthread_mutex_unlock(&g_gc_mutex);
+
+    g_gc_stw = 0;
+    gc_set_self_at_safepoint(0);
+    unsigned long long t_final_stw = gc_now_ns() - t_final_start;
+
+    /* 累计 STW 停顿 */
+    g_stw_total_ns += t_initial_stw + t_final_stw;
+
+    /* LUMIN_GC_STATS=1 时输出统计 */
+    const char* stats_env = getenv("LUMIN_GC_STATS");
+    if (stats_env && strcmp(stats_env, "1") == 0) {
+        fprintf(stderr, "[GC minor] initial STW=%lluus final STW=%lluus total STW=%llums minor=%llu major=%llu young=%zuKB old=%zuKB\n",
+                t_initial_stw / 1000, t_final_stw / 1000, g_stw_total_ns / 1000000,
+                g_minor_gc_count, g_major_gc_count, g_young_bytes / 1024, g_old_bytes / 1024);
+    }
+
+    g_in_gc = 0;
+}
+
+/* ============================================================
+ * GC 调度入口
+ *   - 分代 GC 启用时：触发 Minor GC（新生代优先回收，开销小）
+ *   - 分代 GC 禁用时：直接调用 Major GC（全量标记-清除，与原有行为一致）
+ *   - 显式 gc_collect_now() 应直接调用 gc_collect_major()（全量回收）
+ * ============================================================ */
+void gc_collect(Value* stack, int sp, StackFrame* frame)
+{
+    if (gc_generational_enabled()) {
+        gc_collect_minor(stack, sp, frame);
+    } else {
+        gc_collect_major(stack, sp, frame);
+    }
 }
 
 /* ============================================================
@@ -1083,12 +1413,13 @@ void gc_enable(void)
 {
     pthread_mutex_lock(&g_gc_mutex);
     if (g_gc_disable > 0) g_gc_disable--;
-    int need = (g_gc_disable == 0 && !g_in_gc && g_gc_bytes > g_gc_threshold);
-    pthread_mutex_unlock(&g_gc_mutex);
     /* 计数器归零时若超过阈值则触发一次 GC（构造函数内批量分配常伴随 gc_disable，
      * 自动 GC 条件在 gc_alloc 中被 g_gc_disable 阻塞，需在 enable 时补触发） */
-    if (need && tls_stack && tls_sp && (tls_frame || tls_cframe)) {
-        gc_collect(tls_stack, *tls_sp, tls_frame);
+    int need_type = gc_need_collect_locked();
+    pthread_mutex_unlock(&g_gc_mutex);
+    if (need_type && tls_stack && tls_sp && (tls_frame || tls_cframe)) {
+        if (need_type == 1) gc_collect_minor(tls_stack, *tls_sp, tls_frame);
+        else gc_collect_major(tls_stack, *tls_sp, tls_frame);
     }
 }
 
@@ -1109,11 +1440,12 @@ void gc_get_roots(Value** stack, int** sp_ptr, StackFrame** frame)
     if (frame) *frame = tls_frame;
 }
 
-/* 手动触发（使用当前注册的根） */
+/* 手动触发一次 GC（使用当前注册的根）。
+ * 显式 gc_collect() 触发 Major GC（全量标记-清除），确保所有垃圾被回收。 */
 void gc_collect_now(void)
 {
     if (tls_stack && tls_sp && (tls_frame || tls_cframe)) {
-        gc_collect(tls_stack, *tls_sp, tls_frame);
+        gc_collect_major(tls_stack, *tls_sp, tls_frame);
     }
 }
 
@@ -1268,6 +1600,8 @@ void gc_unregister_cframe_thread(void)
 
 /* 统计 */
 size_t gc_bytes(void) { return g_gc_bytes; }
+size_t gc_young_bytes(void) { return g_young_bytes; }
+size_t gc_old_bytes(void) { return g_old_bytes; }
 size_t gc_count(void)
 {
     size_t cnt = 0;
