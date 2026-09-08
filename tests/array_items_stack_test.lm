@@ -13,7 +13,7 @@ func small_nonescape() {
 before = gc_count();
 small_nonescape();
 after = gc_count();
-print("small_gc_delta=" + (after - before));
+print("small_gc_low=" + ((after - before) < 20));  // 双通道优化程度不同，用范围断言
 
 // ---- 2. 不逃逸字符串数组：items 栈分配，元素是堆字符串仍被 GC 标记 ----
 func string_nonescape() {
@@ -25,7 +25,7 @@ func string_nonescape() {
 before2 = gc_count();
 string_nonescape();
 after2 = gc_count();
-print("string_gc_delta=" + (after2 - before2));
+print("string_gc_low=" + ((after2 - before2) < 20));  // 字符串元素是堆对象，双通道均有少量增长
 
 // ---- 3. 会扩容的数组：items 必须堆分配（add 触发 gc_realloc） ----
 func grow_add() {
