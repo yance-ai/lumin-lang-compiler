@@ -460,6 +460,7 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_set(__arr, __idx, __val); }\n");
                 break;
             case OPC_BUILTIN:
+                fprintf(out, "    gc_stw_check();\n");
                 switch(in.a) {
                     case BUILTIN_LEN:
                         fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_len(__v); }\n");
@@ -1027,9 +1028,11 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    { int __d = __g_depth; __g_ensure(__d + 2); __g_tgt[__d] = %d; __g_sp0[__d] = __sp; __g_prev[__d] = g_err_jmp;\n", in.a);
                 fprintf(out, "      __g_tn[__d] = g_trace_n; __g_fn[__d] = __g_fin_n;\n");
                 fprintf(out, "      g_err_jmp = &__g_jbs[__d];\n");
+                fprintf(out, "      CFrame* __cf_save = gc_cframe_top();\n");
                 fprintf(out, "      if(setjmp(__g_jbs[__d]) == 0) { __g_depth = __d + 1; goto L%d; }\n", i + 1);
                 fprintf(out, "      int __d2 = __g_depth - 1;\n");
                 fprintf(out, "      __sp = __g_sp0[__d2]; __g_depth = __d2; g_err_jmp = __g_prev[__d2];\n");
+                fprintf(out, "      gc_cframe_restore(__cf_save);\n");
                 fprintf(out, "      goto L%d;\n", in.a);
                 fprintf(out, "    }\n");
                 fprintf(out, "    L%d:;\n", i + 1);
@@ -1077,9 +1080,9 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "      if(__fa == 1 || __fa == 3 || __fa == 4) { __g_depth = __g_fin_dep[__g_fin_n]; g_err_jmp = __g_prev[__g_fin_dep[__g_fin_n]]; goto *__g_fin_labs[__g_fin_tgt[__g_fin_n]]; }\n");
                 fprintf(out, "      else if(__fa == 2) { if(g_err_jmp) longjmp(*g_err_jmp, 1); fprintf(stderr, \"Runtime Error: %%s\\n\", g_err_msg); exit(EXIT_FAILURE); }\n");
                 if(!g_cur_fn)
-                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; return 0; }\n");
+                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; gc_pop_cframe(); return 0; }\n");
                 else
-                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; if(g_trace_n > 0) g_trace_n--; { Value __v = __g_pend_val; return __v; } }\n");
+                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; if(g_trace_n > 0) g_trace_n--; gc_pop_cframe(); { Value __v = __g_pend_val; return __v; } }\n");
                 fprintf(out, "      else runtime_error(\"finally 完成动作未知\");\n");
                 fprintf(out, "    }\n");
                 break;
@@ -1090,6 +1093,9 @@ static void emit_insns(BytecodeFunc* fn)
                 if(in.b) fprintf(out, "    goto L%d;\n", in.b);
                 break;
             case OPC_JMP:
+                /* 循环回边（向后跳转）插入 STW 安全点：编译通道无解释循环安全点，
+                 * 长循环中需主动检查 GC 是否运行，避免标记期间并发修改栈值 */
+                if(in.a < i) fprintf(out, "    gc_stw_check();\n");
                 fprintf(out, "    goto L%d;\n", in.a);
                 break;
             case OPC_JMP_IF_FALSE:
@@ -1099,6 +1105,8 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    if (lumin_to_bool(__stk[--__sp])) goto L%d;\n", in.a);
                 break;
             case OPC_CALL: {
+                /* STW 安全点：函数调用前检查 GC，避免参数弹出期间并发标记读到 torn Value */
+                fprintf(out, "    gc_stw_check();\n");
                 /* 帧链优先（VM 语义）：名字是局部/全局变量时按函数值动态调用，
                    与具名全局函数冲突时以变量为准（局部闭包遮蔽全局函数） */
                 int is_var = (g_cur_fn && (fn_has_param(g_cur_fn, nm) || ns_has(&fn_locals, nm))) ||
@@ -1156,6 +1164,8 @@ static void emit_insns(BytecodeFunc* fn)
                 break;
             }
             case OPC_CALLV: {
+                /* STW 安全点：函数调用前检查 GC */
+                fprintf(out, "    gc_stw_check();\n");
                 // 动态调用链 f(1)(2)：栈上函数值调用（wrap 指针签名 Value(*)(Value*, int)）
                 int argc = in.b;
                 fprintf(out, "    {\n");
@@ -1173,19 +1183,26 @@ static void emit_insns(BytecodeFunc* fn)
                 if(g_cur_fn) {
                     fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0;\n");
                     fprintf(out, "    if(g_trace_n > 0) g_trace_n--;\n");
+                    fprintf(out, "    gc_pop_cframe();\n");
                     fprintf(out, "    { Value __v = __stk[--__sp]; return __v; }\n");
-                } else
+                } else {
+                    fprintf(out, "    gc_pop_cframe();\n");
                     fprintf(out, "    return 0;\n");
+                }
                 break;
             case OPC_RETURN_NIL:
                 if(g_cur_fn) {
                     fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0;\n");
                     fprintf(out, "    if(g_trace_n > 0) g_trace_n--;\n");
+                    fprintf(out, "    gc_pop_cframe();\n");
                     fprintf(out, "    return val_none();\n");
-                } else
+                } else {
+                    fprintf(out, "    gc_pop_cframe();\n");
                     fprintf(out, "    return 0;\n");
+                }
                 break;
             case OPC_HALT:
+                fprintf(out, "    gc_pop_cframe();\n");
                 fprintf(out, "    return 0;\n");
                 break;
             default:
@@ -1824,6 +1841,46 @@ static void emit_func_def(BytecodeFunc* fn)
             }
         }
     }
+    /* GC 根注册：编译通道 CFrame 帧链 push
+     * local_ptrs = 参数 + 函数局部变量 + 标量替换变量（均为 C 栈上 Value，取地址） */
+    {
+        int _total_params = fn->param_cnt + (fn->has_variadic ? 1 : 0);
+        int _sr_total = 0;
+        for(int v = 0; v < fn->sym_cnt; v++)
+            if(g_scalar_var && g_scalar_var[v]) _sr_total += g_scalar_count[v];
+        int _nlocals = _total_params + fn_locals.count + _sr_total;
+        int _arr_size = _nlocals > 0 ? _nlocals : 1;
+        fprintf(out, "    Value* __local_ptrs[%d] = { ", _arr_size);
+        int _idx = 0;
+        for(int i = 0; i < _total_params; i++) {
+            if(_idx) fprintf(out, ", ");
+            fprintf(out, "&lmloc_%s", fn->params[i]);
+            _idx++;
+        }
+        for(int i = 0; i < fn_locals.count; i++) {
+            if(_idx) fprintf(out, ", ");
+            fprintf(out, "&lmloc_%s", fn_locals.names[i]);
+            _idx++;
+        }
+        for(int v = 0; v < fn->sym_cnt; v++) {
+            if(g_scalar_var && g_scalar_var[v]) {
+                for(int k = 0; k < g_scalar_count[v]; k++) {
+                    if(_idx) fprintf(out, ", ");
+                    fprintf(out, "&__sr_v%d_e%d", v, k);
+                    _idx++;
+                }
+            }
+        }
+        if(_nlocals == 0) fprintf(out, "NULL");
+        fprintf(out, " };\n");
+        fprintf(out, "    CFrame __frame;\n");
+        fprintf(out, "    __frame.stack = __stk;\n");
+        fprintf(out, "    __frame.sp = &__sp;\n");
+        fprintf(out, "    __frame.local_ptrs = __local_ptrs;\n");
+        fprintf(out, "    __frame.nlocals = %d;\n", _nlocals);
+        fprintf(out, "    gc_push_cframe(&__frame);\n");
+        fprintf(out, "    gc_stw_check();\n");
+    }
     emit_insns(fn);
     g_cur_fn = NULL;
     if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
@@ -1961,6 +2018,40 @@ static void emit_main(BytecodeFunc* main_fn)
         for(int k = 0; k < fin_lab_cnt; k++)
             fprintf(out, "&&L%d%s", fin_lab_pcs[k], (k + 1 < fin_lab_cnt) ? ", " : "");
         fprintf(out, " };\n");
+    }
+    /* GC 根注册：main 的 CFrame push
+     * local_ptrs = 全局变量（lmvar_xxx，文件级 static）+ main 内标量替换变量 */
+    {
+        int _sr_total = 0;
+        for(int v = 0; v < main_fn->sym_cnt; v++)
+            if(g_scalar_var && g_scalar_var[v]) _sr_total += g_scalar_count[v];
+        int _nlocals = g_globals.count + _sr_total;
+        int _arr_size = _nlocals > 0 ? _nlocals : 1;
+        fprintf(out, "    Value* __local_ptrs[%d] = { ", _arr_size);
+        int _idx = 0;
+        for(int i = 0; i < g_globals.count; i++) {
+            if(_idx) fprintf(out, ", ");
+            fprintf(out, "&lmvar_%s", g_globals.names[i]);
+            _idx++;
+        }
+        for(int v = 0; v < main_fn->sym_cnt; v++) {
+            if(g_scalar_var && g_scalar_var[v]) {
+                for(int k = 0; k < g_scalar_count[v]; k++) {
+                    if(_idx) fprintf(out, ", ");
+                    fprintf(out, "&__sr_v%d_e%d", v, k);
+                    _idx++;
+                }
+            }
+        }
+        if(_nlocals == 0) fprintf(out, "NULL");
+        fprintf(out, " };\n");
+        fprintf(out, "    CFrame __frame;\n");
+        fprintf(out, "    __frame.stack = __stk;\n");
+        fprintf(out, "    __frame.sp = &__sp;\n");
+        fprintf(out, "    __frame.local_ptrs = __local_ptrs;\n");
+        fprintf(out, "    __frame.nlocals = %d;\n", _nlocals);
+        fprintf(out, "    gc_push_cframe(&__frame);\n");
+        fprintf(out, "    gc_stw_check();\n");
     }
     g_cur_fn = NULL;
     emit_insns(main_fn);

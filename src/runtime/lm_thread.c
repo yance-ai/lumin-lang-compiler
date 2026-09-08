@@ -2,6 +2,7 @@
 // 依赖上一批多线程预备：执行器状态 _Thread_local（vm.c / lumin_value.c）、GC CAS 头插
 #include "lm_thread.h"
 #include "lm_value.h"
+#include "gc_runtime.h"
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -123,6 +124,7 @@ static void lm_c_thread_body(ThreadLaunch* t)
 {
     Value (*cf)(Value*, int) = (Value(*)(Value*, int))t->data;
     Value r = cf(t->args, t->argc);
+    gc_unregister_cframe_thread();
     lumin_thread_set_result(t, r);
 }
 

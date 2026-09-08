@@ -83,6 +83,37 @@ void gc_unregister_thread(void);
 /* 协作式 STW 安全点：VM 解释循环每条指令前调用，GC 运行时自旋等待 */
 void gc_stw_check(void);
 
+/* ============================================================
+ * 编译通道（C 代码生成）帧链表
+ *
+ * 编译通道的局部变量分散在 C 栈上，无法像 VM 那样通过 StackFrame 统一遍历。
+ * 每个函数入口 push 一个 CFrame（含操作数栈 + 局部变量指针数组），出口 pop。
+ * GC 标记时解引用 local_ptrs 扫描当前值，同时扫描操作数栈。
+ * ============================================================ */
+typedef struct CFrame {
+    Value* stack;          /* 函数操作数栈 __stk */
+    int* sp;               /* 指向栈顶计数器 __sp */
+    Value** local_ptrs;    /* 局部变量地址数组（参数 + 局部 + 标量替换变量） */
+    int nlocals;           /* local_ptrs 有效元素数 */
+    struct CFrame* parent; /* 调用者帧 */
+} CFrame;
+
+/* 注册/注销当前编译通道帧（TLS 链表）。
+ * push：f->parent = 当前顶; 当前顶 = f; 同时设置 tls_stack/tls_sp 使自动 GC 条件成立；
+ *       首次 push 时自动将当前线程注册到 CFrame 线程注册表。
+ * pop：当前顶 = parent; 恢复 tls_stack/tls_sp 为父帧的值（或 NULL）。 */
+void gc_push_cframe(CFrame* f);
+void gc_pop_cframe(void);
+
+/* 获取/恢复当前 CFrame 链顶（用于 try/catch longjmp 后恢复帧链） */
+CFrame* gc_cframe_top(void);
+void gc_cframe_restore(CFrame* top);
+
+/* 注册/注销当前线程的 CFrame 链到全局注册表（多线程 GC 扫描所有线程）。
+ * gc_push_cframe 首次调用时自动注册；线程退出时需显式 unregister。 */
+void gc_register_cframe_thread(void);
+void gc_unregister_cframe_thread(void);
+
 /* 统计 */
 size_t gc_bytes(void);
 size_t gc_count(void);

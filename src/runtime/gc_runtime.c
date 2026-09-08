@@ -62,6 +62,10 @@ static _Thread_local Value*   tls_stack = NULL;
 static _Thread_local int*     tls_sp = NULL;
 static _Thread_local StackFrame* tls_frame = NULL;
 
+/* 编译通道（C 代码生成）帧链顶 + 注册标记 */
+static _Thread_local CFrame*  tls_cframe = NULL;
+static _Thread_local int      tls_cframe_registered = 0;
+
 /* ---- 多线程栈根注册表 ----
  * GC 时遍历所有注册线程，扫描每个线程的操作数栈 + 帧链局部变量。
  * 用 g_gc_mutex 保护（gc_collect 已持有该锁，遍历无需额外加锁）。
@@ -75,6 +79,18 @@ typedef struct GCThreadEntry {
 } GCThreadEntry;
 
 static GCThreadEntry* g_gc_threads = NULL;
+
+/* ---- 编译通道 CFrame 线程注册表 ----
+ * GC 时遍历所有注册线程，扫描每个线程的 CFrame 链（操作数栈 + 局部变量指针数组）。
+ * 用 g_gc_mutex 保护（gc_collect 已持有该锁，遍历无需额外加锁）。
+ * cframe_ptr 指向该线程的 tls_cframe 变量地址，GC 时解引用获取当前链顶。 */
+typedef struct GCCFrameEntry {
+    pthread_t tid;
+    CFrame** cframe_ptr;
+    struct GCCFrameEntry* next;
+} GCCFrameEntry;
+
+static GCCFrameEntry* g_gc_cframe_threads = NULL;
 
 /* ---- 内部辅助：用户指针 <-> GCObject ---- */
 static inline GCObject* ptr_to_obj(void* ptr) {
@@ -94,6 +110,9 @@ static inline size_t tla_real_size(size_t size) {
  * ============================================================ */
 void* gc_alloc(size_t size, int vtype)
 {
+    /* 编译通道无 STW 安全点：分配时检查 GC 是否运行，运行则自旋等待。
+     * 与 push/pop mutex 配合，缩小 GC 标记期间线程修改栈内容的竞态窗口。 */
+    while (g_gc_stw) { sched_yield(); }
     /* ---- TLA 快速路径：小对象从本地空闲链表分配（无锁） ----
      * 注意：GC 运行期间（g_in_gc）跳过本地空闲链表，强制走加锁路径，
      * 避免无锁修改 marked 位与并发 sweep 产生竞态。 */
@@ -204,7 +223,7 @@ void* gc_alloc(size_t size, int vtype)
             tla_local_count++;
         }
 
-        if (need_collect && tls_stack && tls_sp && tls_frame) {
+        if (need_collect && tls_stack && tls_sp && (tls_frame || tls_cframe)) {
             gc_collect(tls_stack, *tls_sp, tls_frame);
         }
         return obj_to_ptr(batch[0]);
@@ -233,7 +252,7 @@ void* gc_alloc(size_t size, int vtype)
     }
     pthread_mutex_unlock(&g_gc_mutex);
 
-    if (need_collect && tls_stack && tls_sp && tls_frame) {
+    if (need_collect && tls_stack && tls_sp && (tls_frame || tls_cframe)) {
         gc_collect(tls_stack, *tls_sp, tls_frame);
     }
     return obj_to_ptr(obj);
@@ -484,8 +503,8 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
     /* 协作式 STW：通知所有 VM 线程停止，等待它们到达安全点。
      * 循环检查直到所有注册线程的 sp 稳定（简化实现：短暂等待）。 */
     g_gc_stw = 1;
-    /* 给其他线程时间到达安全点（VM 循环顶部检查 g_gc_stw） */
-    struct timespec ts = {0, 100000};  /* 100us */
+    /* 给其他线程时间到达安全点（VM 循环顶部 / 编译通道循环回边和函数入口检查 g_gc_stw） */
+    struct timespec ts = {0, 500000};  /* 500us */
     nanosleep(&ts, NULL);
 
     pthread_mutex_lock(&g_gc_mutex);
@@ -499,6 +518,38 @@ void gc_collect(Value* stack, int sp, StackFrame* frame)
         }
     } else {
         gc_mark_roots(stack, sp, frame);
+    }
+
+    /* 扫描编译通道 CFrame 链：遍历所有注册线程，每个线程扫描其 CFrame 链。
+     * g_gc_cframe_threads 的遍历在 g_gc_mutex 锁内（gc_collect 已持有该锁），无需额外加锁。 */
+    for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
+        CFrame* cf = *e->cframe_ptr;
+        while (cf) {
+            if (cf->stack && cf->sp) {
+                for (int i = 0; i < *cf->sp; i++) gc_mark(cf->stack[i]);
+            }
+            if (cf->local_ptrs) {
+                for (int i = 0; i < cf->nlocals; i++) {
+                    if (cf->local_ptrs[i]) gc_mark(*cf->local_ptrs[i]);
+                }
+            }
+            cf = cf->parent;
+        }
+    }
+    /* 安全兜底：扫描当前线程 tls_cframe（未注册的情况） */
+    if (tls_cframe && !g_gc_cframe_threads) {
+        CFrame* cf = tls_cframe;
+        while (cf) {
+            if (cf->stack && cf->sp) {
+                for (int i = 0; i < *cf->sp; i++) gc_mark(cf->stack[i]);
+            }
+            if (cf->local_ptrs) {
+                for (int i = 0; i < cf->nlocals; i++) {
+                    if (cf->local_ptrs[i]) gc_mark(*cf->local_ptrs[i]);
+                }
+            }
+            cf = cf->parent;
+        }
     }
 
     gc_sweep();
@@ -531,7 +582,13 @@ void gc_enable(void)
 {
     pthread_mutex_lock(&g_gc_mutex);
     if (g_gc_disable > 0) g_gc_disable--;
+    int need = (g_gc_disable == 0 && !g_in_gc && g_gc_bytes > g_gc_threshold);
     pthread_mutex_unlock(&g_gc_mutex);
+    /* 计数器归零时若超过阈值则触发一次 GC（构造函数内批量分配常伴随 gc_disable，
+     * 自动 GC 条件在 gc_alloc 中被 g_gc_disable 阻塞，需在 enable 时补触发） */
+    if (need && tls_stack && tls_sp && (tls_frame || tls_cframe)) {
+        gc_collect(tls_stack, *tls_sp, tls_frame);
+    }
 }
 
 /* ============================================================
@@ -554,7 +611,7 @@ void gc_get_roots(Value** stack, int** sp_ptr, StackFrame** frame)
 /* 手动触发（使用当前注册的根） */
 void gc_collect_now(void)
 {
-    if (tls_stack && tls_sp && tls_frame) {
+    if (tls_stack && tls_sp && (tls_frame || tls_cframe)) {
         gc_collect(tls_stack, *tls_sp, tls_frame);
     }
 }
@@ -597,6 +654,96 @@ void gc_unregister_thread(void)
         pp = &(*pp)->next;
     }
     pthread_mutex_unlock(&g_gc_mutex);
+}
+
+/* ============================================================
+ * 编译通道 CFrame 帧链管理
+ * ============================================================ */
+void gc_push_cframe(CFrame* f)
+{
+    /* 首次注册线程（内部加锁，必须在 push 加锁前完成，否则双重锁死锁） */
+    if (!tls_cframe_registered) {
+        gc_register_cframe_thread();
+        tls_cframe_registered = 1;
+    }
+    pthread_mutex_lock(&g_gc_mutex);
+    f->parent = tls_cframe;
+    tls_cframe = f;
+    pthread_mutex_unlock(&g_gc_mutex);
+    /* tls_stack/tls_sp 是线程本地，仅当前线程访问，无竞态，锁外设置 */
+    tls_stack = f->stack;
+    tls_sp = f->sp;
+}
+
+void gc_pop_cframe(void)
+{
+    pthread_mutex_lock(&g_gc_mutex);
+    CFrame* parent = NULL;
+    if (tls_cframe) {
+        parent = tls_cframe->parent;
+        tls_cframe = parent;
+    }
+    pthread_mutex_unlock(&g_gc_mutex);
+    if (parent) {
+        tls_stack = parent->stack;
+        tls_sp = parent->sp;
+    } else {
+        tls_stack = NULL;
+        tls_sp = NULL;
+    }
+}
+
+CFrame* gc_cframe_top(void)
+{
+    return tls_cframe;
+}
+
+void gc_cframe_restore(CFrame* top)
+{
+    pthread_mutex_lock(&g_gc_mutex);
+    tls_cframe = top;
+    pthread_mutex_unlock(&g_gc_mutex);
+    if (top) {
+        tls_stack = top->stack;
+        tls_sp = top->sp;
+    } else {
+        tls_stack = NULL;
+        tls_sp = NULL;
+    }
+}
+
+void gc_register_cframe_thread(void)
+{
+    GCCFrameEntry* e = (GCCFrameEntry*)malloc(sizeof(GCCFrameEntry));
+    if (!e) {
+        fprintf(stderr, "GC: out of memory registering cframe thread\n");
+        abort();
+    }
+    e->tid = pthread_self();
+    e->cframe_ptr = &tls_cframe;
+
+    pthread_mutex_lock(&g_gc_mutex);
+    e->next = g_gc_cframe_threads;
+    g_gc_cframe_threads = e;
+    pthread_mutex_unlock(&g_gc_mutex);
+}
+
+void gc_unregister_cframe_thread(void)
+{
+    pthread_t self = pthread_self();
+    pthread_mutex_lock(&g_gc_mutex);
+    GCCFrameEntry** pp = &g_gc_cframe_threads;
+    while (*pp) {
+        if (pthread_equal((*pp)->tid, self)) {
+            GCCFrameEntry* victim = *pp;
+            *pp = victim->next;
+            free(victim);
+            break;
+        }
+        pp = &(*pp)->next;
+    }
+    pthread_mutex_unlock(&g_gc_mutex);
+    tls_cframe_registered = 0;
 }
 
 /* 统计 */
