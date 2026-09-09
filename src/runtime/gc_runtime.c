@@ -128,6 +128,8 @@ typedef struct GCThreadEntry {
     int* sp_ptr;
     StackFrame* frame;
     volatile int at_safepoint;  /* STW 确认：线程在 gc_stw_check 自旋时为 1 */
+    void* c_stack_top;          /* 线程注册时的栈顶（保守扫描上界） */
+    void* c_stack_sp;           /* 最近 safepoint 时的栈指针（保守扫描下界） */
     struct GCThreadEntry* next;
 } GCThreadEntry;
 
@@ -141,6 +143,8 @@ typedef struct GCCFrameEntry {
     pthread_t tid;
     CFrame** cframe_ptr;
     volatile int at_safepoint;  /* STW 确认：线程在 gc_stw_check 自旋时为 1 */
+    void* c_stack_top;          /* 线程注册时的栈顶（保守扫描上界） */
+    void* c_stack_sp;           /* 最近 safepoint 时的栈指针（保守扫描下界） */
     struct GCCFrameEntry* next;
 } GCCFrameEntry;
 
@@ -168,6 +172,17 @@ static void gc_set_self_at_safepoint(int val) {
  * GC 运行时设置 at_safepoint=1 后自旋，GC 线程轮询到所有线程 at_safepoint==1 才开始标记。 */
 void gc_stw_check(void) {
     if (!g_gc_stw) return;
+    /* 记录当前栈指针，供保守式 C 栈扫描 */
+    void* sp = __builtin_frame_address(0);
+    pthread_t self = pthread_self();
+    pthread_mutex_lock(&g_gc_mutex);
+    for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
+        if (pthread_equal(e->tid, self)) e->c_stack_sp = sp;
+    }
+    for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
+        if (pthread_equal(e->tid, self)) e->c_stack_sp = sp;
+    }
+    pthread_mutex_unlock(&g_gc_mutex);
     gc_set_self_at_safepoint(1);
     while (g_gc_stw) { sched_yield(); }
     gc_set_self_at_safepoint(0);
@@ -1229,11 +1244,29 @@ static GCGlobalRootScanFn g_global_root_scan = NULL;
 
 void gc_register_global_root_scan(GCGlobalRootScanFn fn) { g_global_root_scan = fn; }
 
+/* 保守式 C 栈扫描：扫描线程栈上所有可能是 GCObject 指针的 word。
+ * Boehm GC 经典做法，兜底捕获 precise root scanning 遗漏的 C 局部变量。
+ * 从 c_stack_top 向下扫描 2MB（典型线程栈足够），按 8 字节对齐检查。 */
+static void gc_conservative_cstack_scan(void* top, int minor_only)
+{
+    if (!top) return;
+    /* 从 top 向下扫描 2MB（线程栈通常 512KB-8MB，2MB 覆盖绝大多数情况） */
+    uintptr_t* p = (uintptr_t*)top;
+    uintptr_t* end = (uintptr_t*)((char*)top - 2 * 1024 * 1024);
+    for (; p >= end; p--) {
+        uintptr_t word = *p;
+        if (!GC_VALID_PTR((void*)word)) continue;
+        /* 只标记，如果是有效 GCObject 指针则按 Value 处理 */
+        gc_mark_value_to_stack(*(Value*)p);
+    }
+}
+
 void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame)
 {
     if (g_gc_threads) {
         for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
             gc_scan_vm_roots_to_stack(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
+            gc_conservative_cstack_scan(e->c_stack_top, 0);
         }
     } else {
         gc_scan_vm_roots_to_stack(stack, sp, frame);
@@ -1243,6 +1276,7 @@ void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame)
     for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
         CFrame* cf = *e->cframe_ptr;
         gc_scan_cframe_chain_to_stack(cf);
+        gc_conservative_cstack_scan(e->c_stack_top, 0);
     }
     /* 安全兜底：扫描当前线程 tls_cframe（未注册的情况） */
     if (tls_cframe && !g_gc_cframe_threads) {
@@ -1297,6 +1331,7 @@ static void gc_scan_roots_minor(Value* stack, int sp, StackFrame* frame)
     if (g_gc_threads) {
         for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
             gc_scan_vm_roots_minor(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
+            gc_conservative_cstack_scan(e->c_stack_top, 1);
         }
     } else {
         gc_scan_vm_roots_minor(stack, sp, frame);
@@ -1304,6 +1339,7 @@ static void gc_scan_roots_minor(Value* stack, int sp, StackFrame* frame)
     for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
         CFrame* cf = *e->cframe_ptr;
         gc_scan_cframe_chain_minor(cf);
+        gc_conservative_cstack_scan(e->c_stack_top, 1);
     }
     if (tls_cframe && !g_gc_cframe_threads) {
         gc_scan_cframe_chain_minor(tls_cframe);
@@ -1344,7 +1380,6 @@ void gc_sweep(void)
         } else if (!cur->marked) {
             /* 未标记：需要回收 */
             if (cur->user_size <= TLA_MAX_SIZE) {
-                /* 小对象：从 g_gc_objects 摘除，移入全局空闲链表 */
                 *pp = cur->next;
                 g_gc_bytes -= sizeof(GCObject) + cur->user_size;
                 cur->marked = 2;
@@ -1398,7 +1433,6 @@ static void gc_sweep_minor(void)
                 /* 新生代垃圾：回收 */
                 size_t obj_bytes = sizeof(GCObject) + cur->user_size;
                 if (cur->user_size <= TLA_MAX_SIZE) {
-                    /* 小对象：移入全局空闲链表 */
                     *pp = cur->next;
                     g_gc_bytes -= obj_bytes;
                     g_young_bytes -= obj_bytes;
@@ -1894,6 +1928,8 @@ void gc_register_thread(Value* stack, int* sp_ptr, StackFrame* frame)
     e->sp_ptr = sp_ptr;
     e->frame = frame;
     e->at_safepoint = 0;
+    e->c_stack_top = __builtin_frame_address(0);
+    e->c_stack_sp = e->c_stack_top;
 
     pthread_mutex_lock(&g_gc_mutex);
     /* 头插：最近注册的 entry 在链表头部，unregister 时移除第一个匹配 tid 的 entry */
@@ -1995,6 +2031,8 @@ void gc_register_cframe_thread(void)
     e->tid = pthread_self();
     e->cframe_ptr = &tls_cframe;
     e->at_safepoint = 0;
+    e->c_stack_top = __builtin_frame_address(0);
+    e->c_stack_sp = e->c_stack_top;
 
     pthread_mutex_lock(&g_gc_mutex);
     e->next = g_gc_cframe_threads;
