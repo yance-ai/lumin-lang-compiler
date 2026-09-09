@@ -73,3 +73,7 @@ src/yacc/
 src/embed/
 src/runtime-full/
 src/lex/lex.yy.c
+
+# Windows 预编译依赖库和工具（入库，免去其他开发者编译）
+!third_party/**/*.a
+!third_party/**/*.exe

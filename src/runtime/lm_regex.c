@@ -1,6 +1,10 @@
 // lm_regex.c —— 正则表达式（POSIX regex.h 封装）
 #include "lm_regex.h"
+#ifdef _WIN32
+#include "../compat/regex.h"
+#else
 #include <regex.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

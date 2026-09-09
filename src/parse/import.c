@@ -19,7 +19,12 @@
 #include <string.h>
 #include <ctype.h>
 #include <limits.h>
+#ifdef _WIN32
+#include <direct.h>
+#define realpath(N,R) _fullpath((R),(N),PATH_MAX)
+#else
 #include <unistd.h>
+#endif
 
 /* ---------------- 动态字符串缓冲 ---------------- */
 typedef struct {
@@ -537,7 +542,10 @@ static char* mangle_text(const char* text, char** symbols, int nsym, int mod_id)
 
 /* 取目录部分（dirname），写入 out（绝对路径）。 */
 static void dir_of(const char* path, char* out, size_t outsz) {
-    const char* slash = strrchr(path, '/');
+    /* Windows 路径可能用 \\，同时处理 / 和 \\，取最后出现的 */
+    const char* sf = strrchr(path, '/');
+    const char* sb = strrchr(path, '\\');
+    const char* slash = sf > sb ? sf : sb;
     if(!slash) { snprintf(out, outsz, "."); return; }
     size_t l = (size_t)(slash - path);
     if(l == 0) l = 1;

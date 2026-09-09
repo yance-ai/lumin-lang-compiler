@@ -24,7 +24,14 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <stdatomic.h>
-#include <mach/mach_time.h>  /* 高精度计时 */
+/* 跨平台高精度计时 */
+#ifdef _WIN32
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach/mach_time.h>
+#else
+#include <time.h>
+#endif
 
 /* 闭包实例扫描（定义于 ast/func_compile.c）：遍历 InterpFuncPayload.captured_cells，
  * 对每个堆 Value* 单元调用 mark(*cell)。GC 标记 VAL_FUNC 时调用，避免捕获的字符串/数组被误回收。 */
@@ -1677,12 +1684,24 @@ static void gc_wait_all_threads_at_safepoint(void)
     }
 }
 
-/* macOS 高精度计时：mach_absolute_time() 转换为纳秒 */
+/* 跨平台高精度计时：返回纳秒 */
 static unsigned long long gc_now_ns(void)
 {
+#ifdef _WIN32
+    static LARGE_INTEGER s_freq = {0};
+    LARGE_INTEGER now;
+    if (s_freq.QuadPart == 0) QueryPerformanceFrequency(&s_freq);
+    QueryPerformanceCounter(&now);
+    return (unsigned long long)(now.QuadPart * 1000000000ULL / s_freq.QuadPart);
+#elif defined(__APPLE__)
     static mach_timebase_info_data_t s_tb = {0};
     if (s_tb.denom == 0) mach_timebase_info(&s_tb);
     return (unsigned long long)mach_absolute_time() * s_tb.numer / s_tb.denom;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (unsigned long long)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+#endif
 }
 
 /* 读取增量标记开关（首次调用时读取环境变量） */

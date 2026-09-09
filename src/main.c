@@ -83,7 +83,14 @@ int main(int argc, char** argv) {
         yyrestart(yyin);
     } else {
         /* 把合并后的源码写入临时文件，再交给 parser（对 VM / 编译通道完全一致） */
+#ifdef _WIN32
+        const char* win_tmp = getenv("TEMP");
+        if (!win_tmp) win_tmp = getenv("TMP");
+        if (!win_tmp) win_tmp = ".";
+        snprintf(pp_tmp, sizeof(pp_tmp), "%s/lumin_pp_XXXXXX", win_tmp);
+#else
         snprintf(pp_tmp, sizeof(pp_tmp), "%s/lumin_pp_XXXXXX", P_tmpdir ? P_tmpdir : "/tmp");
+#endif
         int fd = mkstemp(pp_tmp);
         if(fd < 0) {
             perror("mkstemp");
