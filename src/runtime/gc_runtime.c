@@ -40,9 +40,42 @@ _Static_assert(sizeof(GCObject) == 16, "GCObject must be 16 bytes");
 static _Thread_local GCObject* tla_local_free = NULL;
 static _Thread_local int tla_local_count = 0;
 
-/* 全局空闲链表（sweep 回收，线程批量取用时加锁）：对象不在 g_gc_objects 中，marked=2 */
+/* 有界 FIFO 隔离区（quarantine）：回收对象不立即释放，防止残留 root scanning UAF。
+ * 超过上限时释放最老对象（FIFO），将无界泄漏降为有界开销。
+ * 环境变量 LUMIN_GC_QUARANTINE_MAX 控制上限（0 = 直接 free，调试用）。 */
 static GCObject* tla_global_free = NULL;
+static GCObject* tla_global_tail = NULL;
 static int tla_global_count = 0;
+static int tla_quarantine_max = -1;  /* -1 = 未初始化，首次使用时读环境变量 */
+
+/* 读取隔离区上限（首次调用时初始化） */
+static int get_quarantine_max(void) {
+    if (tla_quarantine_max < 0) {
+        const char* env = getenv("LUMIN_GC_QUARANTINE_MAX");
+        tla_quarantine_max = env ? atoi(env) : 65536;
+    }
+    return tla_quarantine_max;
+}
+
+/* 将回收对象挂入隔离区队尾，超过上限则释放队首 */
+static void quarantine_push(GCObject* cur) {
+    int max = get_quarantine_max();
+    if (max == 0) { free(cur); return; }  /* 禁用隔离区 */
+    cur->marked = 2;  /* 永生标记，sweep 中跳过 */
+    cur->next = NULL;
+    if (tla_global_tail) tla_global_tail->next = cur;
+    else tla_global_free = cur;
+    tla_global_tail = cur;
+    tla_global_count++;
+    /* FIFO 淘汰 */
+    while (tla_global_count > max) {
+        GCObject* old = tla_global_free;
+        tla_global_free = old->next;
+        if (!tla_global_free) tla_global_tail = NULL;
+        tla_global_count--;
+        free(old);
+    }
+}
 
 /* ---- 全局状态 ---- */
 static GCObject* g_gc_objects = NULL;
@@ -1382,10 +1415,7 @@ void gc_sweep(void)
             if (cur->user_size <= TLA_MAX_SIZE) {
                 *pp = cur->next;
                 g_gc_bytes -= sizeof(GCObject) + cur->user_size;
-                cur->marked = 2;
-                cur->next = tla_global_free;
-                tla_global_free = cur;
-                tla_global_count++;
+                quarantine_push(cur);
             } else {
                 /* 大对象：free */
                 *pp = cur->next;
@@ -1436,10 +1466,7 @@ static void gc_sweep_minor(void)
                     *pp = cur->next;
                     g_gc_bytes -= obj_bytes;
                     g_young_bytes -= obj_bytes;
-                    cur->marked = 2;
-                    cur->next = tla_global_free;
-                    tla_global_free = cur;
-                    tla_global_count++;
+                    quarantine_push(cur);
                 } else {
                     /* 大对象：free（理论上大对象直接老年代，不会出现在新生代，但防御性处理） */
                     *pp = cur->next;
@@ -1474,10 +1501,7 @@ static void gc_sweep_minor(void)
                     *pp = cur->next;
                     g_gc_bytes -= obj_bytes;
                     g_old_bytes -= obj_bytes;
-                    cur->marked = 2;
-                    cur->next = tla_global_free;
-                    tla_global_free = cur;
-                    tla_global_count++;
+                    quarantine_push(cur);
                 } else {
                     *pp = cur->next;
                     g_gc_bytes -= obj_bytes;
