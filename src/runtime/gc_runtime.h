@@ -168,6 +168,7 @@ void gc_mark_internal_buf(void* ptr);
 typedef struct CFrame {
     Value* stack;          /* 函数操作数栈 __stk */
     int* sp;               /* 指向栈顶计数器 __sp */
+    int stack_size;        /* __stk 数组容量（元素数），用于保守式扫描跳过已精确扫描的区域 */
     Value** local_ptrs;    /* 局部变量地址数组（参数 + 局部 + 标量替换变量） */
     int nlocals;           /* local_ptrs 有效元素数 */
     struct CFrame* parent; /* 调用者帧 */

@@ -5,6 +5,7 @@
 #include "ir_compile.h"
 #include "ast/lumin_types.h"
 #include "ast/ast_types.h"
+#include "ast/func_compile.h"
 #include "runtime/lm_value.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -491,10 +492,15 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_FUNC_DEF:
             // 匿名函数表达式：函数已由 yacc 期注册（compile_func_from_ast → IR 函数表），
             // 表达式求值 = 压入函数值（内部名 _lambda_N）
-            if(strncmp(node->u.func_def.name, "_lambda_", 8) == 0)
-                emit(c, OPC_GETFUNC, bf_sym(c->fn, node->u.func_def.name), 0);
-            else
+            if(strncmp(node->u.func_def.name, "_lambda_", 8) == 0) {
+                // 有捕获变量：运行时装箱生成闭包实例；无捕获：直接取全局共享函数值
+                if(lambda_capture_count(node->u.func_def.name) > 0)
+                    emit(c, OPC_MKCLOSURE, bf_sym(c->fn, node->u.func_def.name), 0);
+                else
+                    emit(c, OPC_GETFUNC, bf_sym(c->fn, node->u.func_def.name), 0);
+            } else {
                 emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
+            }
             break;
         case AST_ASSIGN:
             c_expr(c, node->u.assign.expr);

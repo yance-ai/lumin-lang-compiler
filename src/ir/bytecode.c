@@ -117,6 +117,7 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
         case OPC_LOAD_CONST:
         case OPC_LOAD_VAR:
         case OPC_GETFUNC:
+        case OPC_MKCLOSURE:
         case OPC_PRE_INC: case OPC_POST_INC: case OPC_PRE_DEC: case OPC_POST_DEC:
         case OPC_DUP:
             return +1;
@@ -181,6 +182,8 @@ static int op_stack_push(OpCode op)
     switch(op) {
         case OPC_LOAD_CONST:
         case OPC_LOAD_VAR:
+        case OPC_GETFUNC:
+        case OPC_MKCLOSURE:
         case OPC_PRE_INC: case OPC_POST_INC: case OPC_PRE_DEC: case OPC_POST_DEC:
         case OPC_DUP:
             return 1;
@@ -251,6 +254,7 @@ static const char* opc_name(OpCode op)
         case OPC_NOP: return "NOP";
         case OPC_LOAD_CONST: return "LOAD_CONST";
         case OPC_GETFUNC: return "GETFUNC";
+        case OPC_MKCLOSURE: return "MKCLOSURE";
         case OPC_LOAD_VAR: return "LOAD_VAR";
         case OPC_STORE_VAR: return "STORE_VAR";
         case OPC_ADD: return "ADD";

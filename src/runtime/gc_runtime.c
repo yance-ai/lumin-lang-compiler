@@ -25,6 +25,10 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <mach/mach_time.h>  /* 高精度计时 */
+
+/* 闭包实例扫描（定义于 ast/func_compile.c）：遍历 InterpFuncPayload.captured_cells，
+ * 对每个堆 Value* 单元调用 mark(*cell)。GC 标记 VAL_FUNC 时调用，避免捕获的字符串/数组被误回收。 */
+extern void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value));
 #if defined(__has_feature)
 #  if __has_feature(address_sanitizer)
 #    include <sanitizer/asan_interface.h>  /* ASan：保守栈扫描前检测 poisoned 红区 */
@@ -741,6 +745,10 @@ void gc_mark(Value v)
             for (int i = 0; i < f->capture_count; i++) {
                 gc_mark(f->captures[i]);
             }
+        } else if (f && GC_VALID_PTR(f) && f->capture_count == -1) {
+            /* VM 解释器闭包实例：capture_count==-1，captures 指向 InterpFuncPayload，
+             * 其中 captured_cells[i] 为堆 Value* 单元，需递归标记其内容 */
+            lumin_interp_scan_captures(f, gc_mark);
         }
         break;
     }
@@ -922,13 +930,15 @@ void gc_mark_value_to_stack(Value v)
     case VAL_FUNC: {
         /* RuntimeFunc 是 malloc 不是 GC 对象，不能入栈。
          * 立即遍历 captures（capture_count > 0 时是真实 Value 数组）。
-         * 注意 capture_count==-1 是解释器 payload 标记，captures 是 InterpFuncPayload*，
-         * 不是 Value 数组，绝对不能遍历！ */
+         * capture_count==-1 是解释器 payload 标记：普通函数无捕获；闭包实例的
+         * InterpFuncPayload 中 captured_cells[i] 是堆 Value* 单元，需递归标记。 */
         RuntimeFunc* f = v.v.func.func_obj;
         if (f && GC_VALID_PTR(f) && f->captures && GC_VALID_PTR(f->captures) && f->capture_count > 0) {
             for (int i = 0; i < f->capture_count; i++) {
                 gc_mark_value_to_stack(f->captures[i]);
             }
+        } else if (f && GC_VALID_PTR(f) && f->capture_count == -1) {
+            lumin_interp_scan_captures(f, gc_mark_value_to_stack);
         }
         break;
     }
@@ -1143,6 +1153,8 @@ static void gc_mark_value_to_stack_minor(Value v)
             for (int i = 0; i < f->capture_count; i++) {
                 gc_mark_value_to_stack_minor(f->captures[i]);
             }
+        } else if (f && GC_VALID_PTR(f) && f->capture_count == -1) {
+            lumin_interp_scan_captures(f, gc_mark_value_to_stack_minor);
         }
         break;
     }
@@ -1342,8 +1354,27 @@ static int gc_cstack_set_contains(void* ptr)
     return 0;
 }
 
+/* 检查地址是否落在某个 CFrame 的 __stk 操作数栈区域内。
+ * __stk 已由 CFrame 精确扫描覆盖 [0, *sp)，保守式扫描需跳过整个 __stk 数组
+ * （包括 *sp 之后的陈旧槽位），避免循环中旧对象指针被误标记为根。 */
+static int gc_addr_in_cframe_stack(CFrame* cf, uintptr_t addr)
+{
+    while (cf) {
+        if (cf->stack && cf->stack_size > 0) {
+            uintptr_t start = (uintptr_t)cf->stack;
+            uintptr_t end = start + (uintptr_t)cf->stack_size * sizeof(Value);
+            if (addr >= start && addr < end) return 1;
+        }
+        cf = cf->parent;
+    }
+    return 0;
+}
+
 /* 保守式 C 栈扫描：扫描线程栈上所有可能是 GC 用户数据指针的 word。
  * Boehm GC 经典做法，兜底捕获 precise root scanning 遗漏的 C 局部变量。
+ *
+ * 关键优化：跳过所有 CFrame 的 __stk 操作数栈区域——该区域已由 CFrame 精确扫描
+ * 覆盖 [0, *sp)，而 *sp 之后的陈旧槽位包含循环中旧对象指针，会导致严重误标记。
  *
  * 安全设计：
  *   1. 扫描前已通过 gc_cstack_set_build() 构建了所有 GC 对象用户指针的哈希集合，
@@ -1351,7 +1382,7 @@ static int gc_cstack_set_contains(void* ptr)
  *   2. 扫描下界用 safepoint 时的实际栈指针（c_stack_sp），而非固定 2MB 窗口——
  *      固定窗口会读到栈底以下的未映射内存（ASan stack-buffer-overflow）。
  *      栈向下增长：top 是注册时栈顶（高地址），bottom 是 safepoint 栈指针（低地址）。 */
-static void gc_conservative_cstack_scan(void* top, void* bottom, int minor_only)
+static void gc_conservative_cstack_scan(void* top, void* bottom, CFrame* cf_chain)
 {
     if (!top) return;
     uintptr_t* p = (uintptr_t*)top;
@@ -1361,6 +1392,8 @@ static void gc_conservative_cstack_scan(void* top, void* bottom, int minor_only)
     /* 安全：下界不能高于上界（异常情况） */
     if (end > p) end = p;
     for (; p >= end; p--) {
+        /* 跳过 __stk 操作数栈区域（已由 CFrame 精确扫描，陈旧槽位会误标记） */
+        if (gc_addr_in_cframe_stack(cf_chain, (uintptr_t)p)) continue;
 #ifdef GC_ASAN_ENABLED
         /* ASan 在栈帧之间插入红区（f1/f2/f3）。读 *p 前检查是否 poisoned，
          * poisoned 则跳过该 word（不读，避免 stack-buffer-overflow）。 */
@@ -1383,7 +1416,7 @@ void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame)
     if (g_gc_threads) {
         for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
             gc_scan_vm_roots_to_stack(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
-            gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, 0);
+            gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, NULL);
         }
     } else {
         gc_scan_vm_roots_to_stack(stack, sp, frame);
@@ -1393,7 +1426,7 @@ void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame)
     for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
         CFrame* cf = *e->cframe_ptr;
         gc_scan_cframe_chain_to_stack(cf);
-        gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, 0);
+        gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, cf);
     }
     /* 安全兜底：扫描当前线程 tls_cframe（未注册的情况） */
     if (tls_cframe && !g_gc_cframe_threads) {
@@ -1448,7 +1481,7 @@ static void gc_scan_roots_minor(Value* stack, int sp, StackFrame* frame)
     if (g_gc_threads) {
         for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
             gc_scan_vm_roots_minor(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
-            gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, 1);
+            gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, NULL);
         }
     } else {
         gc_scan_vm_roots_minor(stack, sp, frame);
@@ -1456,7 +1489,7 @@ static void gc_scan_roots_minor(Value* stack, int sp, StackFrame* frame)
     for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
         CFrame* cf = *e->cframe_ptr;
         gc_scan_cframe_chain_minor(cf);
-        gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, 1);
+        gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, cf);
     }
     if (tls_cframe && !g_gc_cframe_threads) {
         gc_scan_cframe_chain_minor(tls_cframe);
@@ -2012,12 +2045,13 @@ void gc_get_roots(Value** stack, int** sp_ptr, StackFrame** frame)
 }
 
 /* 手动触发一次 GC（使用当前注册的根）。
- * 分代模式下调用 gc_collect() 调度入口（优先 Minor GC，使存活对象 age++ 并能晋升老年代）；
- * 非分代模式下 gc_collect() 退化为 Major GC（全量标记-清除）。 */
+ * 直接调用 gc_collect_major() 进行全量回收——手动 gc_collect() 语义上应回收所有
+ * 不可达对象（包括老年代），而非仅 Minor GC。自动 GC（gc_alloc 触发）仍走
+ * gc_collect() 调度入口（优先 Minor，阈值超限时 Major）。 */
 void gc_collect_now(void)
 {
     if (tls_stack && tls_sp && (tls_frame || tls_cframe)) {
-        gc_collect(tls_stack, *tls_sp, tls_frame);
+        gc_collect_major(tls_stack, *tls_sp, tls_frame);
     }
 }
 

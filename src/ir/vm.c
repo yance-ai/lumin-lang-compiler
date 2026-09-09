@@ -122,6 +122,7 @@ static void vm_thread_body(ThreadLaunch* t)
             stackframe_bind(callee, vname, arr);
         }
     }
+    closure_bind_cells(rf, callee);
     RuntimeFunc* prev_rf = interp_set_current_rf(rf);
     EvalCtx ctx = {0};
     g_trace_push("<thread>");
@@ -160,6 +161,7 @@ static Value vm_call_rf(RuntimeFunc* rf, Value* args, int argc, StackFrame* pare
             stackframe_bind(callee, vname, arr);
         }
     }
+    closure_bind_cells(rf, callee);
     RuntimeFunc* prev_rf = interp_set_current_rf(rf);
     int saved_break = ctx->hit_break;
     int saved_cont = ctx->hit_continue;
@@ -251,6 +253,16 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 if(sym_has(fname)) fv = sym_get(fname);
                 else runtime_undefined("函数", fname);
                 stack[sp++] = fv;
+                break;
+            }
+            case OPC_MKCLOSURE: {
+                // 沿当前帧链装箱该 lambda 的捕获变量，生成新闭包函数值
+                const char* fname = bf->syms[in.a];
+                if(!sym_has(fname)) runtime_undefined("函数", fname);
+                Value tpl = sym_get(fname);
+                if(tpl.type != VAL_FUNC) runtime_error("闭包模板不是函数");
+                Value clos = closure_make_instance(tpl.v.func.func_obj, frame);
+                stack[sp++] = clos;
                 break;
             }
             case OPC_LOAD_VAR: {
@@ -1355,6 +1367,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stackframe_bind(callee, vname, arr);
                     }
                 }
+                closure_bind_cells(rf, callee);
                 // 4. 调用 entry：设置当前函数、隔离 break/continue、消费 return
                 RuntimeFunc* prev_rf = interp_set_current_rf(rf);
                 int saved_break = ctx->hit_break;
@@ -1401,6 +1414,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stackframe_bind(callee, vname, arr);
                     }
                 }
+                closure_bind_cells(rf, callee);
                 RuntimeFunc* prev_rf = interp_set_current_rf(rf);
                 int saved_break = ctx->hit_break;
                 int saved_cont = ctx->hit_continue;

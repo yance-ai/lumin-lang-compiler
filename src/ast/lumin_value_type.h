@@ -156,6 +156,13 @@ typedef struct StackFrame {
     struct StackFrame* parent;
     pthread_rwlock_t rw;   // 共享帧（全局帧）读写锁；私有帧不使用
     _Bool shared;          // 1 = 全局共享帧（main 顶层帧），多线程可见
+    /* 闭包单元（cell）表：被内层 lambda 捕获的局部变量从普通槽位"装箱"到堆上 Value*。
+     * names[i] ↔ cells[i] 平行数组。访问变量时先查 cell 表（命中则解引用 *cells[i]），
+     * 未命中再查普通槽位。cell 指针本身由闭包 RuntimeFunc 持有，帧销毁不释放 cell。 */
+    char** cell_names;
+    Value** cells;
+    int cell_cnt;
+    int cell_cap;
 } StackFrame;
 
 #include <string.h>

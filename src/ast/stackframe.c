@@ -29,6 +29,10 @@ StackFrame* stackframe_new(StackFrame* parent)
     f->vals = NULL;
     f->parent = parent;
     f->shared = 0;
+    f->cell_names = NULL;
+    f->cells = NULL;
+    f->cell_cnt = 0;
+    f->cell_cap = 0;
     pthread_rwlock_init(&f->rw, NULL);
     return f;
 }
@@ -89,8 +93,23 @@ void stackframe_destroy(StackFrame* f)
     }
     free(f->names);
     free(f->vals);
+    /* cell 表：cell 指针本身由闭包持有，这里只释放表项名与指针数组 */
+    for(int i = 0; i < f->cell_cnt; i++) {
+        free(f->cell_names[i]);
+    }
+    free(f->cell_names);
+    free(f->cells);
     pthread_rwlock_destroy(&f->rw);
     free(f);
+}
+
+// 只查当前帧 cell 表（调用方须已持锁）
+static int find_cell_in_frame(StackFrame* f, const char* name)
+{
+    for(int i = 0; i < f->cell_cnt; i++) {
+        if(strcmp(f->cell_names[i], name) == 0) return i;
+    }
+    return -1;
 }
 
 // 只查当前帧（调用方必须已持有该帧锁，若 shared）
@@ -110,6 +129,14 @@ Value stackframe_get(StackFrame* f, const char* name, _Bool* found)
     if(!f || !name) return zero;
     for(StackFrame* p = f; p; p = p->parent) {
         int hl = p->shared ? (pthread_rwlock_rdlock(&p->rw), 1) : 0;
+        /* cell 优先：被捕获变量经堆单元间接访问（引用语义） */
+        int ci = find_cell_in_frame(p, name);
+        if(ci >= 0) {
+            Value v = *(p->cells[ci]);
+            if(hl) pthread_rwlock_unlock(&p->rw);
+            if(found) *found = 1;
+            return v;
+        }
         for(int i = 0; i < p->cnt; i++) {
             if(strcmp(p->names[i], name) == 0) {
                 Value v = p->vals[i];   // 锁内拷贝（浅拷贝，语义与旧实现一致）
@@ -127,18 +154,25 @@ void stackframe_set(StackFrame* f, const char* name, Value v)
 {
     if(!f || !name) return;
     StackFrame* owner = NULL;
+    int owner_cell = -1;
     for(StackFrame* p = f; p; p = p->parent) {
         int hl = p->shared ? (pthread_rwlock_rdlock(&p->rw), 1) : 0;
-        if(find_in_frame(p, name) >= 0) { owner = p; }
+        int ci = find_cell_in_frame(p, name);
+        if(ci >= 0) { owner = p; owner_cell = ci; }
+        else if(find_in_frame(p, name) >= 0) { owner = p; owner_cell = -1; }
         if(hl) pthread_rwlock_unlock(&p->rw);
         if(owner) break;
     }
     if(owner) {
         int hl = owner->shared ? (pthread_rwlock_wrlock(&owner->rw), 1) : 0;
-        int idx = find_in_frame(owner, name);   // 锁内重查（扩容只搬移数组，槽位内容保留）
-        if(idx >= 0) {
-            slot_release(&owner->vals[idx]);
-            owner->vals[idx] = v;
+        if(owner_cell >= 0) {
+            *(owner->cells[owner_cell]) = v;
+        } else {
+            int idx = find_in_frame(owner, name);   // 锁内重查
+            if(idx >= 0) {
+                slot_release(&owner->vals[idx]);
+                owner->vals[idx] = v;
+            }
         }
         if(hl) pthread_rwlock_unlock(&owner->rw);
         return;
@@ -150,6 +184,13 @@ void stackframe_bind(StackFrame* f, const char* name, Value v)
 {
     if(!f || !name) return;
     int hl = f->shared ? (pthread_rwlock_wrlock(&f->rw), 1) : 0;
+    int ci = find_cell_in_frame(f, name);
+    if(ci >= 0) {
+        /* 当前帧 cell：被捕获变量，写经堆单元（引用语义） */
+        *(f->cells[ci]) = v;
+        if(hl) pthread_rwlock_unlock(&f->rw);
+        return;
+    }
     int idx = find_in_frame(f, name);
     if(idx >= 0) {
         slot_release(&f->vals[idx]);
@@ -161,4 +202,76 @@ void stackframe_bind(StackFrame* f, const char* name, Value v)
         f->cnt++;
     }
     if(hl) pthread_rwlock_unlock(&f->rw);
+}
+
+// cell 表扩容（调用方须已持锁）
+static void cell_ensure(StackFrame* f, int need)
+{
+    if(need <= f->cell_cap) return;
+    int nc = f->cell_cap > 0 ? f->cell_cap * 2 : 8;
+    while(nc < need) nc *= 2;
+    char** nn = (char**)malloc((size_t)nc * sizeof(char*));
+    Value** nv = (Value**)malloc((size_t)nc * sizeof(Value*));
+    if(!nn || !nv) { perror("stackframe cell expand"); exit(EXIT_FAILURE); }
+    if(f->cell_names) memcpy(nn, f->cell_names, (size_t)f->cell_cap * sizeof(char*));
+    if(f->cells) memcpy(nv, f->cells, (size_t)f->cell_cap * sizeof(Value*));
+    for(int i = f->cell_cap; i < nc; i++) { nn[i] = NULL; nv[i] = NULL; }
+    free(f->cell_names); free(f->cells);
+    f->cell_names = nn; f->cells = nv;
+    f->cell_cap = nc;
+}
+
+void stackframe_add_cell(StackFrame* f, const char* name, Value* cell_ptr)
+{
+    if(!f || !name || !cell_ptr) return;
+    int hl = f->shared ? (pthread_rwlock_wrlock(&f->rw), 1) : 0;
+    int ci = find_cell_in_frame(f, name);
+    if(ci >= 0) {
+        f->cells[ci] = cell_ptr;
+    } else {
+        cell_ensure(f, f->cell_cnt + 1);
+        f->cell_names[f->cell_cnt] = strdup(name);
+        f->cells[f->cell_cnt] = cell_ptr;
+        f->cell_cnt++;
+    }
+    if(hl) pthread_rwlock_unlock(&f->rw);
+}
+
+Value** stackframe_find_cell(StackFrame* f, const char* name)
+{
+    if(!f || !name) return NULL;
+    for(StackFrame* p = f; p; p = p->parent) {
+        int hl = p->shared ? (pthread_rwlock_rdlock(&p->rw), 1) : 0;
+        int ci = find_cell_in_frame(p, name);
+        if(hl) pthread_rwlock_unlock(&p->rw);
+        if(ci >= 0) return &p->cells[ci];
+    }
+    return NULL;
+}
+
+Value* stackframe_ensure_cell(StackFrame* f, const char* name)
+{
+    if(!f || !name) return NULL;
+    /* 已存在 cell：直接返回 */
+    Value** exist = stackframe_find_cell(f, name);
+    if(exist) return *exist;
+    /* 沿链定位变量所在帧（普通槽位），在该帧内装箱 */
+    for(StackFrame* p = f; p; p = p->parent) {
+        int hl = p->shared ? (pthread_rwlock_wrlock(&p->rw), 1) : 0;
+        int idx = find_in_frame(p, name);
+        if(idx >= 0) {
+            /* 分配堆 cell，拷贝当前值；cell 生命周期由闭包持有 */
+            Value* cell = (Value*)malloc(sizeof(Value));
+            if(!cell) { perror("closure cell alloc"); exit(EXIT_FAILURE); }
+            *cell = p->vals[idx];
+            cell_ensure(p, p->cell_cnt + 1);
+            p->cell_names[p->cell_cnt] = strdup(name);
+            p->cells[p->cell_cnt] = cell;
+            p->cell_cnt++;
+            if(hl) pthread_rwlock_unlock(&p->rw);
+            return cell;
+        }
+        if(hl) pthread_rwlock_unlock(&p->rw);
+    }
+    return NULL;
 }

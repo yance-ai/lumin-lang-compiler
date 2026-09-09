@@ -42,6 +42,7 @@ typedef enum {
     OPC_JMP_IF_TRUE,  // a=目标pc；弹条件，真则跳
     OPC_CALL,         // a=函数名符号下标，b=实参个数
     OPC_CALLV,        // 动态调用链：栈顶下一位=函数值（b=实参个数），栈顶 b 个为实参
+    OPC_MKCLOSURE,    // a=lambda 符号下标：沿当前帧装箱捕获变量，压入新闭包函数值
     OPC_RETURN,       // 弹值返回（深拷贝）
     OPC_RETURN_NIL,   // 无返回值返回
     OPC_HALT

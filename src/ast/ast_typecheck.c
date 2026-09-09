@@ -46,7 +46,8 @@ static int g_recompile_cap = 0;
 
 static int func_depth = 0;
 static int g_collect_err = 0;   // 顶层收集阶段错误（函数重复定义等）
-// 匿名函数捕获限制：lambda 只能访问 参数 + 全局变量 + 自身局部（C 代码生成不支持闭包捕获）
+/* 匿名函数捕获：lambda 只能访问 参数 + 全局变量 + 自身局部；
+ * 引用到的外层函数局部变量记录为"捕获变量"，运行时装箱为闭包 cell。 */
 static int in_lambda = 0;
 static AstNode* g_lambda_params = NULL;
 static char** lambda_locals = NULL;
@@ -55,6 +56,49 @@ static int lambda_locals_cap = 0;
 static char** g_global_vars = NULL;
 static int g_global_vars_cnt = 0;
 static int g_global_vars_cap = 0;
+
+// 捕获列表栈：每层 lambda 一个，记录其引用的外层局部变量名（引用语义）
+typedef struct { char** names; int cnt; int cap; } CaptList;
+static CaptList* g_cap_stack = NULL;
+static int g_cap_depth = 0;
+static int g_cap_cap = 0;
+
+static void cap_push(void) {
+    if(g_cap_depth >= g_cap_cap) {
+        int nc = g_cap_cap > 0 ? g_cap_cap * 2 : 8;
+        CaptList* nt = (CaptList*)realloc(g_cap_stack, (size_t)nc * sizeof(CaptList));
+        if(!nt) { fprintf(stderr, "捕获栈扩容内存不足\n"); exit(EXIT_FAILURE); }
+        g_cap_stack = nt; g_cap_cap = nc;
+    }
+    g_cap_stack[g_cap_depth].names = NULL;
+    g_cap_stack[g_cap_depth].cnt = 0;
+    g_cap_stack[g_cap_depth].cap = 0;
+    g_cap_depth++;
+}
+
+static void cap_add(const char* name) {
+    CaptList* L = &g_cap_stack[g_cap_depth - 1];
+    for(int i = 0; i < L->cnt; i++) if(strcmp(L->names[i], name) == 0) return;
+    if(L->cnt >= L->cap) {
+        int nc = L->cap > 0 ? L->cap * 2 : 8;
+        char** nn = (char**)realloc(L->names, (size_t)nc * sizeof(char*));
+        if(!nn) { fprintf(stderr, "捕获名表扩容内存不足\n"); exit(EXIT_FAILURE); }
+        L->names = nn; L->cap = nc;
+    }
+    L->names[L->cnt++] = strdup(name);
+}
+
+// 弹出当前 lambda 的捕获列表并登记到侧表，返回捕获个数
+static int cap_pop_record(const char* lambda_name) {
+    g_cap_depth--;
+    CaptList* L = &g_cap_stack[g_cap_depth];
+    func_compile_set_lambda_captures(lambda_name, (const char* const*)L->names, L->cnt);
+    int n = L->cnt;
+    for(int i = 0; i < L->cnt; i++) free(L->names[i]);
+    free(L->names);
+    L->names = NULL; L->cnt = 0; L->cap = 0;
+    return n;
+}
 
 static int is_global_var(const char* n) {
     if(strcmp(n, "log") == 0) return 1;  // 预定义全局对象：log.debug/info/warn/error/fatal
@@ -308,11 +352,8 @@ int typecheck_expr(AstNode* node)
         case AST_VAR:{
             if(in_lambda && !is_lambda_param(node->u.varname) &&
                !is_global_var(node->u.varname) && !is_lambda_local(node->u.varname)) {
-                fprintf(stderr, "语义错误(第%d行)：匿名函数不能访问外层函数局部变量 %s（可用参数或全局变量）\n",
-                        node->line, node->u.varname);
-                node->val_type = VAL_NONE;
-                err = 1;
-                break;
+                // 引用外层函数局部变量 → 记录为当前 lambda 的捕获变量（运行时装箱）
+                cap_add(node->u.varname);
             }
             ValueType t;
             if(static_sym_get(node->u.varname, &t)) {
@@ -435,15 +476,33 @@ int typecheck_expr(AstNode* node)
         case AST_ASSIGN:
             err |= typecheck_expr(node->u.assign.expr);
             node->val_type = node->u.assign.expr->val_type;
+            int assign_capture = 0;
+            if(in_lambda) {
+                const char* vn = node->u.assign.varname;
+                ValueType st;
+                /* 注意：必须在 static_sym_put 之前判断 in_static，否则本赋值刚 put 的名字
+                 * 会被误判为外层变量。 */
+                int in_static = static_sym_get(vn, &st);
+                /* 判定：参数 / 已登记本层局部 / 全局 → 本 lambda 局部；
+                 * 否则若名字已存在于外层作用域（外层函数局部）→ 捕获（引用语义）；
+                 * 完全未出现 → 本 lambda 新局部。 */
+                assign_capture = !is_lambda_param(vn) && !is_lambda_local(vn) &&
+                                 !is_global_var(vn) && in_static;
+            }
             static_sym_put(node->u.assign.varname, node->val_type);
             if(in_lambda) {
-                if(lambda_locals_cnt >= lambda_locals_cap) {
-                    int nc = lambda_locals_cap > 0 ? lambda_locals_cap * 2 : 64;
-                    char** nt = (char**)realloc(lambda_locals, (size_t)nc * sizeof(char*));
-                    if(!nt) { fprintf(stderr, "lambda 局部表扩容内存不足\n"); exit(EXIT_FAILURE); }
-                    lambda_locals = nt; lambda_locals_cap = nc;
+                const char* vn = node->u.assign.varname;
+                if(!assign_capture) {
+                    if(lambda_locals_cnt >= lambda_locals_cap) {
+                        int nc = lambda_locals_cap > 0 ? lambda_locals_cap * 2 : 64;
+                        char** nt = (char**)realloc(lambda_locals, (size_t)nc * sizeof(char*));
+                        if(!nt) { fprintf(stderr, "lambda 局部表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                        lambda_locals = nt; lambda_locals_cap = nc;
+                    }
+                    lambda_locals[lambda_locals_cnt++] = strdup(vn);
+                } else {
+                    cap_add(vn);
                 }
-                lambda_locals[lambda_locals_cnt++] = strdup(node->u.assign.varname);
             }
             break;
         case AST_INDEX: {
@@ -750,13 +809,31 @@ int typecheck_expr(AstNode* node)
             int save_in_lambda = in_lambda;
             AstNode* save_params = g_lambda_params;
             int save_lc = lambda_locals_cnt;
-            if(is_lambda) { in_lambda = 1; g_lambda_params = node->u.func_def.params; lambda_locals_cnt = 0; }
+            if(is_lambda) { in_lambda = 1; g_lambda_params = node->u.func_def.params; lambda_locals_cnt = 0; cap_push(); }
             // 登记参数（覆盖同名全局实现遮蔽；类型动态 → VAL_NONE 占位）
             for(p = node->u.func_def.params; p; p = p->u.param.next) {
                 static_sym_put(p->u.param.name, VAL_NONE);
             }
             err |= typecheck_expr(node->u.func_def.body);
-            if(is_lambda) { in_lambda = save_in_lambda; g_lambda_params = save_params; lambda_locals_cnt = save_lc; }
+            if(is_lambda) {
+                in_lambda = save_in_lambda; g_lambda_params = save_params; lambda_locals_cnt = save_lc;
+                int ncapt = cap_pop_record(node->u.func_def.name);
+                // 该 lambda 捕获了外层局部变量：其所在外层函数体需重编译以发射 OPC_MKCLOSURE
+                if(ncapt > 0 && save_cur) {
+                    int dup = 0;
+                    for(int i = 0; i < g_recompile_cnt; i++)
+                        if(g_recompile[i] == save_cur) { dup = 1; break; }
+                    if(!dup) {
+                        if(g_recompile_cnt >= g_recompile_cap) {
+                            int ncap2 = g_recompile_cap > 0 ? g_recompile_cap * 2 : 16;
+                            AstNode** nt = (AstNode**)realloc(g_recompile, (size_t)ncap2 * sizeof(AstNode*));
+                            if(!nt) { fprintf(stderr, "重编译表扩容内存不足\n"); exit(EXIT_FAILURE); }
+                            g_recompile = nt; g_recompile_cap = ncap2;
+                        }
+                        g_recompile[g_recompile_cnt++] = save_cur;
+                    }
+                }
+            }
             sym_restore();
             g_cur_func_def = save_cur;
             func_depth--;

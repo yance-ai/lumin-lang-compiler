@@ -8,6 +8,7 @@
 #include "ir/ir_compile.h"
 #include "ast_runtime_sym.h"
 #include "ir/vm.h"
+#include "runtime/gc_runtime.h"
 
 // ---- 当前被调函数：解释器entry入口处查询自身payload用 ----
 // 调用点先set、entry入口立即读取到局部变量，之后嵌套调用不影响
@@ -53,6 +54,141 @@ const char* interp_func_param_name(const RuntimeFunc* rf, int idx)
     return pl->param_names[idx];
 }
 
+// ================= 闭包捕获侧表 =================
+// 单线程编译期状态：lambda 内部名 -> 其捕获的外层局部变量名列表。
+// 仅在 typecheck 阶段写入，IR/VM 阶段读取。
+typedef struct {
+    char* lambda_name;
+    char** names;
+    int count;
+    int cap;
+} LambdaCaptureEntry;
+
+static LambdaCaptureEntry* g_lambda_caps = NULL;
+static int g_lambda_caps_cnt = 0;
+static int g_lambda_caps_cap = 0;
+
+static LambdaCaptureEntry* lcap_find(const char* lambda_name)
+{
+    for(int i = 0; i < g_lambda_caps_cnt; i++)
+        if(strcmp(g_lambda_caps[i].lambda_name, lambda_name) == 0)
+            return &g_lambda_caps[i];
+    return NULL;
+}
+
+void func_compile_set_lambda_captures(const char* lambda_name, const char* const* names, int count)
+{
+    LambdaCaptureEntry* e = lcap_find(lambda_name);
+    if(!e) {
+        if(g_lambda_caps_cnt >= g_lambda_caps_cap) {
+            int nc = g_lambda_caps_cap > 0 ? g_lambda_caps_cap * 2 : 16;
+            LambdaCaptureEntry* nt = (LambdaCaptureEntry*)realloc(g_lambda_caps, (size_t)nc * sizeof(LambdaCaptureEntry));
+            if(!nt) { fprintf(stderr, "闭包捕获表扩容内存不足\n"); exit(EXIT_FAILURE); }
+            g_lambda_caps = nt;
+            g_lambda_caps_cap = nc;
+        }
+        e = &g_lambda_caps[g_lambda_caps_cnt++];
+        e->lambda_name = strdup(lambda_name);
+        e->names = NULL;
+        e->count = 0;
+        e->cap = 0;
+    }
+    // 释放旧列表（typecheck 每轮可能重跑）
+    for(int i = 0; i < e->count; i++) free(e->names[i]);
+    free(e->names);
+    e->names = NULL;
+    e->count = 0;
+    e->cap = 0;
+    for(int i = 0; i < count; i++) {
+        if(e->count >= e->cap) {
+            int nc = e->cap > 0 ? e->cap * 2 : 8;
+            char** nn = (char**)realloc(e->names, (size_t)nc * sizeof(char*));
+            if(!nn) { fprintf(stderr, "闭包捕获名表扩容内存不足\n"); exit(EXIT_FAILURE); }
+            e->names = nn; e->cap = nc;
+        }
+        e->names[e->count++] = strdup(names[i]);
+    }
+}
+
+int lambda_capture_count(const char* lambda_name)
+{
+    LambdaCaptureEntry* e = lcap_find(lambda_name);
+    return e ? e->count : 0;
+}
+
+const char* lambda_capture_name(const char* lambda_name, int i)
+{
+    LambdaCaptureEntry* e = lcap_find(lambda_name);
+    if(!e || i < 0 || i >= e->count) return NULL;
+    return e->names[i];
+}
+
+// 生成闭包实例：复制模板 payload，沿当前帧链装箱 free 变量
+Value closure_make_instance(RuntimeFunc* template_rf, StackFrame* cur_frame)
+{
+    InterpFuncPayload* tpl = (InterpFuncPayload*)template_rf->captures;
+    const char* lambda_name = tpl->bytecode ? tpl->bytecode->name : NULL;
+    int ncap = lambda_name ? lambda_capture_count(lambda_name) : 0;
+
+    gc_disable();   // 构造新对象期间防止 GC 回收中间结果（当前帧仍是 GC 根）
+
+    RuntimeFunc* rf = (RuntimeFunc*)malloc(sizeof(RuntimeFunc));
+    InterpFuncPayload* pl = (InterpFuncPayload*)malloc(sizeof(InterpFuncPayload));
+    *pl = *tpl;                       // 浅拷贝共享 body/bytecode/param_names
+    pl->captured_names = NULL;
+    pl->captured_cells = NULL;
+    pl->captured_cell_count = 0;
+
+    if(ncap > 0) {
+        pl->captured_names = (char**)malloc((size_t)ncap * sizeof(char*));
+        pl->captured_cells = (Value**)malloc((size_t)ncap * sizeof(Value*));
+        for(int i = 0; i < ncap; i++) {
+            const char* nm = lambda_capture_name(lambda_name, i);
+            Value* cell = stackframe_ensure_cell(cur_frame, nm);
+            if(!cell) {
+                fprintf(stderr, "Runtime Error: 闭包无法捕获未定义变量 %s\n", nm);
+                exit(EXIT_FAILURE);
+            }
+            pl->captured_names[i] = strdup(nm);
+            pl->captured_cells[i] = cell;
+        }
+        pl->captured_cell_count = ncap;
+    }
+
+    rf->entry = template_rf->entry;
+    rf->param_count = template_rf->param_count;
+    rf->has_variadic = template_rf->has_variadic;
+    rf->captures = (Value*)pl;
+    rf->capture_count = -1;
+
+    gc_enable();
+
+    Value v;
+    v.type = VAL_FUNC;
+    v.v.func.func_obj = rf;
+    return v;
+}
+
+void closure_bind_cells(const RuntimeFunc* rf, StackFrame* callee)
+{
+    if(!interp_func_is_payload(rf) || !callee) return;
+    InterpFuncPayload* pl = (InterpFuncPayload*)rf->captures;
+    for(int i = 0; i < pl->captured_cell_count; i++) {
+        stackframe_add_cell(callee, pl->captured_names[i], pl->captured_cells[i]);
+    }
+}
+
+void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value))
+{
+    if(!rf || !interp_func_is_payload(rf)) return;
+    InterpFuncPayload* pl = (InterpFuncPayload*)rf->captures;
+    for(int i = 0; i < pl->captured_cell_count; i++) {
+        if(pl->captured_cells[i]) {
+            mark(*pl->captured_cells[i]);
+        }
+    }
+}
+
 RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast)
 {
     if(func_def_ast->type != AST_FUNC_DEF) return NULL;
@@ -71,7 +207,7 @@ RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast)
     }
 
     // 分配解释器负载（不修改RuntimeFunc原有结构体！）
-    InterpFuncPayload* payload = malloc(sizeof(InterpFuncPayload));
+    InterpFuncPayload* payload = (InterpFuncPayload*)calloc(1, sizeof(InterpFuncPayload));
     payload->param_cnt = normal_cnt;
     payload->has_variadic = has_var;
     payload->param_names = malloc(sizeof(char*)*(normal_cnt + (has_var?1:0)));
@@ -131,6 +267,12 @@ void runtime_func_destroy(RuntimeFunc* f)
             free(pl->param_names[i]);
         }
         free(pl->param_names);
+        for(int i = 0; i < pl->captured_cell_count; i++) {
+            free(pl->captured_names[i]);
+            free(pl->captured_cells[i]);   // cell 由该闭包实例独占释放
+        }
+        free(pl->captured_names);
+        free(pl->captured_cells);
         bytecode_func_free(pl->bytecode);
         free(pl);
     } else {

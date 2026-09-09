@@ -24,4 +24,16 @@ void stackframe_set(StackFrame* f, const char* name, Value v);
 // 绑定语义（参数绑定用）：只在当前帧查找/创建，不向上查找，遮蔽父帧同名变量
 void stackframe_bind(StackFrame* f, const char* name, Value v);
 
+// ---- 闭包单元（cell）支持 ----
+// 把 name→cell_ptr 注册到当前帧 cell 表（lambda 调用时注入捕获变量用）。
+void stackframe_add_cell(StackFrame* f, const char* name, Value* cell_ptr);
+
+// 沿 parent 链查找变量所属帧并返回其 cell 指针；若该变量还是普通槽位，
+// 则在它所属帧内"装箱"：分配堆 Value 并把当前槽值拷入，此后该帧内同名访问走 cell。
+// 找不到该变量返回 NULL（调用方报错）。
+Value* stackframe_ensure_cell(StackFrame* f, const char* name);
+
+// 沿 parent 链查找已存在的 cell 指针（不创建），找不到返回 NULL。
+Value** stackframe_find_cell(StackFrame* f, const char* name);
+
 #endif //STACKFRAME_H

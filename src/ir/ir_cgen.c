@@ -382,48 +382,55 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    { Value __f; __f.type = VAL_FUNC; __f.v.func.func_obj = (void*)&lum_wrap_%d_rf; __stk[__sp++] = __f; }\n", fidx);
                 break;
             }
+            case OPC_MKCLOSURE: {
+                /* 编译通道暂不支持闭包变量捕获：C 代码生成尚未实现被捕获变量装箱与
+                 * RuntimeFunc.captures 实例化。给出明确错误，避免静默产出错误结果。 */
+                fprintf(stderr, "codegen: 编译通道暂不支持闭包变量捕获（lambda %s），请使用 VM 通道 ./bin/lumin file.lm\n", nm);
+                exit(EXIT_FAILURE);
+                break;
+            }
             case OPC_LOAD_VAR:
                 fprintf(out, "    __stk[__sp++] = %s;\n", cvar(nm));
                 break;
             case OPC_STORE_VAR:
                 fprintf(out, "    { Value __v = __stk[--__sp]; %s = __v; __stk[__sp++] = __v; }\n", cvar(nm));
                 break;
-            case OPC_ADD: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_add(__l, __r); }\n"); break;
-            case OPC_SUB: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_sub(__l, __r); }\n"); break;
-            case OPC_MUL: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_mul(__l, __r); }\n"); break;
-            case OPC_DIV: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_div(__l, __r); }\n"); break;
-            case OPC_MOD: fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_mod(__l, __r); }\n"); break;
-            case OPC_GT:  fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_gt(__l, __r); }\n"); break;
-            case OPC_LT:  fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_lt(__l, __r); }\n"); break;
-            case OPC_GE:  fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_ge(__l, __r); }\n"); break;
-            case OPC_LE:  fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_le(__l, __r); }\n"); break;
-            case OPC_EQ:  fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_eq(__l, __r); }\n"); break;
-            case OPC_NE:  fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_ne(__l, __r); }\n"); break;
-            case OPC_NEG: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_unary_minus(__v); }\n"); break;
-            case OPC_POS: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_unary_plus(__v); }\n"); break;
+            case OPC_ADD: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_add(__l, __r); __sp--; }\n"); break;
+            case OPC_SUB: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_sub(__l, __r); __sp--; }\n"); break;
+            case OPC_MUL: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_mul(__l, __r); __sp--; }\n"); break;
+            case OPC_DIV: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_div(__l, __r); __sp--; }\n"); break;
+            case OPC_MOD: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_mod(__l, __r); __sp--; }\n"); break;
+            case OPC_GT:  fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_gt(__l, __r); __sp--; }\n"); break;
+            case OPC_LT:  fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_lt(__l, __r); __sp--; }\n"); break;
+            case OPC_GE:  fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_ge(__l, __r); __sp--; }\n"); break;
+            case OPC_LE:  fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_le(__l, __r); __sp--; }\n"); break;
+            case OPC_EQ:  fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_eq(__l, __r); __sp--; }\n"); break;
+            case OPC_NE:  fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_ne(__l, __r); __sp--; }\n"); break;
+            case OPC_NEG: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_unary_minus(__v); }\n"); break;
+            case OPC_POS: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_unary_plus(__v); }\n"); break;
             case OPC_PRE_INC:  fprintf(out, "    { Value* __vp = &%s; __stk[__sp++] = lumin_pre_inc(__vp); }\n", cvar(nm)); break;
             case OPC_POST_INC: fprintf(out, "    { Value* __vp = &%s; __stk[__sp++] = lumin_post_inc(__vp); }\n", cvar(nm)); break;
             case OPC_PRE_DEC:  fprintf(out, "    { Value* __vp = &%s; __stk[__sp++] = lumin_pre_dec(__vp); }\n", cvar(nm)); break;
             case OPC_POST_DEC: fprintf(out, "    { Value* __vp = &%s; __stk[__sp++] = lumin_post_dec(__vp); }\n", cvar(nm)); break;
-            case OPC_CAST_INT:    fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_int(__v); }\n"); break;
-            case OPC_CAST_DOUBLE: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_double(__v); }\n"); break;
-            case OPC_CAST_CHAR:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_char(__v); }\n"); break;
-            case OPC_CAST_BOOL:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_bool(__v); }\n"); break;
-            case OPC_CAST_STRING: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_string(__v); }\n"); break;
-            case OPC_CAST_ASCII:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_ascii(__v); }\n"); break;
-            case OPC_CAST_BYTE:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_byte(__v); }\n"); break;
-            case OPC_CAST_INT8:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_int8(__v); }\n"); break;
-            case OPC_CAST_INT16:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_int16(__v); }\n"); break;
-            case OPC_CAST_INT32:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_int32(__v); }\n"); break;
-            case OPC_CAST_INT64:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_int64(__v); }\n"); break;
-            case OPC_CAST_UINT8:  fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_uint8(__v); }\n"); break;
-            case OPC_CAST_UINT16: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_uint16(__v); }\n"); break;
-            case OPC_CAST_UINT32: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_uint32(__v); }\n"); break;
-            case OPC_CAST_UINT64: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_uint64(__v); }\n"); break;
-            case OPC_CAST_LONG: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_long(__v); }\n"); break;
-            case OPC_CAST_LONGLONG: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_longlong(__v); }\n"); break;
-            case OPC_CAST_FLOAT: fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_cast_float(__v); }\n"); break;
-            case OPC_LOGIC_NOT:   fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_logic_not(__v); }\n"); break;
+            case OPC_CAST_INT:    fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_int(__v); }\n"); break;
+            case OPC_CAST_DOUBLE: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_double(__v); }\n"); break;
+            case OPC_CAST_CHAR:   fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_char(__v); }\n"); break;
+            case OPC_CAST_BOOL:   fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_bool(__v); }\n"); break;
+            case OPC_CAST_STRING: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_string(__v); }\n"); break;
+            case OPC_CAST_ASCII:  fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_ascii(__v); }\n"); break;
+            case OPC_CAST_BYTE:   fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_byte(__v); }\n"); break;
+            case OPC_CAST_INT8:   fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_int8(__v); }\n"); break;
+            case OPC_CAST_INT16:  fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_int16(__v); }\n"); break;
+            case OPC_CAST_INT32:  fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_int32(__v); }\n"); break;
+            case OPC_CAST_INT64:  fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_int64(__v); }\n"); break;
+            case OPC_CAST_UINT8:  fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_uint8(__v); }\n"); break;
+            case OPC_CAST_UINT16: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_uint16(__v); }\n"); break;
+            case OPC_CAST_UINT32: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_uint32(__v); }\n"); break;
+            case OPC_CAST_UINT64: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_uint64(__v); }\n"); break;
+            case OPC_CAST_LONG: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_long(__v); }\n"); break;
+            case OPC_CAST_LONGLONG: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_longlong(__v); }\n"); break;
+            case OPC_CAST_FLOAT: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_float(__v); }\n"); break;
+            case OPC_LOGIC_NOT:   fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_logic_not(__v); }\n"); break;
             case OPC_ARRAY_LIT: {
                 int n = in.b;
                 if(g_stack_alloc && g_stack_alloc[i]) {
@@ -483,19 +490,19 @@ static void emit_insns(BytecodeFunc* fn)
                 break;
             }
             case OPC_INDEX_GET:
-                fprintf(out, "    { Value __idx = __stk[--__sp], __c = __stk[--__sp]; __stk[__sp++] = lumin_index_get(__c, __idx); }\n");
+                fprintf(out, "    { Value __c = __stk[__sp-2], __idx = __stk[__sp-1]; __stk[__sp-2] = lumin_index_get(__c, __idx); __sp--; }\n");
                 break;
             case OPC_INDEX_SET:
-                fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_set(__arr, __idx, __val); }\n");
+                fprintf(out, "    { Value __arr = __stk[__sp-3], __idx = __stk[__sp-2], __val = __stk[__sp-1]; __stk[__sp-3] = lumin_array_set(__arr, __idx, __val); __sp -= 2; }\n");
                 break;
             case OPC_BUILTIN:
                 fprintf(out, "    gc_stw_check_fast();\n");
                 switch(in.a) {
                     case BUILTIN_LEN:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_len(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_len(__v); }\n");
                         break;
                     case BUILTIN_TYPE:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_type(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_type(__v); }\n");
                         break;
                     case BUILTIN_INPUT:
                         fprintf(out, "    { __stk[__sp++] = lumin_input(); }\n");
@@ -505,16 +512,16 @@ static void emit_insns(BytecodeFunc* fn)
                                 in.b, in.b, in.b, in.b);
                         break;
                     case BUILTIN_SUBSTR:
-                        fprintf(out, "    { Value __n = __stk[--__sp], __st = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_substr(__s, __st, __n); }\n");
+                        fprintf(out, "    { Value __s = __stk[__sp-3], __st = __stk[__sp-2], __n = __stk[__sp-1]; __stk[__sp-3] = lumin_substr(__s, __st, __n); __sp -= 2; }\n");
                         break;
                     case BUILTIN_TOUPPER:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_toupper(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_toupper(__v); }\n");
                         break;
                     case BUILTIN_TOLOWER:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_tolower(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_tolower(__v); }\n");
                         break;
                     case BUILTIN_SPLIT:
-                        fprintf(out, "    { Value __sep = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_split(__s, __sep); }\n");
+                        fprintf(out, "    { Value __s = __stk[__sp-2], __sep = __stk[__sp-1]; __stk[__sp-2] = lumin_split(__s, __sep); __sp--; }\n");
                         break;
                     case BUILTIN_DEL:
                         fprintf(out, "    { Value __idx = __stk[--__sp]; lumin_del(&__stk[__sp-1], __idx); }\n");
@@ -523,16 +530,16 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __val = __stk[--__sp], __idx = __stk[--__sp]; lumin_insert(&__stk[__sp-1], __idx, __val); }\n");
                         break;
                     case BUILTIN_FLOOR:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_floor(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_floor(__v); }\n");
                         break;
                     case BUILTIN_CEIL:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_ceil(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_ceil(__v); }\n");
                         break;
                     case BUILTIN_ABS:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_abs(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_abs(__v); }\n");
                         break;
                     case BUILTIN_SQRT:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_sqrt(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_sqrt(__v); }\n");
                         break;
                     case BUILTIN_MAX:
                         fprintf(out, "    { Value __r = lumin_max(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n",
@@ -543,38 +550,38 @@ static void emit_insns(BytecodeFunc* fn)
                                 in.b, in.b, in.b, in.b);
                         break;
                     case BUILTIN_JOIN:
-                        fprintf(out, "    { Value __sep = __stk[--__sp], __arr = __stk[--__sp]; __stk[__sp++] = lumin_join(__arr, __sep); }\n");
+                        fprintf(out, "    { Value __arr = __stk[__sp-2], __sep = __stk[__sp-1]; __stk[__sp-2] = lumin_join(__arr, __sep); __sp--; }\n");
                         break;
                     case BUILTIN_CONTAINS:
-                        fprintf(out, "    { Value __needle = __stk[--__sp], __hay = __stk[--__sp]; __stk[__sp++] = lumin_contains(__hay, __needle); }\n");
+                        fprintf(out, "    { Value __hay = __stk[__sp-2], __needle = __stk[__sp-1]; __stk[__sp-2] = lumin_contains(__hay, __needle); __sp--; }\n");
                         break;
                     case BUILTIN_REPEAT:
-                        fprintf(out, "    { Value __n = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_repeat(__s, __n); }\n");
+                        fprintf(out, "    { Value __s = __stk[__sp-2], __n = __stk[__sp-1]; __stk[__sp-2] = lumin_repeat(__s, __n); __sp--; }\n");
                         break;
                     case BUILTIN_REPLACE:
-                        fprintf(out, "    { Value __to = __stk[--__sp], __from = __stk[--__sp], __s = __stk[--__sp]; __stk[__sp++] = lumin_replace(__s, __from, __to); }\n");
+                        fprintf(out, "    { Value __s = __stk[__sp-3], __from = __stk[__sp-2], __to = __stk[__sp-1]; __stk[__sp-3] = lumin_replace(__s, __from, __to); __sp -= 2; }\n");
                         break;
                     case BUILTIN_SUM:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_sum(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_sum(__v); }\n");
                         break;
                     case BUILTIN_FORMAT:
                         fprintf(out, "    { Value __r = lumin_format(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n",
                                 in.b, in.b, in.b, in.b);
                         break;
                     case BUILTIN_SORT:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_sort(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_sort(__v); }\n");
                         break;
                     case BUILTIN_REVERSE:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_reverse(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_reverse(__v); }\n");
                         break;
                     case BUILTIN_STRIP:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_strip(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_strip(__v); }\n");
                         break;
                     case BUILTIN_STARTSWITH:
-                        fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_startswith(__l, __r); }\n");
+                        fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_startswith(__l, __r); __sp--; }\n");
                         break;
                     case BUILTIN_ENDSWITH:
-                        fprintf(out, "    { Value __r = __stk[--__sp], __l = __stk[--__sp]; __stk[__sp++] = lumin_endswith(__l, __r); }\n");
+                        fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_endswith(__l, __r); __sp--; }\n");
                         break;
                     case BUILTIN_READ_FILE:
                         fprintf(out, "    { Value __r = lumin_read_file(&__stk[__sp - %d], %d); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b, in.b);
@@ -676,10 +683,10 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __v = __stk[--__sp]; Value __i = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_set_method(__arr, __i, __v); }\n");
                         break;
                     case BUILTIN_ARRAY_FIRST:
-                        fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_first(__arr); }\n");
+                        fprintf(out, "    { Value __arr = __stk[__sp-1]; __stk[__sp-1] = lumin_array_first(__arr); }\n");
                         break;
                     case BUILTIN_ARRAY_LAST:
-                        fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_last(__arr); }\n");
+                        fprintf(out, "    { Value __arr = __stk[__sp-1]; __stk[__sp-1] = lumin_array_last(__arr); }\n");
                         break;
                     case BUILTIN_ARRAY_CLEAR:
                         fprintf(out, "    { lumin_array_clear(&__stk[__sp-1]); }\n");
@@ -834,10 +841,10 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __v = __stk[--__sp]; Value __i = __stk[--__sp]; Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_set_method(__arr, __i, __v); }\n");
                         break;
                     case BUILTIN_ARRAY_FIRST:
-                        fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_first(__arr); }\n");
+                        fprintf(out, "    { Value __arr = __stk[__sp-1]; __stk[__sp-1] = lumin_array_first(__arr); }\n");
                         break;
                     case BUILTIN_ARRAY_LAST:
-                        fprintf(out, "    { Value __arr = __stk[--__sp]; __stk[__sp++] = lumin_array_last(__arr); }\n");
+                        fprintf(out, "    { Value __arr = __stk[__sp-1]; __stk[__sp-1] = lumin_array_last(__arr); }\n");
                         break;
                     case BUILTIN_ARRAY_CLEAR:
                         fprintf(out, "    { lumin_array_clear(&__stk[__sp-1]); }\n");
@@ -1036,7 +1043,7 @@ static void emit_insns(BytecodeFunc* fn)
                         break;
                     }
                     case BUILTIN_AVG:
-                        fprintf(out, "    { Value __v = __stk[--__sp]; __stk[__sp++] = lumin_avg(__v); }\n");
+                        fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_avg(__v); }\n");
                         break;
                 }
                 break;
@@ -1907,6 +1914,7 @@ static void emit_func_def(BytecodeFunc* fn)
         fprintf(out, "    CFrame __frame;\n");
         fprintf(out, "    __frame.stack = __stk;\n");
         fprintf(out, "    __frame.sp = &__sp;\n");
+        fprintf(out, "    __frame.stack_size = %d;\n", maxd + 2);
         fprintf(out, "    __frame.local_ptrs = __local_ptrs;\n");
         fprintf(out, "    __frame.nlocals = %d;\n", _nlocals);
         fprintf(out, "    gc_push_cframe(&__frame);\n");
@@ -2088,6 +2096,7 @@ static void emit_main(BytecodeFunc* main_fn)
         fprintf(out, "    CFrame __frame;\n");
         fprintf(out, "    __frame.stack = __stk;\n");
         fprintf(out, "    __frame.sp = &__sp;\n");
+        fprintf(out, "    __frame.stack_size = %d;\n", maxd + 2);
         fprintf(out, "    __frame.local_ptrs = __local_ptrs;\n");
         fprintf(out, "    __frame.nlocals = %d;\n", _nlocals);
         fprintf(out, "    gc_push_cframe(&__frame);\n");
@@ -2130,6 +2139,9 @@ void ir_cgen_file(const char* out_c_path, BytecodeFunc* main_fn)
     fprintf(out, "#include <stdlib.h>\n");
     fprintf(out, "#include <string.h>\n\n");
     fwrite(src_runtime_full_runtime_full_c, 1, src_runtime_full_runtime_full_c_len, out);
+    /* 编译通道不使用解释器闭包（含捕获的 lambda 会在 codegen 期直接报错）。
+     * 提供 gc_runtime.c 引用的 lumin_interp_scan_captures 弱定义桩，避免链接缺失符号。 */
+    fprintf(out, "\n__attribute__((weak)) void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value)) { (void)rf; (void)mark; }\n\n");
 
     emit_main(main_fn);
     fclose(out);
