@@ -2,7 +2,7 @@
 # Cross-platform: macOS / Linux / Windows (MinGW-w64)
 # 大项目架构：runtime 编译为静态库 libruntime.a，编译器和生成代码都链接它
 CC ?= gcc
-CFLAGS ?= -Wall -Wextra -g -I./src -I./generated -I./kit/runtime/include
+CFLAGS ?= -Wall -Wextra -g -I./src -I./build/gen -I./kit/runtime/include
 
 # ========== 操作系统检测 ==========
 UNAME_S := $(shell uname -s)
@@ -25,8 +25,8 @@ endif
 
 # ========== 目录定义 ==========
 SRC_DIR     := src
-GEN_DIR     := generated
-YACC_DIR    := src/yacc
+GEN_DIR     := build/gen
+YACC_DIR    := build/gen
 PARSE_SRC   := src/parse
 TEST_DIR    := tests
 BIN_DIR     := bin

@@ -59,27 +59,19 @@ lumin‑lang-compiler
 yacc.output
 *.lm.c
 
-# bison debug report
-generated/yacc.output
-
 # test intermediate output
 tests/*.lm.c
 tests/*.lm.out
 tests/stackframe_test
 
-# 构建产物 / 生成源码（可重现，不入库）
+# 构建产物（可重现，不入库）
 bin/
-src/yacc/
-src/embed/
-src/runtime-full/
-src/lex/lex.yy.c
-
-# Windows 预编译依赖库和工具（入库，免去其他开发者编译）
-!third_party/**/*.a
-!third_party/**/*.exe
+lib/
+build/
 
 # 调试脚本
 debug_*.sh
 
-# 用户项目编译产物
-build/
+# Windows 预编译依赖库和工具（入库，免去其他开发者编译）
+!third_party/**/*.a
+!third_party/**/*.exe

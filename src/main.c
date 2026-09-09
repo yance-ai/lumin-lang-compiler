@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #endif
 
-#include "yacc/yacc.tab.h"
+#include "yacc.tab.h"
 #include "ast/ast.h"
 #include "ir/ir_compile.h"
 #include "ir/vm.h"
@@ -150,17 +150,11 @@ int main(int argc, char** argv) {
 
                 char c_path[PATH_MAX];
                 char exe_path[PATH_MAX];
-                // 大项目架构：编译产物统一放到 build/ 目录
-                snprintf(c_path, sizeof(c_path), "build/%s.c", base);
-                snprintf(exe_path, sizeof(exe_path), "build/%s", base);
+                // 输出路径由用户通过 -o 指定，默认取源文件名（当前目录）
+                snprintf(c_path, sizeof(c_path), "%s.c", base);
+                snprintf(exe_path, sizeof(exe_path), "%s", base);
 
                 BytecodeFunc* main_fn = ir_compile_main(root);
-                // 确保 build/ 目录存在
-#ifdef _WIN32
-                _mkdir("build");
-#else
-                mkdir("build", 0755);
-#endif
                 ir_cgen_file(c_path, main_fn);
                 bytecode_func_free(main_fn);
                 printf("[CodeGen] 已生成 %s\n", c_path);
