@@ -1242,9 +1242,13 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 char* st = lumin_build_stack_trace();
                 stack[sp++] = lumin_make_error(g_err_type, g_err_msg, st);
                 free(st);
-                /* TRY 存 vm_tn[d]/vm_fn[d]（d=TRY 层深度），GET_ERR 时 vm_depth=d → 直接用 vm_depth */
-                g_trace_n = vm_tn[vm_depth];
-                vm_fin_n = vm_fn[vm_depth];
+                /* TRY 存 vm_tn[d]/vm_fn[d]（d=TRY 前深度）。
+                   longjmp 后 vm_depth=d，先 ++ 模拟正常路径的 d+1 状态，
+                   使后续 FIN_PUSH 的 vm_depth-1 计算正确；
+                   无 finally 时由 catch 后的 ENDTRY 负责递减回 d */
+                vm_depth++;
+                g_trace_n = vm_tn[vm_depth - 1];
+                vm_fin_n = vm_fn[vm_depth - 1];
                 break;
             }
             case OPC_THROW: {

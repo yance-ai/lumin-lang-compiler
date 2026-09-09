@@ -870,6 +870,7 @@ static void c_stmt(Ctx* c, AstNode* node)
                 emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.trynode.catch_var), 0);
                 emit(c, OPC_POP, 0, 0);            // 丢弃 STORE 压回的表达式值，catch 尾 sp 平衡
                 c_stmt(c, node->u.trynode.catch_body);
+                emit(c, OPC_ENDTRY, 0, 0);   // 异常路径恢复 vm_depth（正常路径被 JMP skip 跳过）
                 patch_to(c, jskip);
             }
             break;
