@@ -276,8 +276,10 @@ Value val_map(void) {
     /* GC 安全：构造期间暂停自动 GC */
     gc_disable();
     MapEntry** buckets = (MapEntry**)gc_alloc_old(16 * sizeof(MapEntry*), VAL_MAP);  /* 内部缓冲区老年代 */
+    gc_mark_internal_buf(buckets);  /* 标记为内部缓冲区，保守 C 栈扫描跳过（与 array items 一致） */
     memset(buckets, 0, 16 * sizeof(MapEntry*));
     unsigned char* tree = (unsigned char*)gc_alloc_old(16 * sizeof(unsigned char), VAL_MAP);  /* 内部缓冲区老年代 */
+    gc_mark_internal_buf(tree);
     memset(tree, 0, 16 * sizeof(unsigned char));
     r.v.map = (ValueMap*)gc_alloc(sizeof(ValueMap), VAL_MAP);
     r.v.map->len = 0;
@@ -297,8 +299,10 @@ Value val_map_from_stack(ValueMap* vm) {
     r.type = VAL_MAP;
     gc_disable();
     MapEntry** buckets = (MapEntry**)gc_alloc_old(16 * sizeof(MapEntry*), VAL_MAP);  /* 内部缓冲区老年代 */
+    gc_mark_internal_buf(buckets);  /* 标记为内部缓冲区，保守 C 栈扫描跳过 */
     memset(buckets, 0, 16 * sizeof(MapEntry*));
     unsigned char* tree = (unsigned char*)gc_alloc_old(16 * sizeof(unsigned char), VAL_MAP);  /* 内部缓冲区老年代 */
+    gc_mark_internal_buf(tree);
     memset(tree, 0, 16 * sizeof(unsigned char));
     vm->len = 0;
     vm->cap = 16;

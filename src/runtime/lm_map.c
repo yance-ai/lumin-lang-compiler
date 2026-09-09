@@ -131,6 +131,7 @@ static int key_eq(Value a, Value b) {
 // ============ Entry 管理 ============
 static MapEntry* entry_new(Value key, Value val, uint32_t hash) {
     MapEntry* e = (MapEntry*)gc_alloc_old(sizeof(MapEntry), VAL_MAP);  /* 内部缓冲区老年代 */
+    gc_mark_internal_buf(e);  /* 标记为内部缓冲区，保守 C 栈扫描跳过（与 buckets/tree 一致） */
     gc_write_barrier(key);  /* 增量标记写屏障 */
     e->key = key;
     gc_write_barrier(val);  /* 增量标记写屏障 */
@@ -442,7 +443,9 @@ static void map_resize(ValueMap* m) {
     int old_cap = m->cap;
     int new_cap = old_cap * 2;
     MapEntry** new_buckets = (MapEntry**)gc_alloc_old(new_cap * sizeof(MapEntry*), VAL_MAP);  /* 内部缓冲区老年代 */
+    gc_mark_internal_buf(new_buckets);  /* 标记为内部缓冲区，保守 C 栈扫描跳过 */
     unsigned char* new_tree = (unsigned char*)gc_alloc_old(new_cap * sizeof(unsigned char), VAL_MAP);  /* 内部缓冲区老年代 */
+    gc_mark_internal_buf(new_tree);
     for(int i = 0; i < old_cap; i++) {
         MapEntry* e = m->buckets[i];
         if(!e) continue;
