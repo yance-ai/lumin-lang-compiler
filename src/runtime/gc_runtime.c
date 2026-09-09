@@ -275,49 +275,11 @@ void* gc_alloc(size_t size, int vtype)
             cur = TLA_LOCAL_NEXT(cur);
         }
 
-        /* 2. 本地链表没找到，尝试从全局空闲链表批量取用 */
-        if (tla_global_count > 0) {
-            pthread_mutex_lock(&g_gc_mutex);
-            int taken = 0;
-            while (tla_global_free && taken < TLA_BATCH) {
-                GCObject* obj = tla_global_free;
-                tla_global_free = obj->next;
-                tla_global_count--;
-                /* 全局空闲对象不在 g_gc_objects 中，需插入 */
-                obj->next = g_gc_objects;
-                g_gc_objects = obj;
-                size_t obj_bytes = sizeof(GCObject) + obj->user_size;
-                g_gc_bytes += obj_bytes;
-                /* 按对象当前 age 计入对应分代（全局空闲链表中的对象保留 sweep 时的 age） */
-                if (obj->age < PROMOTE_AGE) g_young_bytes += obj_bytes;
-                else g_old_bytes += obj_bytes;
-                /* 移入本地空闲链表（marked 保持 2，next 存在用户数据区） */
-                TLA_LOCAL_NEXT(obj) = tla_local_free;
-                tla_local_free = obj;
-                tla_local_count++;
-                taken++;
-            }
-            pthread_mutex_unlock(&g_gc_mutex);
-
-            /* 重试一次本地分配 */
-            prev = NULL;
-            cur = tla_local_free;
-            while (cur) {
-                if (cur->user_size >= real_sz) {
-                    if (prev) TLA_LOCAL_NEXT(prev) = TLA_LOCAL_NEXT(cur);
-                    else tla_local_free = TLA_LOCAL_NEXT(cur);
-                    tla_local_count--;
-                    cur->marked = g_gc_marking ? 1 : 3;  /* 新分配预标记 / 标记期黑色 */
-                    cur->vtype = (unsigned char)vtype;
-                    cur->age = 0;  /* 新分配对象进入新生代 */
-                    cur->flags = 0;
-                    memset(obj_to_ptr(cur), 0, size);
-                    return obj_to_ptr(cur);
-                }
-                prev = cur;
-                cur = TLA_LOCAL_NEXT(cur);
-            }
-        }
+        /* 2. 本地链表未命中：直接 batch malloc。
+         * 不从全局空闲链表取用：盲取 16 个混合尺寸对象会污染本地链表，
+         * first-fit 让小请求取走栈顶大对象，小对象滞留链尾，本地链表无界膨胀
+         * （实测 100M 次扫描）。直接 batch malloc 保持本地链表只含同批次同尺寸对象，
+         * 扫描 O(1)。全局空闲链表由 Major GC 清理，不影响正确性。 */
 
         /* 3. 还是没有，批量 malloc 新对象 */
         size_t total = sizeof(GCObject) + real_sz;
@@ -337,9 +299,10 @@ void* gc_alloc(size_t size, int vtype)
         }
 
         /* 预分配块（i>=1）标记为永生（本地空闲链表）；
-         * batch[0]：非标记期 marked=3（新分配预标记），标记期 marked=1（黑色） */
+         * batch[0] 临时设为永生(marked=2)，确保 GC 不会回收这个"未发布"对象，
+         * GC 后统一恢复为 marked=3（新分配预标记）或标记期 marked=1。 */
         for (int i = 1; i < TLA_BATCH; i++) batch[i]->marked = 2;
-        batch[0]->marked = g_gc_marking ? 1 : 3;
+        batch[0]->marked = 2;
 
         int need_collect_type = 0;  /* 1=minor, 2=major */
         pthread_mutex_lock(&g_gc_mutex);
@@ -368,6 +331,9 @@ void* gc_alloc(size_t size, int vtype)
             if (need_collect_type == 1) gc_collect_minor(tls_stack, *tls_sp, tls_frame);
             else gc_collect_major(tls_stack, *tls_sp, tls_frame);
         }
+        /* 无论是否触发 GC，都要把 batch[0] 从临时永生态恢复为新分配状态，
+         * 否则它会永远停留在 marked=2 永生态，下次 GC 永不回收。 */
+        batch[0]->marked = g_gc_marking ? 1 : 3;
         return obj_to_ptr(batch[0]);
     }
 
@@ -471,7 +437,6 @@ void* gc_alloc_old(size_t size, int vtype)
     void* ptr = gc_alloc(size, vtype);
     GCObject* obj = ptr_to_obj(ptr);
     if (obj->age < PROMOTE_AGE) {
-        /* 从新生代统计移到老年代统计（计数器漂移由 gc_recount_bytes 修正） */
         obj->age = PROMOTE_AGE;
     }
     return ptr;
@@ -1407,8 +1372,18 @@ static void gc_sweep_minor(void)
             /* 永生对象（钉住 / 本地空闲链表预分配）：跳过 */
             pp = &cur->next;
         } else if (cur->age < PROMOTE_AGE) {
-            /* ---- 新生代对象 ---- */
-            if (!cur->marked) {
+            /* ---- 新生代对象 ----
+             * 存活判定：只有 marked==1（标记阶段通过 gc_mark_one_minor 实际置黑）
+             * 才是真正存活。marked==0（白色）与 marked==3（新对象预标记，但本轮
+             * 标记阶段未触达）均视为垃圾回收。
+             *
+             * 为什么 marked==3 必须回收：marked=3 是为 Major GC 增量标记设计的
+             * "新对象预标记"。但 Minor GC 是 STW 全量标记，标记阶段会把所有从根
+             * 可达的对象经 gc_mark_ptr_to_stack 推入灰色栈并最终置为 marked=1。
+             * 因此 Minor GC 后仍为 marked=3 的对象必然未被根触达，是垃圾。
+             * 旧代码用 `!cur->marked` 判定，导致 marked=3 走 else 分支被误判存活、
+             * age++ 且不回收，新生代垃圾全部滞留，年轻字节数不降 → 性能崩溃。 */
+            if (cur->marked != 1) {
                 /* 新生代垃圾：回收 */
                 size_t obj_bytes = sizeof(GCObject) + cur->user_size;
                 if (cur->user_size <= TLA_MAX_SIZE) {
@@ -1443,11 +1418,31 @@ static void gc_sweep_minor(void)
                 pp = &cur->next;
             }
         } else {
-            /* ---- 老年代对象：不 sweep，仅清除标记位 ----
-             * Minor GC 期间老年代对象可能被标记（通过根和引用链），
-             * 但不回收（留到 Major GC）。标记位必须清除，否则残留到下一轮。 */
-            cur->marked = 0;
-            pp = &cur->next;
+            /* ---- 老年代对象 ----
+             * 标记阶段已标记所有从根可达的对象（含老年代）。
+             * marked==0 的老年代对象不可达，可安全回收。
+             * 旧设计跳过老年代导致短命 items/buckets 缓冲区堆积，
+             * Minor GC 每次遍历 O(n) 老对象 → 性能回归。 */
+            if (!cur->marked) {
+                size_t obj_bytes = sizeof(GCObject) + cur->user_size;
+                if (cur->user_size <= TLA_MAX_SIZE) {
+                    *pp = cur->next;
+                    g_gc_bytes -= obj_bytes;
+                    g_old_bytes -= obj_bytes;
+                    cur->marked = 2;
+                    cur->next = tla_global_free;
+                    tla_global_free = cur;
+                    tla_global_count++;
+                } else {
+                    *pp = cur->next;
+                    g_gc_bytes -= obj_bytes;
+                    g_old_bytes -= obj_bytes;
+                    free(cur);
+                }
+            } else {
+                cur->marked = 0;
+                pp = &cur->next;
+            }
         }
     }
 }
