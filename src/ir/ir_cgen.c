@@ -1987,6 +1987,10 @@ static void emit_main(BytecodeFunc* main_fn)
     for(int i = 0; i < ir_func_table_count(); i++) {
         fprintf(out, "static Value lum_wrap_%d(Value*, int);\n", i);
     }
+    // RuntimeFunc 包装变量前置声明（GETFUNC 引用 &lum_wrap_N_rf，定义在 emit_func_wraps）
+    for(int i = 0; i < ir_func_table_count(); i++) {
+        fprintf(out, "static RuntimeFunc lum_wrap_%d_rf;\n", i);
+    }
     fprintf(out, "\n");
 
     // 函数定义
