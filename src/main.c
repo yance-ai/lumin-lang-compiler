@@ -9,6 +9,7 @@
 #include "ir/ir_compile.h"
 #include "ir/vm.h"
 #include "ir/ir_cgen.h"
+#include "parse/import.h"
 
 extern AstNode* root;
 extern int yyparse(void);
@@ -61,12 +62,53 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    yyin = fopen(src_file, "r");
-    if(!yyin) {
-        perror("open file failed");
+    /* 模块系统（第一阶段）：yyparse 之前做文本预处理，把 import 模块内联、
+       把 export 符号收集成 map。无模块语法的源文件走原始 fopen 路径，行为不变。 */
+    char pp_tmp[PATH_MAX] = {0};   /* 预处理临时文件路径（若使用） */
+    int used_pp_tmp = 0;
+
+    int had_mod = 0;
+    char* merged = lm_preprocess_main(src_file, &had_mod);
+    if(had_mod < 0) {
+        fprintf(stderr, "模块预处理失败，编译中止\n");
         return 1;
     }
-    yyrestart(yyin);
+
+    if(had_mod == 0) {
+        yyin = fopen(src_file, "r");
+        if(!yyin) {
+            perror("open file failed");
+            return 1;
+        }
+        yyrestart(yyin);
+    } else {
+        /* 把合并后的源码写入临时文件，再交给 parser（对 VM / 编译通道完全一致） */
+        snprintf(pp_tmp, sizeof(pp_tmp), "%s/lumin_pp_XXXXXX", P_tmpdir ? P_tmpdir : "/tmp");
+        int fd = mkstemp(pp_tmp);
+        if(fd < 0) {
+            perror("mkstemp");
+            free(merged);
+            return 1;
+        }
+        if(write(fd, merged, strlen(merged)) < 0) {
+            perror("write pp tmp");
+            close(fd);
+            unlink(pp_tmp);
+            free(merged);
+            return 1;
+        }
+        close(fd);
+        free(merged);
+
+        yyin = fopen(pp_tmp, "r");
+        if(!yyin) {
+            perror("open pp tmp failed");
+            unlink(pp_tmp);
+            return 1;
+        }
+        used_pp_tmp = 1;
+        yyrestart(yyin);
+    }
 
     int ret = yyparse();
     if(ret == 0 && root != NULL) {
@@ -110,7 +152,7 @@ int main(int argc, char** argv) {
                     const char* gen_cc = getenv("LM_GEN_CC");
                     const char* gen_cflags = getenv("LM_GEN_CFLAGS");
                     if(!gen_cc) gen_cc = "gcc";
-                    if(!gen_cflags) gen_cflags = "";
+                    if(!gen_cflags) gen_cflags = "-O2";
                     snprintf(cmd, sizeof(cmd), "%s -std=gnu11 %s %s -o %s -lcurl -liconv",
                              gen_cc, gen_cflags, c_path, exe_path);
                     int sys_ret = system(cmd);
@@ -135,5 +177,6 @@ int main(int argc, char** argv) {
     if(yyin && yyin != stdin) {
         fclose(yyin);
     }
+    if(used_pp_tmp) unlink(pp_tmp);
     return ret;
 }

@@ -1,0 +1,3 @@
+// nested/strutil.lm —— 子目录模块
+export func shout(s) { return s + "!"; }
+export const TAG = "nested";

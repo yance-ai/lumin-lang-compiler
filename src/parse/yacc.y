@@ -51,6 +51,8 @@ void yyerror(const char* s);
 static int g_lambda_seq = 0;                 // 匿名函数内部名 _lambda_N
 int yylex(void);
 AstNode* root;
+/* 模块系统（第一阶段）：判断一个标识符是否为 import 别名命名空间 */
+int lm_is_module_alias(const char* name);
 // AST 构造辅助：报错定位用（节点行号 = 当前 lookahead 行）
 static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; return __n; }
 #define L(n) l_set_line(n)
@@ -420,6 +422,11 @@ postfix_expr
           } else if(strcmp($3, "get") == 0) {
               /* arr.get(i)：数组/容器安全取（内部名 arr_get，与 requests.get 区分） */
               $$ = L(ast_call("arr_get", margs ? ast_seq_front(margs, recv) : recv));
+          } else if(recv->type == AST_VAR && lm_is_module_alias(recv->u.varname)) {
+              /* 模块命名空间 m.add(1,2) -> m["add"](1,2)：map 取值后动态调用，不把接收者当前参 */
+              AstNode* fn = L(ast_index(recv, ast_string(strdup($3))));
+              free($3);
+              $$ = L(ast_dyn_call(fn, margs));
           } else {
               $$ = L(ast_call($3, margs ? ast_seq_front(margs, recv) : recv));
           }
