@@ -15,6 +15,7 @@
 #include "ir/vm.h"
 #include "ir/ir_cgen.h"
 #include "parse/import.h"
+#include "i18n/lm_i18n.h"
 
 extern AstNode* root;
 extern int yyparse(void);
@@ -36,6 +37,9 @@ static void default_basename(const char* path, char* out, int size) {
 int main(int argc, char** argv) {
     int codegen_mode = 0;
     int only_emit_c = 0;
+
+    /* Initialize i18n - auto-detect system language */
+    lm_i18n_init();
 
     const char* src_file = NULL;
     const char* out_base = NULL;
@@ -59,11 +63,11 @@ int main(int argc, char** argv) {
     }
 
     if(!src_file) {
-        fprintf(stderr, "Usage: %s [-c|-S] <source.lm> [-o output_name]\n", argv[0]);
-        fprintf(stderr, "  默认:               解释执行源码\n");
-        fprintf(stderr, "  -c:                 转译C源码 + gcc编译生成可执行文件\n");
-        fprintf(stderr, "  -S:                 仅输出C源码，不编译\n");
-        fprintf(stderr, "  -o:                 指定输出basename，默认取源文件名\n");
+        fprintf(stderr, LM_TR(MSG_USAGE), argv[0]);
+        fprintf(stderr, LM_TR(MSG_USAGE_DEFAULT));
+        fprintf(stderr, LM_TR(MSG_USAGE_C));
+        fprintf(stderr, LM_TR(MSG_USAGE_S));
+        fprintf(stderr, LM_TR(MSG_USAGE_O));
         return 1;
     }
 
@@ -75,7 +79,7 @@ int main(int argc, char** argv) {
     int had_mod = 0;
     char* merged = lm_preprocess_main(src_file, &had_mod);
     if(had_mod < 0) {
-        fprintf(stderr, "模块预处理失败，编译中止\n");
+        fprintf(stderr, LM_TR(MSG_MODULE_PREPROCESS_FAIL));
         return 1;
     }
 
@@ -125,7 +129,7 @@ int main(int argc, char** argv) {
     int ret = yyparse();
     if(ret == 0 && root != NULL) {
         if(ast_typecheck(root)) {
-            fprintf(stderr, "语义检查未通过，编译中止\n");
+            fprintf(stderr, LM_TR(MSG_SEMANTIC_CHECK_FAIL));
             ast_free(root);
             root = NULL;
             ret = 1;
@@ -157,7 +161,7 @@ int main(int argc, char** argv) {
                 BytecodeFunc* main_fn = ir_compile_main(root);
                 ir_cgen_file(c_path, main_fn);
                 bytecode_func_free(main_fn);
-                printf("[CodeGen] 已生成 %s\n", c_path);
+                printf(LM_TR(MSG_CODEGEN_GENERATED), c_path);
 
                 if(!only_emit_c) {
                     char cmd[PATH_MAX * 2];
@@ -183,9 +187,9 @@ int main(int argc, char** argv) {
                     int sys_ret = system(cmd);
 
                     if(sys_ret == 0) {
-                        printf("[CodeGen] 已编译为 ./%s\n", exe_path);
+                        printf(LM_TR(MSG_CODEGEN_COMPILED), exe_path);
                     } else {
-                        fprintf(stderr, "[CodeGen] %s 编译失败\n", gen_cc);
+                        fprintf(stderr, LM_TR(MSG_CODEGEN_COMPILE_FAIL), gen_cc);
                         return 1;
                     }
                 }
