@@ -2155,7 +2155,19 @@ void gc_unregister_thread(void)
             break;
         }
         pp = &(*pp)->next;
-    }    pthread_mutex_unlock(&g_gc_mutex);
+    }
+    /* 清理线程本地空闲链表（tla_local_free）：
+     * 其中的对象 marked=2（永生），线程退出后永远无法被重新分配或 GC 回收。
+     * 将 marked 改为 0，使下一次 GC sweep 可回收它们。
+     * 这些对象不被任何根引用（线程已退出），GC 标记阶段不会解析它们的 Value 数据。 */
+    GCObject* tcur = tla_local_free;
+    while (tcur) {
+        if (tcur->marked == 2) tcur->marked = 0;
+        tcur = TLA_LOCAL_NEXT(tcur);
+    }
+    tla_local_free = NULL;
+    tla_local_count = 0;
+    pthread_mutex_unlock(&g_gc_mutex);
     tls_cur_vm_entry = next_for_self;
 }
 
