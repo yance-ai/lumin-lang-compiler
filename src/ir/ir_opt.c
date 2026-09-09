@@ -491,10 +491,9 @@ static int propagate_pass(BytecodeFunc* fn)
 /* ========================================================================
  * 优化驱动：迭代至收敛
  *
- * 当前启用：仅 Pass A 常量折叠（ir_opt_constant_fold）。
- * Pass B 分支折叠 / Pass C DCE / Pass D 常量传播 为并行开发中的后续 pass，
- * 其 propagate_pass 存在循环归纳变量误传播缺陷（i=0 在循环头被错当常量，
- * 导致 `i<3` 被错折为恒真、死循环），暂不启用；保留代码待后续修复。
+ * 启用：Pass A 常量折叠 → Pass C DCE → 再常量折叠（DCE 后可能暴露新折叠机会）。
+ * Pass B 分支折叠已并入常量折叠。
+ * Pass D 常量传播存在循环归纳变量误传播缺陷，暂不启用。
  * 环境变量 LM_OPT=0 可整体关闭优化（调试用）。
  * ======================================================================== */
 void ir_optimize(BytecodeFunc* fn)
@@ -506,6 +505,7 @@ void ir_optimize(BytecodeFunc* fn)
 
     for(int iter = 0; iter < 16; iter++) {
         int changed = ir_opt_constant_fold(fn);   // Pass A：常量折叠
+        changed |= dce_pass(fn);                  // Pass C：死代码消除
         if(!changed) break;
     }
 
