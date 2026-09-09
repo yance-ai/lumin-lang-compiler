@@ -121,11 +121,13 @@ static void vm_thread_body(ThreadLaunch* t)
     EvalCtx ctx = {0};
     g_trace_push("<thread>");
     Value r = rf->entry(t->argc, t->args, &ctx, callee);
+    /* vm_run 已自行 unregister。线程结果已通过 lumin_thread_set_result
+     * 写入 g_slots，由 GC 全局根扫描回调保护。此处直接读取即可。 */
     if(g_trace_n > 0) g_trace_n--;
     interp_set_current_rf(prev_rf);
     stackframe_destroy(callee);
     s_global_frame = saved_global;
-    lumin_thread_set_result(t, r);
+    lumin_thread_set_result_protected(t, r);
     free(a);
 }
 

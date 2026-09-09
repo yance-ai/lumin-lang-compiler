@@ -333,7 +333,7 @@ static void emit_insns(BytecodeFunc* fn)
                             int fidx = -1;
                             for(int fi = 0; fi < ir_func_table_count(); fi++)
                                 if(strcmp(ir_func_table_get(fi)->name, vnm) == 0) { fidx = fi; break; }
-                            fprintf(out, "    { Value __f; __f.type = VAL_FUNC; __f.v.func.func_obj = (void*)lum_wrap_%d; __stk[__sp++] = __f; }\n", fidx);
+                            fprintf(out, "    { Value __f; __f.type = VAL_FUNC; __f.v.func.func_obj = (void*)&lum_wrap_%d_rf; __stk[__sp++] = __f; }\n", fidx);
                         } else {
                             /* 不支持的值表达式类型：回退到正常处理（不应发生，分析阶段已过滤） */
                             fprintf(out, "    __stk[__sp++] = val_none(); /* scalar-repl fallback */\n");
@@ -379,7 +379,7 @@ static void emit_insns(BytecodeFunc* fn)
                 for(int fi = 0; fi < ir_func_table_count(); fi++)
                     if(strcmp(ir_func_table_get(fi)->name, nm) == 0) { fidx = fi; break; }
                 if(fidx < 0) { fprintf(stderr, "codegen: 未定义函数: %s\n", nm); exit(EXIT_FAILURE); }
-                fprintf(out, "    { Value __f; __f.type = VAL_FUNC; __f.v.func.func_obj = (void*)lum_wrap_%d; __stk[__sp++] = __f; }\n", fidx);
+                fprintf(out, "    { Value __f; __f.type = VAL_FUNC; __f.v.func.func_obj = (void*)&lum_wrap_%d_rf; __stk[__sp++] = __f; }\n", fidx);
                 break;
             }
             case OPC_LOAD_VAR:
@@ -594,7 +594,7 @@ static void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "        int __argc = %d;\n", argc);
                         fprintf(out, "        Value __fn = __stk[__sp - __argc];\n");
                         fprintf(out, "        if(__fn.type != VAL_FUNC) runtime_error(\"thread() 第一个参数必须是函数\");\n");
-                        fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
+                        fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))((RuntimeFunc*)__fn.v.func.func_obj)->entry;\n");
                         if(argc > 1)
                             fprintf(out, "        int __tid = lumin_thread_start_c(__cf, &__stk[__sp - __argc + 1], %d);\n", argc - 1);
                         else
@@ -987,7 +987,7 @@ static void emit_insns(BytecodeFunc* fn)
                             /* 字典 map：fn(value, key) → 新字典（键不变值映射） */
                             fprintf(out, "        if(__arr.type == VAL_MAP) {\n");
                             fprintf(out, "            if(__fn.type != VAL_FUNC) runtime_error(\"map() 第二个参数必须是函数\");\n");
-                            fprintf(out, "            Value (*__cfm)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
+                            fprintf(out, "            Value (*__cfm)(Value*, int) = (Value(*)(Value*, int))((RuntimeFunc*)__fn.v.func.func_obj)->entry;\n");
                             fprintf(out, "            Value __mout = val_map();\n");
                             fprintf(out, "            MapIter __it; map_iter_init(&__it, __arr.v.map);\n");
                             fprintf(out, "            Value __mk, __mv;\n");
@@ -1001,7 +1001,7 @@ static void emit_insns(BytecodeFunc* fn)
                         }
                         fprintf(out, "        if(__arr.type != VAL_ARRAY) runtime_error(\"map()/filter()/reduce() 第一个参数必须是数组\");\n");
                         fprintf(out, "        if(__fn.type != VAL_FUNC) runtime_error(\"map()/filter()/reduce() 第二个参数必须是函数\");\n");
-                        fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))__fn.v.func.func_obj;\n");
+                        fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))((RuntimeFunc*)__fn.v.func.func_obj)->entry;\n");
                         fprintf(out, "        int __n = __arr.v.array->len;\n");
                         if(in.a == BUILTIN_MAP) {
                             fprintf(out, "        Value __out = val_array(__n);\n");
@@ -1150,7 +1150,7 @@ static void emit_insns(BytecodeFunc* fn)
                     fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
                     fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - __argc + __k];\n");
                     fprintf(out, "        __sp -= __argc;\n");
-                    fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))__f.v.func.func_obj)(__args, __argc);\n");
+                    fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))((RuntimeFunc*)__f.v.func.func_obj)->entry)(__args, __argc);\n");
                     fprintf(out, "    }\n");
                     break;
                 }
@@ -1207,7 +1207,7 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
                 fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - %d + __k];\n", argc);
                 fprintf(out, "        __sp -= %d + 1;\n", argc);
-                fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))__f.v.func.func_obj)(__args, __argc);\n");
+                fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))((RuntimeFunc*)__f.v.func.func_obj)->entry)(__args, __argc);\n");
                 fprintf(out, "    }\n");
                 break;
             }
@@ -1958,6 +1958,11 @@ static void emit_func_wraps(void)
             }
         }
         fprintf(out, ");\n}\n\n");
+        /* 静态 RuntimeFunc 包装：GC 扫描 VAL_FUNC 时读取 captures/capture_count，
+         * 直接把 C 函数指针当 RuntimeFunc* 会读到代码字节 → UAF。
+         * 用静态 RuntimeFunc（captures=NULL, capture_count=0）确保 GC 安全跳过。 */
+        fprintf(out, "static RuntimeFunc lum_wrap_%d_rf = { (FuncEntry*)lum_wrap_%d, %d, %d, NULL, 0 };\n\n",
+                i, i, fn->param_cnt, fn->has_variadic ? 1 : 0);
     }
     fprintf(out, "static Value (*const lumin_cfunc_tbl[])(Value*, int) = {\n");
     for(int i = 0; i < cnt; i++)

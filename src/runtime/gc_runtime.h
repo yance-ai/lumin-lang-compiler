@@ -106,6 +106,11 @@ void gc_register_thread(Value* stack, int* sp_ptr, StackFrame* frame);
 /* 从全局注册表移除当前线程最近注册的 entry（栈式语义） */
 void gc_unregister_thread(void);
 
+/* 注册全局根扫描回调：外部模块（如线程表）注册需 GC 扫描的全局堆引用。
+ * GC 标记阶段会调用此回调，确保全局表中的活跃堆对象不被误回收。 */
+typedef void (*GCGlobalRootScanFn)(void);
+void gc_register_global_root_scan(GCGlobalRootScanFn fn);
+
 /* 协作式 STW 安全点：VM 解释循环每条指令前调用，GC 运行时自旋等待 */
 void gc_stw_check(void);
 

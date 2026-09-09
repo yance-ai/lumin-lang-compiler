@@ -673,7 +673,7 @@ void gc_mark(Value v)
     }
     case VAL_FUNC: {
         RuntimeFunc* f = v.v.func.func_obj;
-        if (f && f->captures) {
+        if (f && GC_VALID_PTR(f) && f->captures && GC_VALID_PTR(f->captures) && f->capture_count > 0) {
             for (int i = 0; i < f->capture_count; i++) {
                 gc_mark(f->captures[i]);
             }
@@ -861,7 +861,7 @@ void gc_mark_value_to_stack(Value v)
          * 注意 capture_count==-1 是解释器 payload 标记，captures 是 InterpFuncPayload*，
          * 不是 Value 数组，绝对不能遍历！ */
         RuntimeFunc* f = v.v.func.func_obj;
-        if (f && f->captures && f->capture_count > 0) {
+        if (f && GC_VALID_PTR(f) && f->captures && GC_VALID_PTR(f->captures) && f->capture_count > 0) {
             for (int i = 0; i < f->capture_count; i++) {
                 gc_mark_value_to_stack(f->captures[i]);
             }
@@ -1076,9 +1076,11 @@ static void gc_mark_value_to_stack_minor(Value v)
         break;
     }
     case VAL_FUNC: {
-        /* RuntimeFunc 是 malloc 非 GC 对象，始终遍历 captures */
+        /* RuntimeFunc 是 malloc 非 GC 对象，始终遍历 captures。
+         * 安全检查：f 和 f->captures 都必须在合理堆范围内，
+         * 防止 C 栈上的垃圾 Value 被误判为 VAL_FUNC 导致 UAF。 */
         RuntimeFunc* f = v.v.func.func_obj;
-        if (f && f->captures && f->capture_count > 0) {
+        if (f && GC_VALID_PTR(f) && f->captures && GC_VALID_PTR(f->captures) && f->capture_count > 0) {
             for (int i = 0; i < f->capture_count; i++) {
                 gc_mark_value_to_stack_minor(f->captures[i]);
             }
@@ -1221,6 +1223,12 @@ static void gc_scan_cframe_chain_to_stack(CFrame* cf)
  * - g_gc_threads 注册表中所有线程的 stack[0..*sp_ptr] + frame 链局部变量
  * - g_gc_cframe_threads 注册表中所有线程的 CFrame 链
  * - 安全兜底：注册表为空时使用传入的 stack/sp/frame 参数 */
+/* ---- 全局根回调：外部模块（如线程表）注册需扫描的全局堆引用 ---- */
+typedef void (*GCGlobalRootScanFn)(void);
+static GCGlobalRootScanFn g_global_root_scan = NULL;
+
+void gc_register_global_root_scan(GCGlobalRootScanFn fn) { g_global_root_scan = fn; }
+
 void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame)
 {
     if (g_gc_threads) {
@@ -1240,6 +1248,8 @@ void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame)
     if (tls_cframe && !g_gc_cframe_threads) {
         gc_scan_cframe_chain_to_stack(tls_cframe);
     }
+    /* 扫描外部模块注册的全局根（如线程表中的待 join 结果） */
+    if (g_global_root_scan) g_global_root_scan();
 }
 
 /* Minor GC 专用：扫描单个 VM 栈 + 帧链（只标记新生代） */
@@ -1298,6 +1308,8 @@ static void gc_scan_roots_minor(Value* stack, int sp, StackFrame* frame)
     if (tls_cframe && !g_gc_cframe_threads) {
         gc_scan_cframe_chain_minor(tls_cframe);
     }
+    /* 扫描外部模块注册的全局根（如线程表中的待 join 结果） */
+    if (g_global_root_scan) g_global_root_scan();
 }
 
 /* ============================================================
@@ -1332,8 +1344,7 @@ void gc_sweep(void)
         } else if (!cur->marked) {
             /* 未标记：需要回收 */
             if (cur->user_size <= TLA_MAX_SIZE) {
-                /* 小对象：从 g_gc_objects 摘除，移入全局空闲链表
-                 * 不触碰用户数据区域（避免多线程 GC 误回收时立即破坏对象内容） */
+                /* 小对象：从 g_gc_objects 摘除，移入全局空闲链表 */
                 *pp = cur->next;
                 g_gc_bytes -= sizeof(GCObject) + cur->user_size;
                 cur->marked = 2;
@@ -1455,12 +1466,17 @@ static void gc_sweep_minor(void)
 
 /* 轮询所有注册线程到达安全点（带超时保护）。
  * 调用前必须已设置 g_gc_stw=1 和 GC 线程自身 at_safepoint=1。
- * 用 sched_yield() 自旋（macOS 定时器粒度约 1ms，nanosleep 开销大）。 */
+ * 用 sched_yield() 自旋（macOS 定时器粒度约 1ms，nanosleep 开销大）。
+ *
+ * 每次遍历列表都持 g_gc_mutex：防止其他线程并发 register/unregister 修改链表时
+ * 本线程读到已释放 entry 的 next 指针（use-after-free）。持锁期间 worker 线程
+ * 在 gc_stw_check 自旋不需要 g_gc_mutex，无死锁。 */
 static void gc_wait_all_threads_at_safepoint(void)
 {
     int poll_iters = 0;
     while (1) {
         int all_paused = 1;
+        pthread_mutex_lock(&g_gc_mutex);
         for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
             if (!e->at_safepoint) { all_paused = 0; break; }
         }
@@ -1469,6 +1485,7 @@ static void gc_wait_all_threads_at_safepoint(void)
                 if (!e->at_safepoint) { all_paused = 0; break; }
             }
         }
+        pthread_mutex_unlock(&g_gc_mutex);
         if (all_paused) break;
         if (poll_iters >= STW_POLL_MAX_ITERS) {
             fprintf(stderr, "GC: WARNING: STW timeout, some threads not at safepoint (blocked in IO/lock?)\n");

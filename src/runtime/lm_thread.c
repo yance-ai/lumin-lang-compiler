@@ -24,6 +24,18 @@ static int g_cap = 0;                 // 当前容量
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_next_id = 0;             // 线程 id 自增（int，实际到不了上限）
 
+/* GC 全局根扫描：扫描所有已使用槽位中的 result 值。
+ * 工作线程退出后，result 堆对象无根可达，必须由 GC 显式扫描防止误回收。
+ * 注意：GC 在 STW 下运行，所有线程已暂停，无需取 g_lock（否则死锁：
+ * 暂停线程可能正持有 g_lock）。Value 读取在 x86-64 对齐原子，安全。 */
+static void gc_scan_thread_roots(void) {
+    for (int i = 0; i < g_cap; i++) {
+        if (g_slots[i].used) {
+            gc_mark_value_to_stack(g_slots[i].result);
+        }
+    }
+}
+
 typedef struct {
     ThreadBody body;
     void* data;
@@ -56,6 +68,8 @@ int lumin_thread_start(ThreadBody body, void* data, const Value* args, int argc)
         g_slots = (ThreadSlot*)calloc(LM_THREAD_INITIAL_CAP, sizeof(ThreadSlot));
         if(!g_slots) { pthread_mutex_unlock(&g_lock); runtime_error("thread: 内存不足"); }
         g_cap = LM_THREAD_INITIAL_CAP;
+        /* 注册 GC 全局根扫描：确保线程表中的待 join 结果不被误回收 */
+        gc_register_global_root_scan(gc_scan_thread_roots);
     }
     int slot = -1;
     for(int i = 0; i < g_cap; i++) {
@@ -125,13 +139,25 @@ void lumin_thread_set_result(ThreadLaunch* t, Value r)
     gc_protect_pop();
 }
 
+void lumin_thread_set_result_protected(ThreadLaunch* t, Value r)
+{
+    /* 调用方已 gc_protect_push(r)，此处直接 clone 不再重复保护。
+     * 调用方负责随后 gc_protect_pop()。 */
+    pthread_mutex_lock(&g_lock);
+    g_slots[t->slot].result = val_clone(&r);
+    pthread_mutex_unlock(&g_lock);
+}
+
 // C 生成端线程体：直接调函数指针
+// 修复 root scanning bug：必须在 lumin_thread_set_result 完成后再 unregister，
+// 否则 unregister→protect_push 之间 r 在 C 栈上不被根扫描覆盖，
+// 其他线程触发 GC 时 r 引用的堆对象会被错误回收 → UAF。
 static void lm_c_thread_body(ThreadLaunch* t)
 {
     Value (*cf)(Value*, int) = (Value(*)(Value*, int))t->data;
     Value r = cf(t->args, t->argc);
-    gc_unregister_cframe_thread();
     lumin_thread_set_result(t, r);
+    gc_unregister_cframe_thread();
 }
 
 int lumin_thread_start_c(Value (*cf)(Value*, int), const Value* args, int argc)

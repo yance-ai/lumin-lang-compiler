@@ -29,5 +29,8 @@ int lumin_thread_start(ThreadBody body, void* data, const Value* args, int argc)
 int lumin_thread_start_c(Value (*cf)(Value*, int), const Value* args, int argc);
 Value lumin_thread_join(int id);
 void lumin_thread_set_result(ThreadLaunch* t, Value r);
+/* 已保护版本：调用方已用 gc_protect_push(r) 保护 r，本函数不再重复保护。
+ * 用于 VM 通道线程体：vm_run 已自行 unregister，需在 cleanup 前 protect_push(r)。 */
+void lumin_thread_set_result_protected(ThreadLaunch* t, Value r);
 
 #endif // LM_THREAD_H
