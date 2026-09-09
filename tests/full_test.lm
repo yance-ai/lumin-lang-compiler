@@ -69,9 +69,9 @@ print(replace("banana", "na", "NA")); // baNANA
 print(format("{} + {} = {}", 1, 2, 3)); // 1 + 2 = 3
 name = "lumin";
 nn = 99;
-print("hi {name} #{nn}");       // hi lumin #99
-print("{{x}}={nn}");            // {x}=99
-print("s[0]={s[0]} up={toupper(name)}"); // s[0]=H up=LUMIN
+print(f"hi {name} #{nn}");       // hi lumin #99
+print(f"{{x}}={nn}");            // {x}=99
+print(f"s[0]={s[0]} up={toupper(name)}"); // s[0]=H up=LUMIN
 print("a" + "b" + "c");         // abc
 print("v=" + 7);                // v=7
 print(7 + "v");                 // 7v
@@ -130,7 +130,7 @@ print(join(map([1, 2, 3], f), ","));   // 2,4,6
 print(join(map([1, 2, 3], func(v) { return v * v; }), ",")); // 1,4,9
 print(reduce([1, 2, 3, 4], func(a, b) { return a + b; }, 0)); // 10
 func squares(n) { return map(range(n), func(x) { return x * x; }); }
-print("sq2={squares(3)[1]}");  // sq2=1
+print(f"sq2={squares(3)[1]}");  // sq2=1
 g2 = fact;                     // 具名函数赋值
 print(g2(6));                  // 720
 g2 = 42;                       // 变量改存数字
@@ -176,11 +176,11 @@ print(join(map(words, func(w) { return toupper(w); }), ","));  // HELLO,WORLD,LU
 words2 = ["a", "bb", "ccc"];
 print(join(map(words2, func(w) { return w + "!"; }), " "));    // a! bb! ccc!
 v = 1;
-print("v={v}");              // v=1
+print(f"v={v}");              // v=1
 v = "one";
-print("v={v}");              // v=one
+print(f"v={v}");              // v=one
 v = null;
-print("v={v}");              // v=null
+print(f"v={v}");              // v=null
 nums = [10, 20, 30];
 print(sum(nums) + max(nums));    // 90
 print(avg(nums) * 2);            // 40
@@ -220,22 +220,22 @@ print(arr.len());                       // 3
 print([1, 2, 3].sum());                 // 6
 print([1, 2, 3].avg());                 // 2
 nm = " lumin ";
-print("[{nm.strip().toupper()}]");      // [LUMIN]
+print(f"[{nm.strip().toupper()}]");      // [LUMIN]
 
 // ============ 10. 动态字符串内插安全性 ============
 server = "hello {{name}}";            // 运行时值 hello {{name}}（源码 {{ 转义）
-print("{server}");                    // hello {{name}}（原样，不二次解析）
+print(f"{server}");                    // hello {{name}}（原样，不二次解析）
 srv2 = "price: {}";
-print("{srv2}");                      // price: {}（原样）
+print(f"{srv2}");                      // price: {}（原样）
 srv3 = "a}" + "{{" + "c";             // 运行时值 a}{{c
-print("{srv3}");                      // a}{{c（原样）
+print(f"{srv3}");                      // a}{{c（原样）
 n2 = 5;
-t2 = "x={n2}";
+t2 = f"x={n2}";
 print(t2);                            // x=5（模板已求值）
-print("{t2}");                        // x=5（原样，不二次内插）
-print("{{x}} {n2}");                // {x} 5（{{ 转义 + {n2} 内插混合）
+print(f"{t2}");                        // x=5（原样，不二次内插）
+print(f"{{x}} {n2}");                // {x} 5（{{ 转义 + {n2} 内插混合）
 print(format("{{x}} {}", n2));      // {x} 5（format 占位 + 转义混合）
-print("v={\"a{b}c\".len()}");         // v=5（内插表达式内字符串用 \"）
+print(f"v={\"a{b}c\".len()}");         // v=5（内插表达式内字符串用 \"）
 
 // ============ 11. 文件 IO ============
 print(file_exists("/tmp/ft_io_nonexist.txt")); // false
@@ -249,10 +249,10 @@ print(join(lines, "|"));                     // alpha|beta
 print(lines[1]);                             // beta
 write "/tmp/ft_io.txt" "overwrite";
 print(read "/tmp/ft_io.txt");                // overwrite
-write "/tmp/ft_io.txt" "n={42}";
+write "/tmp/ft_io.txt" f"n={42}";
 print(read "/tmp/ft_io.txt");                // n=42
 idx = 2;
-write "/tmp/ft_data_{idx}.txt" "x";          // 模板路径
+write f"/tmp/ft_data_{idx}.txt" "x";          // 模板路径
 print(file_exists("/tmp/ft_data_2.txt"));    // true
 print(read "/tmp/ft_data_2.txt");            // x
 
@@ -309,7 +309,7 @@ print("after2");              // after2
 
 // 跨函数错误 + 错误消息模板内插
 func boom(i) { x = [1, 2, 3]; return x[i]; }
-try { y = boom(10); } catch (err) { print("c4: {err}"); }  // c4: 数组下标越界: 10 (长度 3)
+try { y = boom(10); } catch (err) { print(f"c4: {err}"); }  // c4: 数组下标越界: 10 (长度 3)
 
 // 循环内 try + continue
 s = 0;
@@ -318,7 +318,7 @@ for (i = 0; i < 5; i++) {
         if (i == 3) { s = s + [9][i]; }
         s = s + 1;
     } catch (e) {
-        print("c5: iter {i}");  // c5: iter 3
+        print(f"c5: iter {i}");  // c5: iter 3
         continue;
     }
 }

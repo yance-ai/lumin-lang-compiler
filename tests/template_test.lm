@@ -26,15 +26,15 @@ print(sum_all(1, 2, 3));        // 6
 // ---- 字符串模板：基本内插 ----
 name = "lumin";
 n = 42;
-print("hello {name}");                     // hello lumin
-print("val={n} sq={n * n} even={n % 2 == 0}"); // val=42 sq=1764 even=true
+print(f"hello {name}");                     // hello lumin
+print(f"val={n} sq={n * n} even={n % 2 == 0}"); // val=42 sq=1764 even=true
 
 // ---- 模板：转义 / 嵌套调用 / 下标 / 三元 ----
-print("{{literal}} n={n}");                // {literal} n=42
-print("pi={3.14} s={format(\"a={}\", 1)}"); // pi=3.14 s=a=1
+print(f"{{literal}} n={n}");                // {literal} n=42
+print(f"pi={3.14} s={format(\"a={}\", 1)}"); // pi=3.14 s=a=1
 arr = [7, 8];
-print("arr[1]={arr[1]} f={len(arr)}");     // arr[1]=8 f=2
-print("t={n > 5 ? \"yes\" : \"no\"} u={n > 0 && n < 10}"); // t=yes u=true
+print(f"arr[1]={arr[1]} f={len(arr)}");     // arr[1]=8 f=2
+print(f"t={n > 5 ? \"yes\" : \"no\"} u={n > 0 && n < 10}"); // t=yes u=true
 
 // ---- 模板：字面 {}（format 占位）不拦截 ----
 print(format("{}", join(a, "-")));         // 1-2-3-4

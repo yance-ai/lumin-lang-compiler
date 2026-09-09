@@ -67,7 +67,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 }
 
 %token PRINT ID NUMBER INTEGER PLUS MINUS MUL DIV ASSIGN SEMI LPAREN RPAREN
-%token TRUE FALSE NULL_LIT STRING_LIT MAP_OPEN
+%token TRUE FALSE NULL_LIT STRING_LIT FSTRING_LIT MAP_OPEN
 %token IF ELSEIF ELSE
 %token GE LE EQ NE GT LT
 %token LBRACE RBRACE
@@ -109,7 +109,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type <ch> char_lit
 %type<ll> INTEGER
 %type<d> NUMBER
-%type<s> ID STRING_LIT
+%type<s> ID STRING_LIT FSTRING_LIT
 
 %%
 
@@ -140,8 +140,14 @@ closed_stmt
     | return_stmt                    { $$ = $1; }
     | func_def                       { $$ = $1; }          /* 新增函数定义语句 */
     | WRITE STRING_LIT expr SEMI {
-          /* write "path" value → write_file(path, value)；路径支持模板内插 */
-          AstNode* p = maybe_template($2);
+          /* write "path" value → write_file(path, value)；普通路径不内插 */
+          AstNode* p = ast_string($2);
+          free($2);
+          $$ = L(ast_call(strdup("write_file"), ast_seq(p, $3)));
+      }
+    | WRITE FSTRING_LIT expr SEMI {
+          /* write f"path" value → write_file(path, value)；f 前缀路径支持模板内插 */
+          AstNode* p = L(maybe_template($2));
           free($2);
           $$ = L(ast_call(strdup("write_file"), ast_seq(p, $3)));
       }
@@ -307,7 +313,8 @@ primary
     | TRUE                    { $$ = ast_bool(1); }
     | FALSE                   { $$ = ast_bool(0); }
     | NULL_LIT                { $$ = ast_none(); }
-    | STRING_LIT              { $$ = L(maybe_template($1)); free($1); }
+    | STRING_LIT              { $$ = ast_string($1); free($1); }
+    | FSTRING_LIT             { $$ = L(maybe_template($1)); free($1); }
     | char_lit                { $$ = ast_new_char($1); }
     | ID                      { $$ = L(ast_var($1)); }
     | ID LPAREN arg_list RPAREN { $$ = L(ast_call($1, $3)); }  /* 函数调用 foo(a,b,c) */
@@ -395,8 +402,14 @@ primary
           sym_set(nm, func_val);
       }
     | READ STRING_LIT {
-          /* read "path" → 文件内容；路径支持模板内插；结果可后续缀（.len() 等） */
-          AstNode* p = maybe_template($2);
+          /* read "path" → 文件内容；普通路径不内插；结果可后续缀（.len() 等） */
+          AstNode* p = ast_string($2);
+          free($2);
+          $$ = L(ast_call(strdup("read_file"), p));
+      }
+    | READ FSTRING_LIT {
+          /* read f"path" → 文件内容；f 前缀路径支持模板内插；结果可后续缀 */
+          AstNode* p = L(maybe_template($2));
           free($2);
           $$ = L(ast_call(strdup("read_file"), p));
       }
@@ -444,7 +457,12 @@ map_items
 
 map_item
     : STRING_LIT COLON expr {
-          AstNode* k = maybe_template($1);
+          AstNode* k = ast_string($1);
+          free($1);
+          $$ = ast_map_entry(k, $3);
+      }
+    | FSTRING_LIT COLON expr {
+          AstNode* k = L(maybe_template($1));
           free($1);
           $$ = ast_map_entry(k, $3);
       }
