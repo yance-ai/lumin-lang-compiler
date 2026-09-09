@@ -11,7 +11,7 @@
 #ifndef LM_THREAD_H
 #define LM_THREAD_H
 
-#include "ast/lumin_value_type.h"
+#include "lumin_value_type.h"
 
 #define LM_THREAD_INITIAL_CAP 64   // 线程表初始容量；按需翻倍扩容，无硬上限（受系统资源/OS 限制）
 

@@ -17,7 +17,7 @@
 //   - DIV/MOD 右操作数为 0 时不折叠，保留运行期 inf/NaN 行为；
 //   - 仅折叠纯算术/比较/一元/强转，这些运算无副作用。
 #include "ir_opt.h"
-#include "runtime/lm_value.h"
+#include "lm_value.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

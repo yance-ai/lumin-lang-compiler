@@ -4,24 +4,24 @@
 #include "ast/stackframe.h"
 #include "ast/func_compile.h"
 #include "ast/ast_runtime_sym.h"
-#include "runtime/lm_value.h"
-#include "runtime/lm_runtime.h"
-#include "runtime/gc_runtime.h"
-#include "runtime/lm_thread.h"
+#include "lm_value.h"
+#include "lm_runtime.h"
+#include "gc_runtime.h"
+#include "lm_thread.h"
 
 /* 线程模式：最外层 vm_run 不自行 unregister，由 vm_thread_body 在 set_result 后统一注销。
  * 深度计数器确保嵌套 vm_run 正常 register/unregister，skip 标志只影响最外层。 */
 static _Thread_local int tls_vm_run_depth = 0;
 static _Thread_local int tls_skip_vm_unregister = 0;
-#include "runtime/lm_lock.h"
-#include "runtime/lm_tls.h"
-#include "runtime/lm_http.h"
-#include "runtime/lm_json.h"
-#include "runtime/lm_qs.h"
-#include "runtime/lm_charset.h"
-#include "runtime/lm_crypto.h"
-#include "runtime/lm_regex.h"
-#include "runtime/lm_time.h"
+#include "lm_lock.h"
+#include "lm_tls.h"
+#include "lm_http.h"
+#include "lm_json.h"
+#include "lm_qs.h"
+#include "lm_charset.h"
+#include "lm_crypto.h"
+#include "lm_regex.h"
+#include "lm_time.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>

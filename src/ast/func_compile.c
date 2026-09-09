@@ -8,7 +8,7 @@
 #include "ir/ir_compile.h"
 #include "ast_runtime_sym.h"
 #include "ir/vm.h"
-#include "runtime/gc_runtime.h"
+#include "gc_runtime.h"
 
 // ---- 当前被调函数：解释器entry入口处查询自身payload用 ----
 // 调用点先set、entry入口立即读取到局部变量，之后嵌套调用不影响

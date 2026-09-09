@@ -1,8 +1,8 @@
 #ifndef LM_HTTP_H
 #define LM_HTTP_H
 
-#include "ast/lumin_value_type.h"
-#include "ast/lumin_value.h"
+#include "lumin_value_type.h"
+#include "lumin_value.h"
 
 // 发 HTTP 请求（libcurl）
 //   method : "GET"/"POST"/"PUT"/"DELETE"/"HEAD"/"PATCH" 等

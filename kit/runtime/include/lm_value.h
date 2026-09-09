@@ -4,8 +4,8 @@
 #ifndef LM_VALUE_H
 #define LM_VALUE_H
 
-#include "ast/lumin_value_type.h"
-#include "ast/lumin_value.h"
+#include "lumin_value_type.h"
+#include "lumin_value.h"
 
 // 构造
 Value lumin_make_int(long long i);

@@ -7,7 +7,7 @@
 #include "ast/lumin_types.h"
 #include "ast/ast_types.h"
 #include "ast/func_compile.h"
-#include "runtime/lm_value.h"
+#include "lm_value.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

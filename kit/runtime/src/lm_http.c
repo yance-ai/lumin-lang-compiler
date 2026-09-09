@@ -1,7 +1,7 @@
 // lm_http.c —— HTTP 客户端（libcurl 实现；requests.get/post/... 内置的运行时支撑）
-#include "runtime/lm_http.h"
-#include "runtime/lm_map.h"
-#include "runtime/lm_value.h"
+#include "lm_http.h"
+#include "lm_map.h"
+#include "lm_value.h"
 #include <curl/curl.h>
 #include <pthread.h>
 #include <string.h>

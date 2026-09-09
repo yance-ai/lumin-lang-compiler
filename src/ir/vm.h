@@ -2,7 +2,7 @@
 #define LUMIN_IR_VM_H
 
 #include "bytecode.h"
-#include "ast/lumin_value_type.h"
+#include "lumin_value_type.h"
 
 // 顶层入口：建顶层栈帧执行 main 字节码
 Value vm_run_main(BytecodeFunc* main_fn);

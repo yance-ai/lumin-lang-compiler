@@ -1,5 +1,5 @@
 #include "bytecode.h"
-#include "../runtime/gc_runtime.h"
+#include "gc_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

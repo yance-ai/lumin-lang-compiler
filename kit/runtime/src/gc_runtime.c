@@ -35,7 +35,10 @@
 
 /* 闭包实例扫描（定义于 ast/func_compile.c）：遍历 InterpFuncPayload.captured_cells，
  * 对每个堆 Value* 单元调用 mark(*cell)。GC 标记 VAL_FUNC 时调用，避免捕获的字符串/数组被误回收。 */
-extern void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value));
+/* 弱定义桩：解释器通道会覆盖此实现；编译通道不调用，空桩避免链接缺失。 */
+__attribute__((weak)) void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value)) {
+    (void)rf; (void)mark;
+}
 #if defined(__has_feature)
 #  if __has_feature(address_sanitizer)
 #    include <sanitizer/asan_interface.h>  /* ASan：保守栈扫描前检测 poisoned 红区 */

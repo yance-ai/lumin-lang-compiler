@@ -1,7 +1,8 @@
 # lumin-lang-compiler Makefile
-# Cross-platform: macOS / Linux / Windows (MinGW-w64 + Git Bash)
+# Cross-platform: macOS / Linux / Windows (MinGW-w64)
+# 大项目架构：runtime 编译为静态库 libruntime.a，编译器和生成代码都链接它
 CC ?= gcc
-CFLAGS ?= -Wall -Wextra -g -I./src -I./generated
+CFLAGS ?= -Wall -Wextra -g -I./src -I./generated -I./kit/runtime/include
 
 # ========== 操作系统检测 ==========
 UNAME_S := $(shell uname -s)
@@ -22,18 +23,19 @@ else
     EXE_EXT :=
 endif
 
-# Directories
+# ========== 目录定义 ==========
 SRC_DIR     := src
 GEN_DIR     := generated
-SRC_EMBED   := src/embed
-BUILD_DIR   := src/runtime-full
 YACC_DIR    := src/yacc
 PARSE_SRC   := src/parse
 TEST_DIR    := tests
 BIN_DIR     := bin
+LIB_DIR     := lib
+RUNTIME_DIR := kit/runtime
 
 BIN_NAME    := lumin
 BIN_LOCAL   := $(BIN_DIR)/$(BIN_NAME)$(EXE_EXT)
+RUNTIME_LIB := $(LIB_DIR)/libruntime.a
 
 LEX_SRC     := $(SRC_DIR)/lex/lex.l
 YACC_SRC    := $(PARSE_SRC)/yacc.y
@@ -43,21 +45,8 @@ YACC_GEN_C  := $(YACC_DIR)/yacc.tab.c
 YACC_GEN_H  := $(YACC_DIR)/yacc.tab.h
 YACC_REPORT := $(GEN_DIR)/yacc.output
 
-# ========== 预处理展开后的完整中间文件 ==========
-RT_FULL_H := $(BUILD_DIR)/runtime_full.h
-RT_FULL_C := $(BUILD_DIR)/runtime_full.c
-
-# 【根治】xxd输出拆分：.c放数组定义，.h只放extern声明
-RT_EMBED_H_SRC := $(SRC_EMBED)/lm_runtime_h_embed.h
-RT_EMBED_C_SRC := $(SRC_EMBED)/lm_runtime_h_embed.c
-RT_EMBED_H_RT  := $(SRC_EMBED)/lm_runtime_c_embed.h
-RT_EMBED_C_RT  := $(SRC_EMBED)/lm_runtime_c_embed.c
-
-RT_EMBED_GEN := $(RT_EMBED_H_SRC) $(RT_EMBED_C_SRC) $(RT_EMBED_H_RT) $(RT_EMBED_C_RT)
-
 # ========== m4 路径（跨平台） ==========
 ifeq ($(OS_NAME),macos)
-    # macOS: Homebrew m4 (Intel / Apple Silicon)
     BREW_M4_INTEL := /usr/local/opt/m4/bin/m4
     BREW_M4_ARM   := /opt/homebrew/opt/m4/bin/m4
     ifeq ($(shell test -x $(BREW_M4_INTEL) && echo yes),yes)
@@ -69,30 +58,16 @@ ifeq ($(OS_NAME),macos)
     endif
     BISON_M4_ENV := M4=$(M4_PATH)
 else ifeq ($(OS_NAME),windows)
-    # Windows: WinFlexBison 内置 m4，无需外部 m4
     M4_PATH :=
     BISON_M4_ENV :=
 else
-    # Linux: 系统 m4
     M4_PATH := m4
     BISON_M4_ENV := M4=$(M4_PATH)
 endif
 
-# ========== sed 兼容（macOS / Linux / Windows） ==========
-ifeq ($(OS_NAME),macos)
-SED_I := sed -i ''
-SED_E := sed -E
-else
-SED_I := sed -i
-SED_E := sed -r
-endif
-
 # ========== 链接库（跨平台） ==========
-# macOS/Linux: -lcurl -liconv
-# Windows: MinGW 下同样用 -lcurl -liconv（需自行安装开发库）
 LDLIBS := -lcurl -liconv
 
-# 允许用户通过环境变量覆盖库搜索路径
 ifneq ($(CURL_DIR),)
     CFLAGS += -I$(CURL_DIR)/include
     LDFLAGS += -L$(CURL_DIR)/lib
@@ -102,55 +77,53 @@ ifneq ($(ICONV_DIR),)
     LDFLAGS += -L$(ICONV_DIR)/lib
 endif
 
-# 重点：排除 src/runtime、src/runtime-full 与 src/embed；后两者 .c 绝不编译进编译器本体，仅用于 xxd 打包
-# （src/embed 的嵌入数组 .c 在下方 C_SRCS += 里显式追加）
-# 使用 wildcard 而非 find，确保跨平台（Windows cmd 下没有 GNU find）
+# ========== Runtime 静态库源文件 ==========
+# lm_runtime.c 已 include 了 gc_runtime.c / lm_string.c / lm_array.c / lm_math.c / lm_io.c
+# 这些文件不再单独编译，避免重复定义
+RUNTIME_SRCS := $(RUNTIME_DIR)/src/lm_runtime.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_value.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_map.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_thread.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_lock.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_tls.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_http.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_json.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_charset.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_crypto.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_regex.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_time.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_qs.c
+# Value 类型定义已迁移到 kit/runtime/
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lumin_value.c
+
+RUNTIME_OBJS := $(RUNTIME_SRCS:.c=.o)
+
+# ========== 编译器本体源文件（不含 runtime） ==========
 C_SRCS := $(wildcard $(SRC_DIR)/ast/*.c)
+C_SRCS := $(filter-out $(RUNTIME_DIR)/src/lumin_value.c, $(C_SRCS))
 C_SRCS += $(wildcard $(SRC_DIR)/ir/*.c)
 C_SRCS += $(wildcard $(SRC_DIR)/parse/*.c)
 C_SRCS += $(SRC_DIR)/main.c
-# yacc 目录下排除 lex.yy.c 和 yacc.tab.c（自动生成，下方显式追加）
 C_SRCS += $(filter-out $(SRC_DIR)/yacc/lex.yy.c $(SRC_DIR)/yacc/yacc.tab.c, $(wildcard $(SRC_DIR)/yacc/*.c))
-# 追加自动生成的二进制数据c文件
-C_SRCS += $(RT_EMBED_C_SRC) $(RT_EMBED_C_RT)
 C_SRCS += $(LEX_GEN) $(YACC_GEN_C)
-# 编译器本体链接语言运行时运算层（字节码 VM 解释器直接调用；generate 侧仍以 src/runtime/ 为源）
-# 按职责拆分：值核心 + 字符串/数组/数学/IO/字典 + GC（gc_runtime 参与链接，提供标记-清除回收）
-C_SRCS += $(SRC_DIR)/runtime/gc_runtime.c
-C_SRCS += $(SRC_DIR)/runtime/lm_value.c
-C_SRCS += $(SRC_DIR)/runtime/lm_string.c
-C_SRCS += $(SRC_DIR)/runtime/lm_array.c
-C_SRCS += $(SRC_DIR)/runtime/lm_math.c
-C_SRCS += $(SRC_DIR)/runtime/lm_io.c
-C_SRCS += $(SRC_DIR)/runtime/lm_map.c
-C_SRCS += $(SRC_DIR)/runtime/lm_thread.c
-C_SRCS += $(SRC_DIR)/runtime/lm_lock.c
-C_SRCS += $(SRC_DIR)/runtime/lm_tls.c
-C_SRCS += $(SRC_DIR)/runtime/lm_http.c
-C_SRCS += $(SRC_DIR)/runtime/lm_json.c
-C_SRCS += $(SRC_DIR)/runtime/lm_charset.c
-C_SRCS += $(SRC_DIR)/runtime/lm_crypto.c
-C_SRCS += $(SRC_DIR)/runtime/lm_regex.c
-C_SRCS += $(SRC_DIR)/runtime/lm_time.c
-C_SRCS += $(SRC_DIR)/runtime/lm_qs.c
 
 OBJS := $(C_SRCS:.c=.o)
 
-# ========== Windows 兼容层（POSIX regex 等） ==========
+# ========== Windows 兼容层 ==========
 WIN_DEPS := third_party/windows
 ifeq ($(OS_NAME),windows)
-    # 优先使用项目内的 WinFlexBison（flex 2.6.4 / bison 3.8.2），无需额外安装
     export PATH := $(CURDIR)/$(WIN_DEPS)/tools/winflexbison;$(PATH)
-    # 使用项目内 third_party/windows/ 下的预编译库（MinGW 静态库，仅 Windows 可用）
     CFLAGS += -I$(WIN_DEPS)/include -DCURL_STATICLIB
     LDFLAGS += -L$(WIN_DEPS)/lib
     LDLIBS += -ltre -lcrypt32 -lws2_32 -lwldap32 -lwinmm -lnormaliz -liphlpapi -lbcrypt -lsecur32
 endif
 
-.PHONY: all clean distclean check-env parser-gen env-info
+.PHONY: all clean distclean check-env parser-gen env-info runtime-lib
 
-# | 顺序依赖：先生成嵌入文件，再生成parser，最后链接
-all: check-env | $(RT_EMBED_GEN) parser-gen $(BIN_LOCAL)
+# ========== 主目标 ==========
+all: check-env runtime-lib parser-gen $(BIN_LOCAL)
+
+runtime-lib: $(RUNTIME_LIB)
 
 env-info:
 	@echo "=== Build Environment ==="
@@ -161,6 +134,7 @@ env-info:
 	@echo "LDLIBS: $(LDLIBS)"
 	@echo "M4: $(M4_PATH)"
 	@echo "EXE_EXT: $(EXE_EXT)"
+	@echo "Runtime lib: $(RUNTIME_LIB)"
 	@echo "Target: $(BIN_LOCAL)"
 
 check-env:
@@ -171,72 +145,49 @@ check-env:
 ifeq ($(OS_NAME),macos)
 	@test -x $(M4_PATH) || (echo "ERROR: m4 missing, brew install m4"; exit 1)
 endif
-	@xxd -version >/dev/null 2>&1 || (echo "ERROR: xxd missing"; exit 1)
 
-# ---------- 1. 拼接生成 runtime_full.h / runtime_full.c ----------
-$(RT_FULL_H) $(RT_FULL_C): runtime_manifest.txt
-	@echo "==> Build runtime single-file via concat_manifest.sh"
-	mkdir -p $(BUILD_DIR)
-	bash ./concat_manifest.sh
+# ========== Runtime 静态库 ==========
+$(RUNTIME_LIB): $(RUNTIME_OBJS)
+	@echo "==> Building runtime static library"
+	@mkdir -p $(LIB_DIR)
+	ar rcs $@ $(RUNTIME_OBJS)
+	@echo "    Built: $@"
 
-# ---------- 2. xxd + sed拆分：输出 .c(定义) + .h(extern声明) 【根治】 ----------
-$(RT_EMBED_H_SRC) $(RT_EMBED_C_SRC): $(RT_FULL_H)
-	@echo "==> Generate split embed for runtime_full.h"
-	mkdir -p $(SRC_EMBED)
-	xxd -i $< > $(SRC_EMBED)/_tmp_embed1.h
-	# 全部定义(数组+len)输出到 .c，并修改为 const unsigned char
-	$(SED_E) 's/^unsigned char/const unsigned char/' $(SRC_EMBED)/_tmp_embed1.h > $(RT_EMBED_C_SRC)
-	# .h 只输出 extern 声明
-	$(SED_E) -n 's/^const unsigned char ([^[]+)\[\].*/extern const unsigned char \1[];/p; s/^unsigned int ([^ ]+)_len.*/extern unsigned int \1_len;/p' $(SRC_EMBED)/_tmp_embed1.h > $(RT_EMBED_H_SRC)
-	rm -f $(SRC_EMBED)/_tmp_embed1.h
-
-$(RT_EMBED_H_RT) $(RT_EMBED_C_RT): $(RT_FULL_C)
-	@echo "==> Generate split embed for runtime_full.c"
-	mkdir -p $(SRC_EMBED)
-	xxd -i $< > $(SRC_EMBED)/_tmp_embed2.h
-	$(SED_E) 's/^unsigned char/const unsigned char/' $(SRC_EMBED)/_tmp_embed2.h > $(RT_EMBED_C_RT)
-	$(SED_E) -n 's/^const unsigned char ([^[]+)\[\].*/extern const unsigned char \1[];/p; s/^unsigned int ([^ ]+)_len.*/extern unsigned int \1_len;/p' $(SRC_EMBED)/_tmp_embed2.h > $(RT_EMBED_H_RT)
-	rm -f $(SRC_EMBED)/_tmp_embed2.h
-
-# ---------- bison/flex 解析器生成 ----------
+# ========== bison/flex 解析器生成 ==========
 parser-gen: $(YACC_GEN_C) $(LEX_GEN)
 	@mkdir -p $(YACC_DIR)
 
 $(YACC_GEN_C) $(YACC_GEN_H): $(YACC_SRC)
-	mkdir -p $(GEN_DIR) $(YACC_DIR)
+	@mkdir -p $(GEN_DIR) $(YACC_DIR)
 	$(BISON_M4_ENV) bison -v --report-file=$(YACC_REPORT) -d $< -o $(YACC_GEN_C)
 
 $(LEX_GEN): $(LEX_SRC) $(YACC_GEN_H)
-	mkdir -p $(YACC_DIR)
+	@mkdir -p $(YACC_DIR)
 	flex -o $@ $<
 
-# 所有编译单元依赖生成出来的extern头文件
-$(OBJS): $(RT_EMBED_GEN)
+# ========== 编译器本体链接 ==========
+$(BIN_LOCAL): $(OBJS) $(RUNTIME_LIB)
+	@mkdir -p $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) -L$(LIB_DIR) -lruntime $(LDLIBS) -o $@
+	@echo "    Built: $@"
 
-$(BIN_LOCAL): $(OBJS)
-	mkdir -p $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) $(LDLIBS) -o $@
-
-# ---------- 单元测试：栈帧 CRUD ----------
+# ========== 单元测试 ==========
 TEST_STACKFRAME := $(TEST_DIR)/stackframe_test$(EXE_EXT)
 
-$(TEST_STACKFRAME): $(OBJS) tests/stackframe_test.c
-	$(CC) $(CFLAGS) $(LDFLAGS) $(filter-out src/main.o,$(OBJS)) tests/stackframe_test.c $(LDLIBS) -o $@
+$(TEST_STACKFRAME): $(OBJS) $(RUNTIME_LIB) tests/stackframe_test.c
+	$(CC) $(CFLAGS) $(LDFLAGS) $(filter-out src/main.o,$(OBJS)) tests/stackframe_test.c -L$(LIB_DIR) -lruntime $(LDLIBS) -o $@
 
 .PHONY: test
 test: $(TEST_STACKFRAME)
 	./$(TEST_STACKFRAME)
 
+# ========== 清理 ==========
 clean:
-	rm -f $(OBJS)
-	rm -f $(SRC_DIR)/runtime/*.o $(BUILD_DIR)/*.o
-	rm -rf $(BIN_DIR)
-	@echo "clean done: keep parser, runtime-full, embed generated artifacts"
+	rm -f $(OBJS) $(RUNTIME_OBJS)
+	rm -rf $(BIN_DIR) $(LIB_DIR)
+	@echo "clean done"
 
 distclean: clean
 	rm -f $(LEX_GEN) $(YACC_GEN_C) $(YACC_GEN_H) $(YACC_REPORT)
-	rm -f $(RT_EMBED_GEN)
-	rm -rf $(BUILD_DIR)
 	rm -rf $(GEN_DIR)
-	find . -name "*''" -delete
-	@echo "distclean done: restore to source-only state, keep src/yacc folder structure"
+	@echo "distclean done: restore to source-only state"

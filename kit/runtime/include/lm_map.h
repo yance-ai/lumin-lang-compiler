@@ -2,7 +2,7 @@
 #ifndef LM_MAP_H
 #define LM_MAP_H
 
-#include "ast/lumin_value_type.h"
+#include "lumin_value_type.h"
 
 int   lumin_map_find(const ValueMap* m, Value key); // 线性扫描键位置，-1=无
 void  lumin_map_set(Value* map, Value key, Value val);      // d[k] = v（原地，传指针，任意类型键）

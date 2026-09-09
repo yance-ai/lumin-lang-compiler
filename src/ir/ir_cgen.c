@@ -7,21 +7,15 @@
 #include "ir_compile.h"
 #include "ast/lumin_types.h"
 #include "ast/func_compile.h"
-#include "runtime/lm_qs.h"
-#include "runtime/lm_array.h"
-#include "runtime/lm_charset.h"
-#include "runtime/lm_crypto.h"
-#include "runtime/lm_regex.h"
-#include "runtime/lm_time.h"
+#include "lm_qs.h"
+#include "lm_array.h"
+#include "lm_charset.h"
+#include "lm_crypto.h"
+#include "lm_regex.h"
+#include "lm_time.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-// xxd 嵌入的运行时资源（codegen 同款）
-extern unsigned char src_runtime_full_runtime_full_h[];
-extern unsigned int src_runtime_full_runtime_full_h_len;
-extern unsigned char src_runtime_full_runtime_full_c[];
-extern unsigned int src_runtime_full_runtime_full_c_len;
 
 typedef struct {
     char** names;   // 动态扩容，无硬上限
@@ -2307,12 +2301,23 @@ void ir_cgen_file(const char* out_c_path, BytecodeFunc* main_fn)
         return;
     }
 
-    fwrite(src_runtime_full_runtime_full_h, 1, src_runtime_full_runtime_full_h_len, out);
-    fputs("\n\n", out);
+    // 大项目架构：生成代码只包含业务逻辑，runtime 通过链接静态库提供
     fprintf(out, "#include <stdio.h>\n");
     fprintf(out, "#include <stdlib.h>\n");
-    fprintf(out, "#include <string.h>\n\n");
-    fwrite(src_runtime_full_runtime_full_c, 1, src_runtime_full_runtime_full_c_len, out);
+    fprintf(out, "#include <string.h>\n");
+    fprintf(out, "#include \"lm_runtime.h\"\n");
+    fprintf(out, "#include \"lm_map.h\"\n");
+    fprintf(out, "#include \"lm_thread.h\"\n");
+    fprintf(out, "#include \"lm_lock.h\"\n");
+    fprintf(out, "#include \"lm_tls.h\"\n");
+    fprintf(out, "#include \"lm_http.h\"\n");
+    fprintf(out, "#include \"lm_json.h\"\n");
+    fprintf(out, "#include \"lm_charset.h\"\n");
+    fprintf(out, "#include \"lm_crypto.h\"\n");
+    fprintf(out, "#include \"lm_regex.h\"\n");
+    fprintf(out, "#include \"lm_time.h\"\n");
+    fprintf(out, "#include \"lm_qs.h\"\n");
+    fprintf(out, "#include \"lumin_value.h\"\n\n");
     /* 编译通道使用自己的闭包实现（capture_count==-2，captures 为 Value** cell 指针数组）。
      * 提供 gc_runtime.c 引用的 lumin_interp_scan_captures 弱定义桩，避免链接缺失符号。 */
     fprintf(out, "\n__attribute__((weak)) void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value)) { (void)rf; (void)mark; }\n\n");

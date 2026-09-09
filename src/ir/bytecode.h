@@ -3,8 +3,8 @@
 #ifndef LUMIN_IR_BYTECODE_H
 #define LUMIN_IR_BYTECODE_H
 
-#include "ast/lumin_value_type.h"
-#include "ast/lumin_value.h"
+#include "lumin_value_type.h"
+#include "lumin_value.h"
 
 typedef enum {
     OPC_NOP,

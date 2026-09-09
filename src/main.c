@@ -3,6 +3,11 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
 
 #include "yacc/yacc.tab.h"
 #include "ast/ast.h"
@@ -145,10 +150,17 @@ int main(int argc, char** argv) {
 
                 char c_path[PATH_MAX];
                 char exe_path[PATH_MAX];
-                snprintf(c_path, sizeof(c_path), "%s.c", base);
-                snprintf(exe_path, sizeof(exe_path), "%s", base);
+                // 大项目架构：编译产物统一放到 build/ 目录
+                snprintf(c_path, sizeof(c_path), "build/%s.c", base);
+                snprintf(exe_path, sizeof(exe_path), "build/%s", base);
 
                 BytecodeFunc* main_fn = ir_compile_main(root);
+                // 确保 build/ 目录存在
+#ifdef _WIN32
+                _mkdir("build");
+#else
+                mkdir("build", 0755);
+#endif
                 ir_cgen_file(c_path, main_fn);
                 bytecode_func_free(main_fn);
                 printf("[CodeGen] 已生成 %s\n", c_path);
@@ -160,8 +172,20 @@ int main(int argc, char** argv) {
                     const char* gen_cflags = getenv("LM_GEN_CFLAGS");
                     if(!gen_cc) gen_cc = "gcc";
                     if(!gen_cflags) gen_cflags = "-O2";
-                    snprintf(cmd, sizeof(cmd), "%s -std=gnu11 %s %s -o %s -lcurl -liconv",
+                    // 大项目架构：链接 runtime 静态库
+                    // 根据平台添加第三方库路径和系统库
+#ifdef _WIN32
+                    snprintf(cmd, sizeof(cmd),
+                             "%s -std=gnu11 %s -Ikit/runtime/include -Ithird_party/windows/include -DCURL_STATICLIB "
+                             "-Llib -Lthird_party/windows/lib %s -o %s "
+                             "-lruntime -lcurl -liconv -ltre "
+                             "-lcrypt32 -lws2_32 -lwldap32 -lwinmm -lnormaliz -liphlpapi -lbcrypt -lsecur32",
                              gen_cc, gen_cflags, c_path, exe_path);
+#else
+                    snprintf(cmd, sizeof(cmd),
+                             "%s -std=gnu11 %s -Ikit/runtime/include -Llib %s -o %s -lruntime -lcurl -liconv",
+                             gen_cc, gen_cflags, c_path, exe_path);
+#endif
                     int sys_ret = system(cmd);
 
                     if(sys_ret == 0) {

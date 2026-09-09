@@ -1,6 +1,6 @@
 #include "lumin_value.h"
-#include "../runtime/lm_map.h"
-#include "../runtime/gc_runtime.h"
+#include "lm_map.h"
+#include "gc_runtime.h"
 #include <string.h>
 
 /* 错误机制全部动态化，无硬上限：
