@@ -1,8 +1,7 @@
 // 栈帧 CRUD 单元测试：stackframe_new / destroy / get / set / bind
-// 编译：make test（见 Makefile），或手动：
-//   gcc -Wall -Wextra -g -I./src src/ast/stackframe.c src/ast/lumin_value.c tests/stackframe_test.c -o tests/stackframe_test
+// 编译：make test（见 Makefile）
 #include "ast/stackframe.h"
-#include "ast/lumin_value.h"
+#include "lumin_value.h"
 #include <stdio.h>
 #include <string.h>
 

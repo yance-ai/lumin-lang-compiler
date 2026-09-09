@@ -1199,7 +1199,8 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "      g_err_jmp = &__g_jbs[__d];\n");
                 fprintf(out, "      CFrame* __cf_save = gc_cframe_top();\n");
                 fprintf(out, "      if(setjmp(__g_jbs[__d]) == 0) { __g_depth = __d + 1; goto L%d; }\n", i + 1);
-                fprintf(out, "      int __d2 = __g_depth - 1;\n");
+                fprintf(out, "      int __d2 = (int)(g_err_jmp - __g_jbs);\n");
+                fprintf(out, "      if(__d2 < 0) __d2 = __g_depth - 1;\n");
                 fprintf(out, "      __sp = __g_sp0[__d2]; __g_depth = __d2; g_err_jmp = __g_prev[__d2];\n");
                 fprintf(out, "      gc_cframe_restore(__cf_save);\n");
                 fprintf(out, "      goto L%d;\n", in.a);

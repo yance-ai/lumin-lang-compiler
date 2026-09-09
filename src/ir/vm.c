@@ -1224,8 +1224,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 if(setjmp(vm_jbs[d]) == 0) {
                     vm_depth = d + 1;
                 } else {
-                    /* longjmp 后局部变量值未定义：本层索引从 static vm_depth 反推 */
-                    int d2 = vm_depth - 1;
+                    /* longjmp 后局部变量值未定义：本层索引从 g_err_jmp 反推
+                       （不依赖 vm_depth，因为嵌套 catch 中再次 throw 时 vm_depth 可能已被 GET_ERR 修改） */
+                    int d2 = (int)(g_err_jmp - vm_jbs);
+                    if(d2 < 0 || d2 >= vm_cap) d2 = vm_depth - 1;  /* fallback */
                     sp = vm_sp[d2];
                     vm_depth = d2;
                     g_err_jmp = vm_prev[d2];
@@ -1242,13 +1244,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 char* st = lumin_build_stack_trace();
                 stack[sp++] = lumin_make_error(g_err_type, g_err_msg, st);
                 free(st);
-                /* TRY 存 vm_tn[d]/vm_fn[d]（d=TRY 前深度）。
-                   longjmp 后 vm_depth=d，先 ++ 模拟正常路径的 d+1 状态，
-                   使后续 FIN_PUSH 的 vm_depth-1 计算正确；
-                   无 finally 时由 catch 后的 ENDTRY 负责递减回 d */
-                vm_depth++;
-                g_trace_n = vm_tn[vm_depth - 1];
-                vm_fin_n = vm_fn[vm_depth - 1];
+                /* OPC_TRY else 已将 vm_depth 设为 d（TRY 前深度），直接用 vm_depth 索引 */
+                g_trace_n = vm_tn[vm_depth];
+                vm_fin_n = vm_fn[vm_depth];
                 break;
             }
             case OPC_THROW: {
