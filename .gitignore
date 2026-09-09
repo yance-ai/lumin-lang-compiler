@@ -77,3 +77,9 @@ src/lex/lex.yy.c
 # Windows 预编译依赖库和工具（入库，免去其他开发者编译）
 !third_party/**/*.a
 !third_party/**/*.exe
+
+# 调试脚本
+debug_*.sh
+
+# 用户项目编译产物
+build/
