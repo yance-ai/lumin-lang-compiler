@@ -727,16 +727,16 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_THREAD: {
                         int argc = in.b;
                         fprintf(out, "    {\n");
-                        fprintf(out, "        int __argc = %d;\n", argc);
-                        fprintf(out, "        Value __fn = __stk[__sp - __argc];\n");
+                        fprintf(out, "        int __lmin_argc = %d;\n", argc);
+                        fprintf(out, "        Value __fn = __stk[__sp - __lmin_argc];\n");
                         fprintf(out, "        if(__fn.type != VAL_FUNC) runtime_error(\"thread() 第一个参数必须是函数\");\n");
                         fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))((RuntimeFunc*)__fn.v.func.func_obj)->entry;\n");
                         if(argc > 1)
-                            fprintf(out, "        int __tid = lumin_thread_start_c(__cf, &__stk[__sp - __argc + 1], %d);\n", argc - 1);
+                            fprintf(out, "        int __tid = lumin_thread_start_c(__cf, &__stk[__sp - __lmin_argc + 1], %d);\n", argc - 1);
                         else
                             fprintf(out, "        int __tid = lumin_thread_start_c(__cf, NULL, 0);\n");
-                        fprintf(out, "        __stk[__sp - __argc] = lumin_make_int(__tid);\n");
-                        fprintf(out, "        __sp = __sp - __argc + 1;\n");
+                        fprintf(out, "        __stk[__sp - __lmin_argc] = lumin_make_int(__tid);\n");
+                        fprintf(out, "        __sp = __sp - __lmin_argc + 1;\n");
                         fprintf(out, "    }\n");
                         break;
                     }
@@ -1286,12 +1286,12 @@ static void emit_insns(BytecodeFunc* fn)
                     fprintf(out, "    {\n");
                     fprintf(out, "        Value __f = %s;\n", cvar_rw(nm));
                     fprintf(out, "        if(__f.type != VAL_FUNC) runtime_error(\"尝试调用非函数: %s\");\n", nm);
-                    fprintf(out, "        int __argc = %d;\n", argc);
+                    fprintf(out, "        int __lmin_argc = %d;\n", argc);
                     fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
-                    fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - __argc + __k];\n");
-                    fprintf(out, "        __sp -= __argc;\n");
+                    fprintf(out, "        for (int __k = 0; __k < __lmin_argc; __k++) __args[__k] = __stk[__sp - __lmin_argc + __k];\n");
+                    fprintf(out, "        __sp -= __lmin_argc;\n");
                     fprintf(out, "        RuntimeFunc* __rf = (RuntimeFunc*)__f.v.func.func_obj;\n");
-                    fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int, void*))__rf->entry)(__args, __argc, (void*)__rf->captures);\n");
+                    fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int, void*))__rf->entry)(__args, __lmin_argc, (void*)__rf->captures);\n");
                     fprintf(out, "    }\n");
                     break;
                 }
@@ -1306,10 +1306,10 @@ static void emit_insns(BytecodeFunc* fn)
                 int restn = argc - fixed;
                 if(restn < 0) restn = 0;
                 fprintf(out, "    {\n");
-                fprintf(out, "        int __argc = %d;\n", argc);
+                fprintf(out, "        int __lmin_argc = %d;\n", argc);
                 fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
-                fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - __argc + __k];\n");
-                fprintf(out, "        __sp -= __argc;\n");
+                fprintf(out, "        for (int __k = 0; __k < __lmin_argc; __k++) __args[__k] = __stk[__sp - __lmin_argc + __k];\n");
+                fprintf(out, "        __sp -= __lmin_argc;\n");
                 if(callee->has_variadic) {
                     fprintf(out, "        Value __rest = val_array(%d);\n", restn);
                     for(int k = 0; k < restn; k++) {
@@ -1344,12 +1344,12 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    {\n");
                 fprintf(out, "        Value __f = __stk[__sp - %d - 1];\n", argc);
                 fprintf(out, "        if(__f.type != VAL_FUNC) runtime_error(\"尝试调用非函数值\");\n");
-                fprintf(out, "        int __argc = %d;\n", argc);
+                fprintf(out, "        int __lmin_argc = %d;\n", argc);
                 fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
-                fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - %d + __k];\n", argc);
+                fprintf(out, "        for (int __k = 0; __k < __lmin_argc; __k++) __args[__k] = __stk[__sp - %d + __k];\n", argc);
                 fprintf(out, "        __sp -= %d + 1;\n", argc);
                 fprintf(out, "        RuntimeFunc* __rf = (RuntimeFunc*)__f.v.func.func_obj;\n");
-                fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int, void*))__rf->entry)(__args, __argc, (void*)__rf->captures);\n");
+                fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int, void*))__rf->entry)(__args, __lmin_argc, (void*)__rf->captures);\n");
                 fprintf(out, "    }\n");
                 break;
             }
