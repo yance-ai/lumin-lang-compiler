@@ -3,6 +3,7 @@
 // AST → 字节码 IR 编译器
 // 遍历结构与 ast_typecheck.c / codegen.c 对齐（用户建议复用其递归结构）。
 #include "ir_compile.h"
+#include "ir_opt.h"
 #include "ast/lumin_types.h"
 #include "ast/ast_types.h"
 #include "ast/func_compile.h"
@@ -609,7 +610,7 @@ static void c_expr(Ctx* c, AstNode* node)
             int argc = 0;
             c_args(c, node->u.call.args, &argc);
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
-            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values", "thread", "thread_join", "mutex", "rmutex", "rwlock", "spinlock", "lock", "unlock", "trylock", "rdlock", "wrlock", "tryrdlock", "trywrlock", "condvar", "cond_wait", "cond_wait_timeout", "cond_signal", "cond_broadcast", "threadlocal_get", "threadlocal_set", "get", "post", "put", "delete", "head", "patch", "json", "stringify", "add", "remove", "clear", "indexOf", "arr_get", "set", "first", "last", "has", "flat", "qs", "addAll", "bytes", "str", "encode", "decode", "encodeURL", "decodeURL", "md5", "encodeBase64", "decodeBase64", "regex_match", "regex_search", "regex_replace", "now", "timestamp", "timestamp_ms", "sleep", "date", "time", "datetime", "format_time", "debug", "info", "warn", "error", "fatal", "gc_count", "gc_bytes", "gc_collect"};
+            static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values", "thread", "thread_join", "mutex", "rmutex", "rwlock", "spinlock", "lock", "unlock", "trylock", "rdlock", "wrlock", "tryrdlock", "trywrlock", "condvar", "cond_wait", "cond_wait_timeout", "cond_signal", "cond_broadcast", "threadlocal_get", "threadlocal_set", "get", "post", "put", "delete", "head", "patch", "json", "stringify", "add", "remove", "clear", "indexOf", "arr_get", "set", "first", "last", "has", "flat", "qs", "addAll", "bytes", "str", "encode", "decode", "encodeURL", "decodeURL", "md5", "encodeBase64", "decodeBase64", "regex_match", "regex_search", "regex_replace", "now", "timestamp", "timestamp_ms", "sleep", "date", "time", "datetime", "format_time", "debug", "info", "warn", "error", "fatal", "gc_count", "gc_bytes", "gc_collect", "gc_stw_ns"};
             int bid = -1;
             if(!ir_func_table_lookup(node->u.call.name)) {
                 for(int k = 0; k < BUILTIN_COUNT; k++) {
@@ -1087,5 +1088,14 @@ BytecodeFunc* ir_compile_main(AstNode* root)
     Ctx c = { .fn = fn, .layer_depth = 0 };
     c_stmt(&c, root);
     emit(&c, OPC_HALT, 0, 0);
+
+    /* 优化 pass：常量折叠。在所有 BytecodeFunc 生成完毕后、返回前，
+       对 main 与函数表中每个函数统一做一遍 IR peephole 优化。
+       VM 执行 / -S 反汇编 / -c 代码生成三条通道共用此 IR，故双通道一致。 */
+    for(int k = 0; k < ir_func_count; k++) {
+        if(ir_func_table[k]) ir_optimize(ir_func_table[k]);
+    }
+    ir_optimize(fn);
+
     return fn;
 }
