@@ -845,6 +845,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = val_none();
                         break;
                     }
+                    case BUILTIN_GC_STW_NS: {
+                        stack[sp++] = lumin_make_int((long long)gc_stw_time_ns());
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {

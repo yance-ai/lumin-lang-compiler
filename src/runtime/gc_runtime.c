@@ -749,6 +749,14 @@ void gc_mark(Value v)
             /* VM 解释器闭包实例：capture_count==-1，captures 指向 InterpFuncPayload，
              * 其中 captured_cells[i] 为堆 Value* 单元，需递归标记其内容 */
             lumin_interp_scan_captures(f, gc_mark);
+        } else if (f && GC_VALID_PTR(f) && f->capture_count == -2 &&
+                   f->captures && GC_VALID_PTR(f->captures)) {
+            /* 编译通道闭包：capture_count==-2，captures 是 Value** cell 指针数组，
+             * 末尾以 NULL 哨兵结束；每个 cell 指向 malloc 的 Value，标记其内容 */
+            Value** caps = (Value**)f->captures;
+            for (int i = 0; caps[i] != NULL; i++) {
+                if (GC_VALID_PTR(caps[i])) gc_mark(*caps[i]);
+            }
         }
         break;
     }
@@ -939,6 +947,12 @@ void gc_mark_value_to_stack(Value v)
             }
         } else if (f && GC_VALID_PTR(f) && f->capture_count == -1) {
             lumin_interp_scan_captures(f, gc_mark_value_to_stack);
+        } else if (f && GC_VALID_PTR(f) && f->capture_count == -2 &&
+                   f->captures && GC_VALID_PTR(f->captures)) {
+            Value** caps = (Value**)f->captures;
+            for (int i = 0; caps[i] != NULL; i++) {
+                if (GC_VALID_PTR(caps[i])) gc_mark_value_to_stack(*caps[i]);
+            }
         }
         break;
     }
@@ -1155,6 +1169,12 @@ static void gc_mark_value_to_stack_minor(Value v)
             }
         } else if (f && GC_VALID_PTR(f) && f->capture_count == -1) {
             lumin_interp_scan_captures(f, gc_mark_value_to_stack_minor);
+        } else if (f && GC_VALID_PTR(f) && f->capture_count == -2 &&
+                   f->captures && GC_VALID_PTR(f->captures)) {
+            Value** caps = (Value**)f->captures;
+            for (int i = 0; caps[i] != NULL; i++) {
+                if (GC_VALID_PTR(caps[i])) gc_mark_value_to_stack_minor(*caps[i]);
+            }
         }
         break;
     }
@@ -1739,6 +1759,7 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
 
     if (!gc_incremental_enabled()) {
         /* === Fallback：全量 STW 标记（原有逻辑） === */
+        unsigned long long t_fb_start = gc_now_ns();
         g_gc_stw = 1;
         gc_set_self_at_safepoint(1);
         gc_wait_all_threads_at_safepoint();
@@ -1800,6 +1821,16 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
 
         g_gc_stw = 0;
         gc_set_self_at_safepoint(0);
+        unsigned long long t_fb_stw = gc_now_ns() - t_fb_start;
+        g_stw_total_ns += t_fb_stw;
+
+        /* LUMIN_GC_STATS=1 时输出统计（与增量路径格式对齐：initial=final=总停顿） */
+        const char* stats_env = getenv("LUMIN_GC_STATS");
+        if (stats_env && strcmp(stats_env, "1") == 0) {
+            fprintf(stderr, "[GC major] initial STW=%lluus final STW=0us total STW=%llums minor=%llu major=%llu young=%zuKB old=%zuKB\n",
+                    t_fb_stw / 1000, g_stw_total_ns / 1000000,
+                    g_minor_gc_count, g_major_gc_count, g_young_bytes / 1024, g_old_bytes / 1024);
+        }
         atomic_store_explicit(&g_in_gc, 0, memory_order_release);
         return;
     }

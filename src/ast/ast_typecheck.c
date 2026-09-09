@@ -713,7 +713,7 @@ int typecheck_expr(AstNode* node)
                     {"sleep", 1, 1}, {"date", 0, 0}, {"time", 0, 0}, {"datetime", 0, 0},
                     {"format_time", 1, 2},
                     {"debug", 1, 2}, {"info", 1, 2}, {"warn", 1, 2}, {"error", 1, 2}, {"fatal", 1, 2},
-                    {"gc_count", 0, 0}, {"gc_bytes", 0, 0}, {"gc_collect", 0, 0},
+                    {"gc_count", 0, 0}, {"gc_bytes", 0, 0}, {"gc_collect", 0, 0}, {"gc_stw_ns", 0, 0},
                 };
                 int found = 0;
                 int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));

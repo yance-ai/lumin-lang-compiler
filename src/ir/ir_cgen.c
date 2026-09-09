@@ -6,6 +6,7 @@
 #include "ir_cgen.h"
 #include "ir_compile.h"
 #include "ast/lumin_types.h"
+#include "ast/func_compile.h"
 #include "runtime/lm_qs.h"
 #include "runtime/lm_array.h"
 #include "runtime/lm_charset.h"
@@ -58,6 +59,13 @@ static int* g_scalar_count = NULL;
 static int** g_scalar_keys = NULL;
 static int g_scalar_sym_cnt = 0;
 
+/* 闭包装箱分析结果（每次 emit_func_def 重新计算）：
+ * g_boxed：当前函数中被内部 lambda 捕获、需要堆装箱（Value*）的局部变量/参数名。
+ * g_cur_caps：当前 lambda 函数自身的捕获变量名列表（顺序即 __caps 数组下标）。
+ *   仅当 g_cur_fn 是有捕获的 lambda 时非空。 */
+static NameSet g_boxed;
+static NameSet g_cur_caps;
+
 /* items 栈分配最大元素数（每个 Value 32 字节，256 个 = 8KB，防止栈溢出） */
 #define ITEMS_STACK_MAX 256
 /* 标量替换最大元素数（超过则不替换，避免生成过多标量变量） */
@@ -108,16 +116,119 @@ static int fn_has_param(const BytecodeFunc* fn, const char* name)
     return 0;
 }
 
-// 变量名解析：函数内参数/局部 → lmloc_<name>，否则（全局）→ lmvar_<name>
-static const char* cvar(const char* name)
+// 查找当前 lambda 捕获变量名在 __caps 数组中的下标；非捕获变量返回 -1
+static int cap_index_of(const char* name)
+{
+    for(int i = 0; i < g_cur_caps.count; i++)
+        if(strcmp(g_cur_caps.names[i], name) == 0) return i;
+    return -1;
+}
+
+// 变量名解析（读写表达式，右值/左值均可）：
+//   当前 lambda 捕获变量 → *__caps[idx]
+//   装箱局部/参数       → *lmloc_<name>
+//   普通局部/参数       → lmloc_<name>
+//   全局               → lmvar_<name>
+static const char* cvar_rw(const char* name)
 {
     static char buf[512];
+    int ci = cap_index_of(name);
+    if(ci >= 0) {
+        snprintf(buf, sizeof(buf), "*__caps[%d]", ci);
+        return buf;
+    }
     if(g_cur_fn && (fn_has_param(g_cur_fn, name) || ns_has(&fn_locals, name))) {
-        snprintf(buf, sizeof(buf), "lmloc_%s", name);
+        if(ns_has(&g_boxed, name))
+            snprintf(buf, sizeof(buf), "*lmloc_%s", name);
+        else
+            snprintf(buf, sizeof(buf), "lmloc_%s", name);
     } else {
         snprintf(buf, sizeof(buf), "lmvar_%s", name);
     }
     return buf;
+}
+
+// 变量名解析（返回 Value* 指针，用于 PRE/POST_INC/DEC 等取址场景）：
+//   捕获变量   → __caps[idx]
+//   装箱变量   → lmloc_<name>（本身已是 Value*）
+//   普通变量   → &lmloc_<name> / &lmvar_<name>
+static const char* cvar_ptr(const char* name)
+{
+    static char buf[512];
+    int ci = cap_index_of(name);
+    if(ci >= 0) {
+        snprintf(buf, sizeof(buf), "__caps[%d]", ci);
+        return buf;
+    }
+    if(g_cur_fn && (fn_has_param(g_cur_fn, name) || ns_has(&fn_locals, name))) {
+        if(ns_has(&g_boxed, name))
+            snprintf(buf, sizeof(buf), "lmloc_%s", name);
+        else
+            snprintf(buf, sizeof(buf), "&lmloc_%s", name);
+    } else {
+        snprintf(buf, sizeof(buf), "&lmvar_%s", name);
+    }
+    return buf;
+}
+
+// OPC_MKCLOSURE 用：返回当前函数中某捕获变量名对应的 cell 指针表达式（Value*）。
+//   若该变量是当前 lambda 自己的捕获变量 → __caps[idx]（透传外层 cell）
+//   否则必须是当前函数已装箱的局部/参数 → lmloc_<name>（已是 Value*）
+static const char* cell_ptr_expr(const char* name)
+{
+    static char buf[512];
+    int ci = cap_index_of(name);
+    if(ci >= 0) {
+        snprintf(buf, sizeof(buf), "__caps[%d]", ci);
+        return buf;
+    }
+    snprintf(buf, sizeof(buf), "lmloc_%s", name);
+    return buf;
+}
+
+// 按函数名查函数表索引（用于 lum_wrap_N / RuntimeFunc.entry）
+static int func_table_idx(const char* name)
+{
+    for(int fi = 0; fi < ir_func_table_count(); fi++)
+        if(strcmp(ir_func_table_get(fi)->name, name) == 0) return fi;
+    return -1;
+}
+
+// 判断函数是否为有捕获的 lambda
+static int lambda_has_captures(const char* name)
+{
+    return name && strncmp(name, "_lambda_", 8) == 0 && lambda_capture_count(name) > 0;
+}
+
+// 装箱分析：扫描当前函数字节码中的 OPC_MKCLOSURE，收集被内部 lambda 捕获的变量名。
+// 与本函数参数/局部取交集 → 这些变量需要堆装箱。
+// 同时初始化 g_cur_caps（若当前函数本身是有捕获的 lambda）。
+static void analyze_boxing(BytecodeFunc* fn)
+{
+    memset(&g_boxed, 0, sizeof(g_boxed));
+    memset(&g_cur_caps, 0, sizeof(g_cur_caps));
+    /* 当前函数若是有捕获的 lambda，登记其捕获变量名（顺序 = __caps 下标） */
+    if(lambda_has_captures(fn->name)) {
+        int ncap = lambda_capture_count(fn->name);
+        for(int i = 0; i < ncap; i++)
+            ns_add(&g_cur_caps, lambda_capture_name(fn->name, i));
+    }
+    /* 扫描 OPC_MKCLOSURE：每个的 a 操作数是 lambda 名，收集其捕获变量名 */
+    for(int i = 0; i < fn->code_len; i++) {
+        if(fn->code[i].op != OPC_MKCLOSURE) continue;
+        const char* lname = (fn->code[i].a >= 0 && fn->code[i].a < fn->sym_cnt)
+                            ? fn->syms[fn->code[i].a] : NULL;
+        if(!lname) continue;
+        int ncap = lambda_capture_count(lname);
+        for(int j = 0; j < ncap; j++) {
+            const char* capnm = lambda_capture_name(lname, j);
+            /* 若被捕获变量是本函数的参数/局部变量 → 需要装箱 */
+            if(fn_has_param(fn, capnm) || ns_has(&fn_locals, capnm))
+                ns_add(&g_boxed, capnm);
+            /* 若该变量是本函数自己的捕获变量（已在 g_cur_caps），则它已经是 cell，
+             * 创建内层闭包时直接透传 __caps[idx]，无需重复装箱。 */
+        }
+    }
 }
 
 // ---------------- 文本工具 ----------------
@@ -327,7 +438,7 @@ static void emit_insns(BytecodeFunc* fn)
                             fprintf(out, ";\n");
                         } else if(val_in.op == OPC_LOAD_VAR) {
                             const char* vnm = (val_in.a >= 0 && val_in.a < fn->sym_cnt) ? fn->syms[val_in.a] : NULL;
-                            fprintf(out, "    __stk[__sp++] = %s;\n", cvar(vnm));
+                            fprintf(out, "    __stk[__sp++] = %s;\n", cvar_rw(vnm));
                         } else if(val_in.op == OPC_GETFUNC) {
                             const char* vnm = (val_in.a >= 0 && val_in.a < fn->sym_cnt) ? fn->syms[val_in.a] : NULL;
                             int fidx = -1;
@@ -383,17 +494,41 @@ static void emit_insns(BytecodeFunc* fn)
                 break;
             }
             case OPC_MKCLOSURE: {
-                /* 编译通道暂不支持闭包变量捕获：C 代码生成尚未实现被捕获变量装箱与
-                 * RuntimeFunc.captures 实例化。给出明确错误，避免静默产出错误结果。 */
-                fprintf(stderr, "codegen: 编译通道暂不支持闭包变量捕获（lambda %s），请使用 VM 通道 ./bin/lumin file.lm\n", nm);
-                exit(EXIT_FAILURE);
+                /* 编译通道闭包实例化：为有捕获的 lambda 创建堆 RuntimeFunc，
+                 * captures 为 Value** cell 指针数组（末尾 NULL 哨兵），capture_count=-2。
+                 * cell 指针来源：本函数装箱局部/参数 → lmloc_<name>；
+                 *               本 lambda 自身透传的外层捕获 → __caps[idx]。 */
+                int fidx = func_table_idx(nm);
+                if(fidx < 0) {
+                    fprintf(stderr, "codegen: 未定义闭包函数: %s\n", nm);
+                    exit(EXIT_FAILURE);
+                }
+                BytecodeFunc* lfn = ir_func_table_get(fidx);
+                int ncap = lambda_capture_count(nm);
+                fprintf(out, "    { /* closure %s (fidx=%d) */\n", nm, fidx);
+                fprintf(out, "        int __ncap = %d;\n", ncap);
+                fprintf(out, "        Value** __cc = (Value**)malloc(sizeof(Value*) * (%d + 1));\n", ncap);
+                for(int j = 0; j < ncap; j++) {
+                    const char* capnm = lambda_capture_name(nm, j);
+                    fprintf(out, "        __cc[%d] = %s;\n", j, cell_ptr_expr(capnm));
+                }
+                fprintf(out, "        __cc[%d] = NULL;\n", ncap);
+                fprintf(out, "        RuntimeFunc* __rf = (RuntimeFunc*)malloc(sizeof(RuntimeFunc));\n");
+                fprintf(out, "        __rf->entry = (FuncEntry*)lum_wrap_%d;\n", fidx);
+                fprintf(out, "        __rf->param_count = %d;\n", lfn->param_cnt);
+                fprintf(out, "        __rf->has_variadic = %d;\n", lfn->has_variadic ? 1 : 0);
+                fprintf(out, "        __rf->captures = (Value*)__cc;\n");
+                fprintf(out, "        __rf->capture_count = -2;\n");
+                fprintf(out, "        Value __fv; __fv.type = VAL_FUNC; __fv.v.func.func_obj = __rf;\n");
+                fprintf(out, "        __stk[__sp++] = __fv;\n");
+                fprintf(out, "    }\n");
                 break;
             }
             case OPC_LOAD_VAR:
-                fprintf(out, "    __stk[__sp++] = %s;\n", cvar(nm));
+                fprintf(out, "    __stk[__sp++] = %s;\n", cvar_rw(nm));
                 break;
             case OPC_STORE_VAR:
-                fprintf(out, "    { Value __v = __stk[--__sp]; %s = __v; __stk[__sp++] = __v; }\n", cvar(nm));
+                fprintf(out, "    { Value __v = __stk[--__sp]; %s = __v; __stk[__sp++] = __v; }\n", cvar_rw(nm));
                 break;
             case OPC_ADD: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_add(__l, __r); __sp--; }\n"); break;
             case OPC_SUB: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_sub(__l, __r); __sp--; }\n"); break;
@@ -408,10 +543,10 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_NE:  fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumin_ne(__l, __r); __sp--; }\n"); break;
             case OPC_NEG: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_unary_minus(__v); }\n"); break;
             case OPC_POS: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_unary_plus(__v); }\n"); break;
-            case OPC_PRE_INC:  fprintf(out, "    { Value* __vp = &%s; __stk[__sp++] = lumin_pre_inc(__vp); }\n", cvar(nm)); break;
-            case OPC_POST_INC: fprintf(out, "    { Value* __vp = &%s; __stk[__sp++] = lumin_post_inc(__vp); }\n", cvar(nm)); break;
-            case OPC_PRE_DEC:  fprintf(out, "    { Value* __vp = &%s; __stk[__sp++] = lumin_pre_dec(__vp); }\n", cvar(nm)); break;
-            case OPC_POST_DEC: fprintf(out, "    { Value* __vp = &%s; __stk[__sp++] = lumin_post_dec(__vp); }\n", cvar(nm)); break;
+            case OPC_PRE_INC:  fprintf(out, "    { Value* __vp = %s; __stk[__sp++] = lumin_pre_inc(__vp); }\n", cvar_ptr(nm)); break;
+            case OPC_POST_INC: fprintf(out, "    { Value* __vp = %s; __stk[__sp++] = lumin_post_inc(__vp); }\n", cvar_ptr(nm)); break;
+            case OPC_PRE_DEC:  fprintf(out, "    { Value* __vp = %s; __stk[__sp++] = lumin_pre_dec(__vp); }\n", cvar_ptr(nm)); break;
+            case OPC_POST_DEC: fprintf(out, "    { Value* __vp = %s; __stk[__sp++] = lumin_post_dec(__vp); }\n", cvar_ptr(nm)); break;
             case OPC_CAST_INT:    fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_int(__v); }\n"); break;
             case OPC_CAST_DOUBLE: fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_double(__v); }\n"); break;
             case OPC_CAST_CHAR:   fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumin_cast_char(__v); }\n"); break;
@@ -815,6 +950,9 @@ static void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_GC_COLLECT:
                         fprintf(out, "    { gc_collect_now(); __stk[__sp++] = val_none(); }\n");
                         break;
+                    case BUILTIN_GC_STW_NS:
+                        fprintf(out, "    __stk[__sp++] = lumin_make_int((long long)gc_stw_time_ns());\n");
+                        break;
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -1146,18 +1284,20 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    gc_stw_check_fast();\n");
                 /* 帧链优先（VM 语义）：名字是局部/全局变量时按函数值动态调用，
                    与具名全局函数冲突时以变量为准（局部闭包遮蔽全局函数） */
-                int is_var = (g_cur_fn && (fn_has_param(g_cur_fn, nm) || ns_has(&fn_locals, nm))) ||
+                int is_var = (g_cur_fn && (fn_has_param(g_cur_fn, nm) || ns_has(&fn_locals, nm) ||
+                                           cap_index_of(nm) >= 0)) ||
                              ns_has(&g_globals, nm);
                 if(is_var) {
                     int argc = in.b;
                     fprintf(out, "    {\n");
-                    fprintf(out, "        Value __f = %s;\n", cvar(nm));
+                    fprintf(out, "        Value __f = %s;\n", cvar_rw(nm));
                     fprintf(out, "        if(__f.type != VAL_FUNC) runtime_error(\"尝试调用非函数: %s\");\n", nm);
                     fprintf(out, "        int __argc = %d;\n", argc);
                     fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
                     fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - __argc + __k];\n");
                     fprintf(out, "        __sp -= __argc;\n");
-                    fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))((RuntimeFunc*)__f.v.func.func_obj)->entry)(__args, __argc);\n");
+                    fprintf(out, "        RuntimeFunc* __rf = (RuntimeFunc*)__f.v.func.func_obj;\n");
+                    fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int, void*))__rf->entry)(__args, __argc, (void*)__rf->captures);\n");
                     fprintf(out, "    }\n");
                     break;
                 }
@@ -1205,7 +1345,7 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_CALLV: {
                 /* STW 安全点：函数调用前检查 GC */
                 fprintf(out, "    gc_stw_check_fast();\n");
-                // 动态调用链 f(1)(2)：栈上函数值调用（wrap 指针签名 Value(*)(Value*, int)）
+                // 动态调用链 f(1)(2)：栈上函数值调用（wrap 指针签名 Value(*)(Value*, int, void*)）
                 int argc = in.b;
                 fprintf(out, "    {\n");
                 fprintf(out, "        Value __f = __stk[__sp - %d - 1];\n", argc);
@@ -1214,7 +1354,8 @@ static void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
                 fprintf(out, "        for (int __k = 0; __k < __argc; __k++) __args[__k] = __stk[__sp - %d + __k];\n", argc);
                 fprintf(out, "        __sp -= %d + 1;\n", argc);
-                fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int))((RuntimeFunc*)__f.v.func.func_obj)->entry)(__args, __argc);\n");
+                fprintf(out, "        RuntimeFunc* __rf = (RuntimeFunc*)__f.v.func.func_obj;\n");
+                fprintf(out, "        __stk[__sp++] = ((Value(*)(Value*, int, void*))__rf->entry)(__args, __argc, (void*)__rf->captures);\n");
                 fprintf(out, "    }\n");
                 break;
             }
@@ -1804,10 +1945,12 @@ static void analyze_scalar_replacement(BytecodeFunc* fn)
 
 static void emit_func_proto(BytecodeFunc* fn)
 {
+    int has_caps = lambda_has_captures(fn->name);
     fprintf(out, "static Value lumin_func_%s(", fn->name);
+    if(has_caps) fprintf(out, "Value** __caps");
     int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
     for(int i = 0; i < total; i++) {
-        if(i) fprintf(out, ", ");
+        if(has_caps || i) fprintf(out, ", ");
         fprintf(out, "Value");
     }
     fprintf(out, ");\n");
@@ -1817,6 +1960,7 @@ static void emit_func_def(BytecodeFunc* fn)
 {
     collect_func_locals(fn);
     g_cur_fn = fn;  /* 逃逸分析中用于全局/局部判定 */
+    analyze_boxing(fn);  /* 闭包装箱分析：g_boxed / g_cur_caps */
     /* 逃逸分析：数组（含 items）+ map */
     int n = fn->code_len;
     g_stack_alloc = (uint8_t*)calloc(n, sizeof(uint8_t));
@@ -1831,11 +1975,17 @@ static void emit_func_def(BytecodeFunc* fn)
         Instruction in = fn->code[i];
         if(in.op == OPC_FIN_PUSH && in.b) fin_lab_idx_of(in.b);
     }
+    int has_caps = lambda_has_captures(fn->name);
     fprintf(out, "static Value lumin_func_%s(", fn->name);
+    if(has_caps) fprintf(out, "Value** __caps");
     int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
     for(int i = 0; i < total; i++) {
-        if(i) fprintf(out, ", ");
-        fprintf(out, "Value lmloc_%s", fn->params[i]);
+        if(has_caps || i) fprintf(out, ", ");
+        /* 装箱参数：入参用 _in 后缀，函数入口处再装箱为 lmloc_<name>(Value*) */
+        if(ns_has(&g_boxed, fn->params[i]))
+            fprintf(out, "Value lmloc_%s_in", fn->params[i]);
+        else
+            fprintf(out, "Value lmloc_%s", fn->params[i]);
     }
     int maxd = bc_analyze_stack(fn, NULL, 0);
     fprintf(out, ")\n{\n");
@@ -1849,8 +1999,19 @@ static void emit_func_def(BytecodeFunc* fn)
     }
     fprintf(out, "    int __g_d0 = __g_depth; jmp_buf* __g_gj0 = g_err_jmp; int __g_fin0 = __g_fin_n;\n");
     fprintf(out, "    g_trace_push(\"%s\");\n", fn->name);
+    /* 装箱参数：把传入的 by-value Value 拷到堆 cell，后续一律通过 lmloc_<name>(Value*) 访问 */
+    for(int i = 0; i < total; i++) {
+        if(ns_has(&g_boxed, fn->params[i])) {
+            fprintf(out, "    Value* lmloc_%s = (Value*)malloc(sizeof(Value)); *lmloc_%s = lmloc_%s_in;\n",
+                    fn->params[i], fn->params[i], fn->params[i]);
+        }
+    }
     for(int i = 0; i < fn_locals.count; i++) {
-        fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
+        if(ns_has(&g_boxed, fn_locals.names[i]))
+            fprintf(out, "    Value* lmloc_%s = (Value*)malloc(sizeof(Value)); *lmloc_%s = val_none();\n",
+                    fn_locals.names[i], fn_locals.names[i]);
+        else
+            fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
     }
     /* 栈分配数组声明：逃逸分析判定为不逃逸的 OPC_ARRAY_LIT（标量替换的跳过） */
     for(int i = 0; i < fn->code_len; i++) {
@@ -1892,12 +2053,19 @@ static void emit_func_def(BytecodeFunc* fn)
         int _idx = 0;
         for(int i = 0; i < _total_params; i++) {
             if(_idx) fprintf(out, ", ");
-            fprintf(out, "&lmloc_%s", fn->params[i]);
+            /* 装箱参数：lmloc_<name> 已是 Value*（堆 cell）；普通参数取栈地址 */
+            if(ns_has(&g_boxed, fn->params[i]))
+                fprintf(out, "lmloc_%s", fn->params[i]);
+            else
+                fprintf(out, "&lmloc_%s", fn->params[i]);
             _idx++;
         }
         for(int i = 0; i < fn_locals.count; i++) {
             if(_idx) fprintf(out, ", ");
-            fprintf(out, "&lmloc_%s", fn_locals.names[i]);
+            if(ns_has(&g_boxed, fn_locals.names[i]))
+                fprintf(out, "lmloc_%s", fn_locals.names[i]);
+            else
+                fprintf(out, "&lmloc_%s", fn_locals.names[i]);
             _idx++;
         }
         for(int v = 0; v < fn->sym_cnt; v++) {
@@ -1922,6 +2090,8 @@ static void emit_func_def(BytecodeFunc* fn)
     }
     emit_insns(fn);
     g_cur_fn = NULL;
+    memset(&g_boxed, 0, sizeof(g_boxed));
+    memset(&g_cur_caps, 0, sizeof(g_cur_caps));
     if(g_stack_alloc) { free(g_stack_alloc); g_stack_alloc = NULL; }
     g_stack_alloc_len = 0;
     if(g_items_stack_alloc) { free(g_items_stack_alloc); g_items_stack_alloc = NULL; }
@@ -1941,13 +2111,15 @@ static void emit_func_def(BytecodeFunc* fn)
     fprintf(out, "}\n\n");
 }
 
-// 生成统一签名包装（Value(*)(Value*, int)）与函数表：高阶函数调用入口
+// 生成统一签名包装（Value(*)(Value*, int, void*)）与函数表：高阶函数调用入口
+// 第三参数 __ctx：闭包实例传入 captures（Value**）；普通函数传 NULL 并忽略。
 static void emit_func_wraps(void)
 {
     int cnt = ir_func_table_count();
     for(int i = 0; i < cnt; i++) {
         BytecodeFunc* fn = ir_func_table_get(i);
-        fprintf(out, "static Value lum_wrap_%d(Value* a, int n)\n{\n", i);
+        int has_caps = lambda_has_captures(fn->name);
+        fprintf(out, "static Value lum_wrap_%d(Value* a, int n, void* __ctx)\n{\n", i);
         for(int k = 0; k < fn->param_cnt; k++)
             fprintf(out, "    Value p%d = (n > %d) ? a[%d] : val_none();\n", k, k, k);
         if(fn->has_variadic) {
@@ -1957,8 +2129,10 @@ static void emit_func_wraps(void)
         }
         fprintf(out, "    return lumin_func_%s(", fn->name);
         int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
+        if(has_caps)
+            fprintf(out, "(Value**)__ctx");
         for(int k = 0; k < total; k++) {
-            if(k) fprintf(out, ", ");
+            if(has_caps || k) fprintf(out, ", ");
             if(k < fn->param_cnt) fprintf(out, "p%d", k);
             else {
                 fprintf(out, "__rest");
@@ -1971,7 +2145,7 @@ static void emit_func_wraps(void)
         fprintf(out, "static RuntimeFunc lum_wrap_%d_rf = { (FuncEntry*)lum_wrap_%d, %d, %d, NULL, 0 };\n\n",
                 i, i, fn->param_cnt, fn->has_variadic ? 1 : 0);
     }
-    fprintf(out, "static Value (*const lumin_cfunc_tbl[])(Value*, int) = {\n");
+    fprintf(out, "static Value (*const lumin_cfunc_tbl[])(Value*, int, void*) = {\n");
     for(int i = 0; i < cnt; i++)
         fprintf(out, "    lum_wrap_%d,\n", i);
     fprintf(out, "};\n\n");
@@ -1993,7 +2167,7 @@ static void emit_main(BytecodeFunc* main_fn)
     }
     // 高阶包装前置声明（函数体内 GETFUNC 先于 wraps 定义使用）
     for(int i = 0; i < ir_func_table_count(); i++) {
-        fprintf(out, "static Value lum_wrap_%d(Value*, int);\n", i);
+        fprintf(out, "static Value lum_wrap_%d(Value*, int, void*);\n", i);
     }
     // RuntimeFunc 包装变量前置声明（GETFUNC 引用 &lum_wrap_N_rf，定义在 emit_func_wraps）
     for(int i = 0; i < ir_func_table_count(); i++) {
@@ -2139,7 +2313,7 @@ void ir_cgen_file(const char* out_c_path, BytecodeFunc* main_fn)
     fprintf(out, "#include <stdlib.h>\n");
     fprintf(out, "#include <string.h>\n\n");
     fwrite(src_runtime_full_runtime_full_c, 1, src_runtime_full_runtime_full_c_len, out);
-    /* 编译通道不使用解释器闭包（含捕获的 lambda 会在 codegen 期直接报错）。
+    /* 编译通道使用自己的闭包实现（capture_count==-2，captures 为 Value** cell 指针数组）。
      * 提供 gc_runtime.c 引用的 lumin_interp_scan_captures 弱定义桩，避免链接缺失符号。 */
     fprintf(out, "\n__attribute__((weak)) void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value)) { (void)rf; (void)mark; }\n\n");
 

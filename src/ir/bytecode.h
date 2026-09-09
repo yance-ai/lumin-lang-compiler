@@ -160,6 +160,7 @@ typedef enum {
     BUILTIN_GC_COUNT,       // gc_count()：当前 GC 管理对象数
     BUILTIN_GC_BYTES,       // gc_bytes()：当前 GC 管理字节数（近似）
     BUILTIN_GC_COLLECT,     // gc_collect()：手动触发一次 GC
+    BUILTIN_GC_STW_NS,      // gc_stw_ns()：累计 STW 停顿时间（纳秒）
     BUILTIN_COUNT
 } BuiltinId;
 
