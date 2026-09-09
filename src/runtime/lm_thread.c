@@ -34,6 +34,11 @@ static void gc_scan_thread_roots(void) {
             gc_mark_value_to_stack(g_slots[i].result);
         }
     }
+    if (getenv("GC_DEBUG_ROOTS")) {
+        int n = 0;
+        for (int i = 0; i < g_cap; i++) if (g_slots[i].used) n++;
+        fprintf(stderr, "GC: scanned %d thread slots\n", n);
+    }
 }
 
 typedef struct {
@@ -156,7 +161,11 @@ static void lm_c_thread_body(ThreadLaunch* t)
 {
     Value (*cf)(Value*, int) = (Value(*)(Value*, int))t->data;
     Value r = cf(t->args, t->argc);
+    /* cf() 内部 epilogue 可能已 gc_pop_cframe()，r 在 C 栈上不再被 CFrame 链扫描。
+     * 立即 protect_push 确保 r 引用的堆对象不被其他线程触发的 GC 回收。 */
+    gc_protect_push(r);
     lumin_thread_set_result(t, r);
+    gc_protect_pop();
     gc_unregister_cframe_thread();
 }
 

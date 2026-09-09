@@ -8,6 +8,11 @@
 #include "runtime/lm_runtime.h"
 #include "runtime/gc_runtime.h"
 #include "runtime/lm_thread.h"
+
+/* 线程模式：最外层 vm_run 不自行 unregister，由 vm_thread_body 在 set_result 后统一注销。
+ * 深度计数器确保嵌套 vm_run 正常 register/unregister，skip 标志只影响最外层。 */
+static _Thread_local int tls_vm_run_depth = 0;
+static _Thread_local int tls_skip_vm_unregister = 0;
 #include "runtime/lm_lock.h"
 #include "runtime/lm_tls.h"
 #include "runtime/lm_http.h"
@@ -121,13 +126,14 @@ static void vm_thread_body(ThreadLaunch* t)
     EvalCtx ctx = {0};
     g_trace_push("<thread>");
     Value r = rf->entry(t->argc, t->args, &ctx, callee);
-    /* vm_run 已自行 unregister。线程结果已通过 lumin_thread_set_result
-     * 写入 g_slots，由 GC 全局根扫描回调保护。此处直接读取即可。 */
+    /* vm_run 退出时已 protect_push/pop 返回值，此处再保护一次确保到 set_result 前安全 */
+    gc_protect_push(r);
+    lumin_thread_set_result(t, r);
+    gc_protect_pop();
     if(g_trace_n > 0) g_trace_n--;
     interp_set_current_rf(prev_rf);
     stackframe_destroy(callee);
     s_global_frame = saved_global;
-    lumin_thread_set_result_protected(t, r);
     free(a);
 }
 
@@ -214,6 +220,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     /* 注册当前线程到全局 GC 线程注册表：GC 时扫描所有注册线程的栈和帧链，
      * 防止其他线程栈上持有的对象引用被误回收（多线程 UAF 根因）。 */
     gc_register_thread(stack, &sp, frame);
+    tls_vm_run_depth++;
     /* 函数边界隔离 try 状态：进入保存，所有退出点恢复（try 内 return 不能泄漏） */
     int saved_depth = vm_depth;
     jmp_buf* saved_gj = g_err_jmp;
@@ -1274,9 +1281,13 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     Value v = vm_pend_val;
                     vm_depth = saved_depth;
                     g_err_jmp = saved_gj;
+                    /* 在 unregister 前 protect 返回值，确保线程模式下 v 不被 UAF */
+                    gc_protect_push(v);
                     gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
-                    gc_unregister_thread();
+                    tls_vm_run_depth--;
+                    if (tls_vm_run_depth > 0 || !tls_skip_vm_unregister) gc_unregister_thread();
                     free(stack);
+                    gc_protect_pop();
                     return v;
                 } else {
                     runtime_error("finally 完成动作未知");
@@ -1405,9 +1416,12 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
+                gc_protect_push(v);
                 gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
-                gc_unregister_thread();
+                tls_vm_run_depth--;
+                if (tls_vm_run_depth > 0 || !tls_skip_vm_unregister) gc_unregister_thread();
                 free(stack);
+                gc_protect_pop();
                 return v;
             }
             case OPC_RETURN_NIL:
@@ -1415,7 +1429,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
                 gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
-                gc_unregister_thread();
+                tls_vm_run_depth--;
+                if (tls_vm_run_depth > 0 || !tls_skip_vm_unregister) gc_unregister_thread();
                 free(stack);
                 return val_none();
             case OPC_HALT:
@@ -1423,7 +1438,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
                 gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
-                gc_unregister_thread();
+                tls_vm_run_depth--;
+                if (tls_vm_run_depth > 0 || !tls_skip_vm_unregister) gc_unregister_thread();
                 free(stack);
                 return val_none();
             default:
