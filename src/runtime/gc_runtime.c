@@ -25,6 +25,16 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <mach/mach_time.h>  /* 高精度计时 */
+#if defined(__has_feature)
+#  if __has_feature(address_sanitizer)
+#    include <sanitizer/asan_interface.h>  /* ASan：保守栈扫描前检测 poisoned 红区 */
+#    define GC_ASAN_ENABLED 1
+#  endif
+#endif
+#if !defined(GC_ASAN_ENABLED) && defined(__SANITIZE_ADDRESS__)
+#  include <sanitizer/asan_interface.h>
+#  define GC_ASAN_ENABLED 1
+#endif
 
 /* 编译期断言：GCObject 必须保持 16 字节（user_size 利用原填充空间） */
 _Static_assert(sizeof(GCObject) == 16, "GCObject must be 16 bytes");
@@ -39,10 +49,6 @@ _Static_assert(sizeof(GCObject) == 16, "GCObject must be 16 bytes");
 /* 线程本地空闲链表（无锁访问）：对象在 g_gc_objects 中，marked=2 */
 static _Thread_local GCObject* tla_local_free = NULL;
 static _Thread_local int tla_local_count = 0;
-
-/* 全局空闲链表（sweep 回收，线程批量取用时加锁）：对象不在 g_gc_objects 中，marked=2 */
-static GCObject* tla_global_free = NULL;
-static int tla_global_count = 0;
 
 /* ---- 全局状态 ---- */
 static GCObject* g_gc_objects = NULL;
@@ -159,12 +165,16 @@ static _Thread_local GCCFrameEntry* tls_cur_cf_entry = NULL;
  * 否则 gc_wait_all_threads_at_safepoint 会因旧 entry at_safepoint=0 而永久自旋。 */
 static void gc_set_self_at_safepoint(int val) {
     pthread_t self = pthread_self();
+    /* 必须持 g_gc_mutex：gc_unregister_thread 在锁内 free(GCThreadEntry)，
+     * 不加锁遍历会读到已释放的 entry → UAF。 */
+    pthread_mutex_lock(&g_gc_mutex);
     for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
         if (pthread_equal(e->tid, self)) e->at_safepoint = val;
     }
     for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
         if (pthread_equal(e->tid, self)) e->at_safepoint = val;
     }
+    pthread_mutex_unlock(&g_gc_mutex);
 }
 
 /* 协作式 STW 安全点：VM 解释循环每条指令前调用，编译通道每N条指令/循环/调用前调用。
@@ -203,6 +213,29 @@ void gc_leave_native_block(void) {
     gc_set_self_at_safepoint(0);
 }
 
+/* GC 发起者（当前线程）在开始标记前记录自身栈帧下界。
+ *
+ * 背景：其他工作线程在 gc_stw_check 自旋时记录 c_stack_sp，其栈稳定。
+ * 但 GC 发起者本身不停在安全点——它从分配路径（gc_alloc/gc_enable）直接进入
+ * gc_collect_minor/major，其当前 C 栈比上次 gc_stw_check 记录的 c_stack_sp 更深。
+ * 若不更新，保守式 C 栈扫描的下界过高，会漏扫发起者当前帧上的 C 局部 Value
+ * （如 val_array 返回后尚未 push 到 VM 操作数栈的临时值 r），导致该值引用的
+ * 堆对象被误标记为白色而 sweep → UAF。
+ *
+ * 调用时机：已持 g_gc_mutex，根扫描之前。记录 __builtin_frame_address(0) 作为
+ * 发起者的 c_stack_sp，使保守扫描覆盖 [c_stack_top, 本帧]，包含 val_array/vm_run
+ * 等调用者帧，但不进入 GC 自身内部帧（GC 内部不持有用户根）。 */
+static void gc_record_self_cstack_sp(void) {
+    void* sp = __builtin_frame_address(0);
+    pthread_t self = pthread_self();
+    for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
+        if (pthread_equal(e->tid, self)) e->c_stack_sp = sp;
+    }
+    for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
+        if (pthread_equal(e->tid, self)) e->c_stack_sp = sp;
+    }
+}
+
 /* ---- GC 值保护：临时注册 1 元素最小栈，保护 C 栈上的 Value 不被 GC 回收 ----
  * 用于线程退出（已 unregister）时 val_clone 结果值等场景。TLS 保存旧根，不可嵌套。 */
 static _Thread_local Value        tls_protect_val;
@@ -226,6 +259,23 @@ void gc_protect_push(Value v) {
 void gc_protect_pop(void) {
     gc_unregister_thread();
     gc_set_roots(tls_protect_old_stack, tls_protect_old_sp, tls_protect_old_frame);
+}
+
+/* 更新当前 protect entry 的值（cf 返回后用 r 替换初始 dummy）。
+ * 无锁、无注册变更，仅更新 tls_protect_val，GC 下次扫描时看到新值。 */
+void gc_protect_set(Value v) {
+    tls_protect_val = v;
+}
+
+/* 标记对象为内部缓冲区（items/buckets 等），保守 C 栈扫描跳过。
+ * 内部缓冲区不是用户对象，不应作为根被标记到灰色栈。 */
+static inline GCObject* ptr_to_obj_local(void* ptr) {
+    return (GCObject*)((char*)ptr - sizeof(GCObject));
+}
+void gc_mark_internal_buf(void* ptr) {
+    if (!ptr) return;
+    GCObject* obj = ptr_to_obj_local(ptr);
+    obj->flags |= 0x02;  /* bit1 = GC_OBJ_INTERNAL_BUF */
 }
 
 /* ---- 内部辅助：用户指针 <-> GCObject ---- */
@@ -264,7 +314,6 @@ void* gc_alloc(size_t size, int vtype)
      * 避免无锁修改 marked 位与并发 sweep 产生竞态。 */
     if (size <= TLA_MAX_SIZE && !atomic_load_explicit(&g_in_gc, memory_order_relaxed)) {
         size_t real_sz = tla_real_size(size);
-
         /* 1. 扫描本地空闲链表，找第一个 user_size >= 请求大小的对象 */
         GCObject* prev = NULL;
         GCObject* cur = tla_local_free;
@@ -994,8 +1043,8 @@ static void gc_mark_value_to_stack_minor(Value v)
     switch (v.type) {
     case VAL_STRING: {
         if (!v.str_inline && GC_VALID_PTR(v.v.s)) {
-            GCObject* obj = ptr_to_obj(v.v.s);
-            if (obj->age < PROMOTE_AGE) gc_mark_ptr_to_stack(v.v.s);
+            /* 根上的字符串无论年代都标记（Major GC 清空 RS 后老年代字符串仍需存活） */
+            gc_mark_ptr_to_stack(v.v.s);
         }
         break;
     }
@@ -1013,16 +1062,18 @@ static void gc_mark_value_to_stack_minor(Value v)
                 }
             }
         } else {
+            /* 堆分配 ValueArray：无论新生代还是老年代都推入灰色栈。
+             * 之前老年代不推入栈（假设由 remembered set 追踪），但 Major GC 会清空
+             * remembered set，清空后老年代对象不在 RS 中也不被根扫描覆盖 → 其子对象
+             * （items 缓冲区）漏标 → Minor GC sweep 误释放 → UAF。
+             * C 栈/VM 栈上的引用是根，必须标记，不论年代。 */
             GCObject* obj = ptr_to_obj(arr);
-            if (obj->age < PROMOTE_AGE) {
-                /* 新生代：推入标记栈，items 内部缓冲区标记黑色 */
-                if (gc_mark_ptr_to_stack(arr)) {
-                    if (arr->items && !arr->items_stack_alloc) {
-                        gc_mark_internal_black(arr->items);
-                    }
+            (void)obj;
+            if (gc_mark_ptr_to_stack(arr)) {
+                if (arr->items && !arr->items_stack_alloc) {
+                    gc_mark_internal_black(arr->items);
                 }
             }
-            /* 老年代：不推入栈（如果引用新生代，应在 remembered set 中） */
         }
         break;
     }
@@ -1062,31 +1113,24 @@ static void gc_mark_value_to_stack_minor(Value v)
                 }
             }
         } else {
-            GCObject* obj = ptr_to_obj(m);
-            if (obj->age < PROMOTE_AGE) {
-                /* 新生代：推入标记栈，buckets/tree 内部缓冲区标记黑色 */
-                if (gc_mark_ptr_to_stack(m)) {
-                    if (m->buckets) gc_mark_internal_black(m->buckets);
-                    if (m->tree) gc_mark_internal_black(m->tree);
-                }
+            /* 堆分配 ValueMap：无论年代都推入灰色栈（根上的引用必须标记） */
+            if (gc_mark_ptr_to_stack(m)) {
+                if (m->buckets) gc_mark_internal_black(m->buckets);
+                if (m->tree) gc_mark_internal_black(m->tree);
             }
-            /* 老年代：不推入栈（如果引用新生代，应在 remembered set 中） */
         }
         break;
     }
     case VAL_ERROR: {
         /* ValueError 内联在 Value 中，type/message/stack 是堆字符串 */
         if (v.v.err.type && GC_VALID_PTR(v.v.err.type)) {
-            if (ptr_to_obj(v.v.err.type)->age < PROMOTE_AGE)
-                gc_mark_ptr_to_stack(v.v.err.type);
+            gc_mark_ptr_to_stack(v.v.err.type);
         }
         if (v.v.err.message && GC_VALID_PTR(v.v.err.message)) {
-            if (ptr_to_obj(v.v.err.message)->age < PROMOTE_AGE)
-                gc_mark_ptr_to_stack(v.v.err.message);
+            gc_mark_ptr_to_stack(v.v.err.message);
         }
         if (v.v.err.stack && GC_VALID_PTR(v.v.err.stack)) {
-            if (ptr_to_obj(v.v.err.stack)->age < PROMOTE_AGE)
-                gc_mark_ptr_to_stack(v.v.err.stack);
+            gc_mark_ptr_to_stack(v.v.err.stack);
         }
         break;
     }
@@ -1117,7 +1161,6 @@ static void gc_mark_one_minor(GCObject* obj)
         break;
     case VAL_ARRAY: {
         ValueArray* arr = (ValueArray*)obj_to_ptr(obj);
-        /* 有效性校验：防止已释放/损坏对象的 items 指针导致崩溃 */
         if (arr->items && (!GC_VALID_PTR(arr->items) || ((unsigned long long)arr->items & 0xF) != 0))
             break;
         if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) break;
@@ -1244,20 +1287,94 @@ static GCGlobalRootScanFn g_global_root_scan = NULL;
 
 void gc_register_global_root_scan(GCGlobalRootScanFn fn) { g_global_root_scan = fn; }
 
-/* 保守式 C 栈扫描：扫描线程栈上所有可能是 GCObject 指针的 word。
+/* ---- 保守式 C 栈扫描的 GC 指针集合 ----
+ * 扫描前遍历 g_gc_objects，把所有活跃对象的用户数据指针存入开放寻址哈希集合。
+ * 保守扫描时只标记集合中确认存在的指针，避免：
+ *   (a) 把栈上非 GC 指针（编译器阶段 strdup 符号、代码指针等）误判为 GC 对象；
+ *   (b) 回退 GCObject 头时读到 ASan 红区 / 未映射内存 → segfault。
+ * 这是 ASan 下保守扫描的安全前提：绝不解引用未经验证的指针。 */
+static void** g_cstack_ptr_set = NULL;   /* 开放寻址哈希集合（存用户数据指针） */
+static size_t  g_cstack_set_cap = 0;     /* 容量（2 的幂） */
+static size_t  g_cstack_set_used = 0;    /* 已用槽数 */
+
+/* 初始化/重建哈希集合（GC 标记阶段开始前调用，已持 g_gc_mutex）。
+ * 遍历 g_gc_objects，插入所有活跃对象的用户数据指针。
+ * 容量按当前对象数 2x 扩容（load factor < 0.5），动态增长。 */
+static void gc_cstack_set_build(void)
+{
+    /* 统计对象数，确定容量 */
+    size_t cnt = 0;
+    for (GCObject* o = g_gc_objects; o; o = o->next) cnt++;
+    size_t need = cnt * 2 + 16;
+    /* 取 >= need 的最小 2 的幂 */
+    size_t cap = 1;
+    while (cap < need) cap <<= 1;
+    if (cap != g_cstack_set_cap) {
+        free(g_cstack_ptr_set);
+        g_cstack_ptr_set = (void**)calloc(cap, sizeof(void*));
+        g_cstack_set_cap = g_cstack_ptr_set ? cap : 0;
+    } else if (g_cstack_ptr_set) {
+        memset(g_cstack_ptr_set, 0, g_cstack_set_cap * sizeof(void*));
+    }
+    g_cstack_set_used = 0;
+    if (!g_cstack_ptr_set) return;
+    size_t mask = g_cstack_set_cap - 1;
+    for (GCObject* o = g_gc_objects; o; o = o->next) {
+        if (o->flags & 0x02) continue;  /* 跳过内部缓冲区（items/buckets） */
+        void* up = obj_to_ptr(o);
+        size_t h = ((size_t)up >> 4) & mask;  /* 16 字节对齐后哈希 */
+        while (g_cstack_ptr_set[h] != NULL) h = (h + 1) & mask;
+        g_cstack_ptr_set[h] = up;
+        g_cstack_set_used++;
+    }
+}
+
+/* 查询指针是否在 GC 对象集合中。 */
+static int gc_cstack_set_contains(void* ptr)
+{
+    if (!g_cstack_ptr_set || !ptr) return 0;
+    size_t mask = g_cstack_set_cap - 1;
+    size_t h = ((size_t)ptr >> 4) & mask;
+    while (g_cstack_ptr_set[h] != NULL) {
+        if (g_cstack_ptr_set[h] == ptr) return 1;
+        h = (h + 1) & mask;
+    }
+    return 0;
+}
+
+/* 保守式 C 栈扫描：扫描线程栈上所有可能是 GC 用户数据指针的 word。
  * Boehm GC 经典做法，兜底捕获 precise root scanning 遗漏的 C 局部变量。
- * 从 c_stack_top 向下扫描 2MB（典型线程栈足够），按 8 字节对齐检查。 */
-static void gc_conservative_cstack_scan(void* top, int minor_only)
+ *
+ * 安全设计：
+ *   1. 扫描前已通过 gc_cstack_set_build() 构建了所有 GC 对象用户指针的哈希集合，
+ *      只标记集合中确认存在的指针，绝不回退 GCObject 头读任意内存。
+ *   2. 扫描下界用 safepoint 时的实际栈指针（c_stack_sp），而非固定 2MB 窗口——
+ *      固定窗口会读到栈底以下的未映射内存（ASan stack-buffer-overflow）。
+ *      栈向下增长：top 是注册时栈顶（高地址），bottom 是 safepoint 栈指针（低地址）。 */
+static void gc_conservative_cstack_scan(void* top, void* bottom, int minor_only)
 {
     if (!top) return;
-    /* 从 top 向下扫描 2MB（线程栈通常 512KB-8MB，2MB 覆盖绝大多数情况） */
     uintptr_t* p = (uintptr_t*)top;
-    uintptr_t* end = (uintptr_t*)((char*)top - 2 * 1024 * 1024);
+    /* 下界：取 safepoint 栈指针；若未记录则退化为 top-2MB（兜底） */
+    uintptr_t* end = bottom ? (uintptr_t*)bottom
+                            : (uintptr_t*)((char*)top - 2 * 1024 * 1024);
+    /* 安全：下界不能高于上界（异常情况） */
+    if (end > p) end = p;
     for (; p >= end; p--) {
+#ifdef GC_ASAN_ENABLED
+        /* ASan 在栈帧之间插入红区（f1/f2/f3）。读 *p 前检查是否 poisoned，
+         * poisoned 则跳过该 word（不读，避免 stack-buffer-overflow）。 */
+        if (__asan_region_is_poisoned(p, sizeof(uintptr_t))) continue;
+#endif
         uintptr_t word = *p;
         if (!GC_VALID_PTR((void*)word)) continue;
-        /* 只标记，如果是有效 GCObject 指针则按 Value 处理 */
-        gc_mark_value_to_stack(*(Value*)p);
+        /* 只标记哈希集合中确认存在的 GC 对象指针 */
+        if (!gc_cstack_set_contains((void*)word)) continue;
+        /* C 栈是根：栈上直接引用的所有对象都必须标记，不分年代。
+         * 之前 Minor GC 跳过老年代对象（假设由 remembered set 追踪），但老年代对象
+         * 直接在 C 栈上（如 val_array 的 items 局部指针，其父 ValueArray 是新生代
+         * 不在 remembered set 中）时会漏标 → marked==0 → Minor GC sweep 误释放 → UAF。 */
+        gc_mark_ptr_to_stack((void*)word);
     }
 }
 
@@ -1266,7 +1383,7 @@ void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame)
     if (g_gc_threads) {
         for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
             gc_scan_vm_roots_to_stack(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
-            gc_conservative_cstack_scan(e->c_stack_top, 0);
+            gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, 0);
         }
     } else {
         gc_scan_vm_roots_to_stack(stack, sp, frame);
@@ -1276,7 +1393,7 @@ void gc_scan_roots_to_stack(Value* stack, int sp, StackFrame* frame)
     for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
         CFrame* cf = *e->cframe_ptr;
         gc_scan_cframe_chain_to_stack(cf);
-        gc_conservative_cstack_scan(e->c_stack_top, 0);
+        gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, 0);
     }
     /* 安全兜底：扫描当前线程 tls_cframe（未注册的情况） */
     if (tls_cframe && !g_gc_cframe_threads) {
@@ -1331,7 +1448,7 @@ static void gc_scan_roots_minor(Value* stack, int sp, StackFrame* frame)
     if (g_gc_threads) {
         for (GCThreadEntry* e = g_gc_threads; e; e = e->next) {
             gc_scan_vm_roots_minor(e->stack, e->sp_ptr ? *e->sp_ptr : 0, e->frame);
-            gc_conservative_cstack_scan(e->c_stack_top, 1);
+            gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, 1);
         }
     } else {
         gc_scan_vm_roots_minor(stack, sp, frame);
@@ -1339,7 +1456,7 @@ static void gc_scan_roots_minor(Value* stack, int sp, StackFrame* frame)
     for (GCCFrameEntry* e = g_gc_cframe_threads; e; e = e->next) {
         CFrame* cf = *e->cframe_ptr;
         gc_scan_cframe_chain_minor(cf);
-        gc_conservative_cstack_scan(e->c_stack_top, 1);
+        gc_conservative_cstack_scan(e->c_stack_top, e->c_stack_sp, 1);
     }
     if (tls_cframe && !g_gc_cframe_threads) {
         gc_scan_cframe_chain_minor(tls_cframe);
@@ -1382,10 +1499,7 @@ void gc_sweep(void)
             if (cur->user_size <= TLA_MAX_SIZE) {
                 *pp = cur->next;
                 g_gc_bytes -= sizeof(GCObject) + cur->user_size;
-                cur->marked = 2;
-                cur->next = tla_global_free;
-                tla_global_free = cur;
-                tla_global_count++;
+                free(cur);
             } else {
                 /* 大对象：free */
                 *pp = cur->next;
@@ -1436,10 +1550,7 @@ static void gc_sweep_minor(void)
                     *pp = cur->next;
                     g_gc_bytes -= obj_bytes;
                     g_young_bytes -= obj_bytes;
-                    cur->marked = 2;
-                    cur->next = tla_global_free;
-                    tla_global_free = cur;
-                    tla_global_count++;
+                    free(cur);
                 } else {
                     /* 大对象：free（理论上大对象直接老年代，不会出现在新生代，但防御性处理） */
                     *pp = cur->next;
@@ -1464,30 +1575,13 @@ static void gc_sweep_minor(void)
             }
         } else {
             /* ---- 老年代对象 ----
-             * 标记阶段已标记所有从根可达的对象（含老年代）。
-             * marked==0 的老年代对象不可达，可安全回收。
-             * 旧设计跳过老年代导致短命 items/buckets 缓冲区堆积，
-             * Minor GC 每次遍历 O(n) 老对象 → 性能回归。 */
-            if (!cur->marked) {
-                size_t obj_bytes = sizeof(GCObject) + cur->user_size;
-                if (cur->user_size <= TLA_MAX_SIZE) {
-                    *pp = cur->next;
-                    g_gc_bytes -= obj_bytes;
-                    g_old_bytes -= obj_bytes;
-                    cur->marked = 2;
-                    cur->next = tla_global_free;
-                    tla_global_free = cur;
-                    tla_global_count++;
-                } else {
-                    *pp = cur->next;
-                    g_gc_bytes -= obj_bytes;
-                    g_old_bytes -= obj_bytes;
-                    free(cur);
-                }
-            } else {
-                cur->marked = 0;
-                pp = &cur->next;
-            }
+             * Minor GC 不回收老年代对象，仅清除标记位。
+             * 老年代对象的回收由 Major GC 负责。之前在此处回收 marked==0 的老年代
+             * 对象导致 UAF：remembered set 在 Major GC 后被清空，老年代对象不被根扫描
+             * 覆盖（尤其 g_slots 中的悬挂引用、C 栈上的 items 指针等），marked 残留 0
+             * 被误释放。老年代对象量大但 Minor GC 遍历 O(n) 开销可接受。 */
+            cur->marked = 0;
+            pp = &cur->next;
         }
     }
 }
@@ -1690,6 +1784,14 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
     /* 开启写屏障（必须在根扫描前开启） */
     g_gc_marking = 1;
 
+    /* GC 发起者更新自身 c_stack_sp，使保守 C 栈扫描覆盖当前帧 */
+    gc_record_self_cstack_sp();
+
+    /* 构建保守式 C 栈扫描的 GC 指针集合（已持锁，遍历 g_gc_objects 安全）。
+     * 初始 STW 构建一次即可；最终 STW 重扫时复用（新分配对象已 marked=1/3，
+     * 不在集合中也不影响正确性——它们本就不会被 sweep）。 */
+    gc_cstack_set_build();
+
     /* 扫描所有根，白色对象变灰入栈 */
     gc_scan_roots_to_stack(stack, sp, frame);
 
@@ -1802,6 +1904,12 @@ void gc_collect_minor(Value* stack, int sp, StackFrame* frame)
 
     /* 重置标记栈（确保无残留） */
     g_mark_stack_size = 0;
+
+    /* GC 发起者更新自身 c_stack_sp，使保守 C 栈扫描覆盖当前帧 */
+    gc_record_self_cstack_sp();
+
+    /* 构建保守式 C 栈扫描的 GC 指针集合（已持锁，遍历 g_gc_objects 安全） */
+    gc_cstack_set_build();
 
     /* ---- 1. 扫描所有线程根，只标记新生代 ---- */
     gc_scan_roots_minor(stack, sp, frame);
@@ -1960,9 +2068,31 @@ void gc_unregister_thread(void)
             break;
         }
         pp = &(*pp)->next;
+    }    pthread_mutex_unlock(&g_gc_mutex);
+    tls_cur_vm_entry = next_for_self;
+}
+
+/* 移除当前线程倒数第二个 entry（保留最近注册的 protect entry）。
+ * 用于 OPC_RETURN 最外层：先 gc_protect_push(v) 注册 protect entry（head），
+ * 再调用本函数移除 VM entry（第二个），实现 protect 与 unregister 无窗口衔接，
+ * 避免 unregister→protect_push 之间 v 无根保护被误回收。 */
+void gc_unregister_thread_keep_protect(void)
+{
+    pthread_t self = pthread_self();
+    pthread_mutex_lock(&g_gc_mutex);
+    GCThreadEntry** pp = &g_gc_threads;
+    /* 跳过第一个（protect entry） */
+    while (*pp && !pthread_equal((*pp)->tid, self)) pp = &(*pp)->next;
+    if (!*pp) { pthread_mutex_unlock(&g_gc_mutex); return; }
+    pp = &(*pp)->next;
+    /* 现在指向第二个 entry（VM entry） */
+    while (*pp && !pthread_equal((*pp)->tid, self)) pp = &(*pp)->next;
+    if (*pp) {
+        GCThreadEntry* victim = *pp;
+        *pp = victim->next;
+        free(victim);
     }
     pthread_mutex_unlock(&g_gc_mutex);
-    tls_cur_vm_entry = next_for_self;
 }
 
 /* ============================================================

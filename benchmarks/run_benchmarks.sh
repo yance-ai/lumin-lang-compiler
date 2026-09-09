@@ -4,13 +4,17 @@
 # 对每个基准在两个版本上各跑 3 次，收集 time/gc_count/maxRSS
 # ============================================================
 
-OPT_DIR="/Users/kai/Documents/yangchuan/lumin-lang/lumin-lang-compiler"
+OPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BASE_DIR="/tmp/lumin-baseline"
 BENCHES="bench_string bench_array bench_map bench_mixed bench_gc_pressure"
 
+# 动态获取 commit hash
+OPT_COMMIT="$(cd "$OPT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+BASE_COMMIT="ed15d49"  # 基线版本固定 commit
+
 echo "============================================================"
 echo "  Lumin-Lang Compiler Performance Benchmark Suite"
-echo "  Optimized: HEAD (3ad1eff) | Baseline: ed15d49"
+echo "  Optimized: HEAD (${OPT_COMMIT}) | Baseline: ${BASE_COMMIT}"
 echo "============================================================"
 echo ""
 

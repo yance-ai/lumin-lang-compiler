@@ -208,7 +208,7 @@
 
 ```bash
 # 构建优化版（当前 dev 分支）
-cd /Users/kai/Documents/yangchuan/lumin-lang/lumin-lang-compiler
+cd $(cd "$(dirname "$0")/.." && pwd)
 ./concat_manifest.sh >/dev/null 2>&1 && make all
 
 # 构建基线版（git worktree）
@@ -220,7 +220,7 @@ mkdir -p /tmp/lumin-baseline/benchmarks
 cp benchmarks/*.lm /tmp/lumin-baseline/benchmarks/
 
 # 运行完整测量
-cd /Users/kai/Documents/yangchuan/lumin-lang/lumin-lang-compiler
+cd $(cd "$(dirname "$0")/.." && pwd)
 bash benchmarks/run_benchmarks.sh
 ```
 

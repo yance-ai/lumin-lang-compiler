@@ -106,13 +106,19 @@ int main(int argc, char** argv) {
 
                 if(!only_emit_c) {
                     char cmd[PATH_MAX * 2];
-                    snprintf(cmd, sizeof(cmd), "gcc -std=gnu11 %s -o %s -lcurl -liconv", c_path, exe_path);
+                    /* 允许通过环境变量覆盖生成代码的编译器/ flags（用于 ASan 等调试） */
+                    const char* gen_cc = getenv("LM_GEN_CC");
+                    const char* gen_cflags = getenv("LM_GEN_CFLAGS");
+                    if(!gen_cc) gen_cc = "gcc";
+                    if(!gen_cflags) gen_cflags = "";
+                    snprintf(cmd, sizeof(cmd), "%s -std=gnu11 %s %s -o %s -lcurl -liconv",
+                             gen_cc, gen_cflags, c_path, exe_path);
                     int sys_ret = system(cmd);
 
                     if(sys_ret == 0) {
                         printf("[CodeGen] 已编译为 ./%s\n", exe_path);
                     } else {
-                        fprintf(stderr, "[CodeGen] gcc 编译失败\n");
+                        fprintf(stderr, "[CodeGen] %s 编译失败\n", gen_cc);
                         return 1;
                     }
                 }

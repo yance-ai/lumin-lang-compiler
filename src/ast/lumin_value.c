@@ -214,6 +214,7 @@ Value val_array(int len) {
     Value* items = NULL;
     if(len > 0) {
         items = (Value*)gc_alloc_old(sizeof(Value) * len, VAL_ARRAY);  /* 内部缓冲区老年代 */
+        gc_mark_internal_buf(items);  /* 标记为内部缓冲区，保守 C 栈扫描跳过 */
         for(int i = 0; i < len; i++) {
             items[i] = val_none();
         }
@@ -241,6 +242,7 @@ Value val_array_from_stack(ValueArray* va, int len) {
     va->cap = len > 0 ? len : 0;
     if(len > 0) {
         va->items = (Value*)gc_alloc_old(sizeof(Value) * len, VAL_ARRAY);  /* 内部缓冲区老年代 */
+        gc_mark_internal_buf(va->items);
         for(int i = 0; i < len; i++) va->items[i] = val_none();
     } else {
         va->items = NULL;

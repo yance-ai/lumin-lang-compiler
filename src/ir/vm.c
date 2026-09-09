@@ -126,8 +126,8 @@ static void vm_thread_body(ThreadLaunch* t)
     EvalCtx ctx = {0};
     g_trace_push("<thread>");
     Value r = rf->entry(t->argc, t->args, &ctx, callee);
-    /* vm_run 退出时已 protect_push/pop 返回值，此处再保护一次确保到 set_result 前安全 */
-    gc_protect_push(r);
+    /* r 已被 OPC_RETURN 中的 gc_protect_push 保护（VM entry 已 unregister）。
+     * 直接 set_result，完成后 pop 释放该 protect entry。 */
     lumin_thread_set_result(t, r);
     gc_protect_pop();
     if(g_trace_n > 0) g_trace_n--;
@@ -1281,13 +1281,17 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     Value v = vm_pend_val;
                     vm_depth = saved_depth;
                     g_err_jmp = saved_gj;
-                    /* 在 unregister 前 protect 返回值，确保线程模式下 v 不被 UAF */
-                    gc_protect_push(v);
                     gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
                     tls_vm_run_depth--;
-                    if (tls_vm_run_depth > 0 || !tls_skip_vm_unregister) gc_unregister_thread();
+                    if (tls_vm_run_depth == 0) {
+                        gc_protect_push(v);
+                        gc_unregister_thread_keep_protect();
+                    } else {
+                        if (!tls_skip_vm_unregister) gc_unregister_thread();
+                        gc_protect_push(v);
+                        gc_protect_pop();
+                    }
                     free(stack);
-                    gc_protect_pop();
                     return v;
                 } else {
                     runtime_error("finally 完成动作未知");
@@ -1416,12 +1420,21 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
-                gc_protect_push(v);
                 gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
                 tls_vm_run_depth--;
-                if (tls_vm_run_depth > 0 || !tls_skip_vm_unregister) gc_unregister_thread();
+                if (tls_vm_run_depth == 0) {
+                    /* 最外层：先 protect_push(v) 注册 protect entry（head），
+                     * 再 gc_unregister_thread_keep_protect 移除 VM entry（第二个）。
+                     * 这样 protect 与 unregister 之间无窗口，v 始终有 GC 根保护。 */
+                    gc_protect_push(v);
+                    gc_unregister_thread_keep_protect();
+                } else {
+                    /* 嵌套调用：正常 unregister + 短暂 protect */
+                    if (!tls_skip_vm_unregister) gc_unregister_thread();
+                    gc_protect_push(v);
+                    gc_protect_pop();
+                }
                 free(stack);
-                gc_protect_pop();
                 return v;
             }
             case OPC_RETURN_NIL:

@@ -29,11 +29,16 @@ static int g_next_id = 0;             // 线程 id 自增（int，实际到不�
  * 注意：GC 在 STW 下运行，所有线程已暂停，无需取 g_lock（否则死锁：
  * 暂停线程可能正持有 g_lock）。Value 读取在 x86-64 对齐原子，安全。 */
 static void gc_scan_thread_roots(void) {
+    /* 必须持 g_lock：lumin_thread_set_result/thread_join 在 g_lock 下读写
+     * g_slots.result/used。不加锁读取会看到撕裂或旧值（如刚复用槽位但 result
+     * 仍是上一轮的悬挂指针），导致 GC 标记阶段读已释放内存 → UAF。 */
+    pthread_mutex_lock(&g_lock);
     for (int i = 0; i < g_cap; i++) {
         if (g_slots[i].used) {
             gc_mark_value_to_stack(g_slots[i].result);
         }
     }
+    pthread_mutex_unlock(&g_lock);
     if (getenv("GC_DEBUG_ROOTS")) {
         int n = 0;
         for (int i = 0; i < g_cap; i++) if (g_slots[i].used) n++;
@@ -160,10 +165,12 @@ void lumin_thread_set_result_protected(ThreadLaunch* t, Value r)
 static void lm_c_thread_body(ThreadLaunch* t)
 {
     Value (*cf)(Value*, int) = (Value(*)(Value*, int))t->data;
+    /* 先 push 一个 dummy protect entry，再调用 cf。
+     * cf 返回后立即 gc_protect_set(r) 更新 protect 值，
+     * 确保 r 始终有 GC 根保护，无 pop→push 窗口。 */
+    gc_protect_push(val_none());
     Value r = cf(t->args, t->argc);
-    /* cf() 内部 epilogue 可能已 gc_pop_cframe()，r 在 C 栈上不再被 CFrame 链扫描。
-     * 立即 protect_push 确保 r 引用的堆对象不被其他线程触发的 GC 回收。 */
-    gc_protect_push(r);
+    gc_protect_set(r);
     lumin_thread_set_result(t, r);
     gc_protect_pop();
     gc_unregister_cframe_thread();

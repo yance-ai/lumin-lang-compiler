@@ -26,7 +26,7 @@ typedef struct GCObject {
     unsigned char marked;
     unsigned char vtype;      /* VAL_STRING / VAL_ARRAY / VAL_MAP / VAL_ERROR / VAL_FUNC */
     unsigned char age;         /* 分代年龄：<PROMOTE_AGE=新生代，>=PROMOTE_AGE=老年代 */
-    unsigned char flags;       /* 标志位：bit0=GC_OBJ_IN_RS，保持结构体 16 字节 */
+    unsigned char flags;       /* 标志位：bit0=GC_OBJ_IN_RS, bit1=GC_OBJ_INTERNAL_BUF（items/buckets 内部缓冲区，非用户对象） */
     uint32_t user_size;       /* 用户数据大小（不含 GCObject 头） */
     struct GCObject* next;
 } GCObject;
@@ -106,6 +106,11 @@ void gc_register_thread(Value* stack, int* sp_ptr, StackFrame* frame);
 /* 从全局注册表移除当前线程最近注册的 entry（栈式语义） */
 void gc_unregister_thread(void);
 
+/* 移除当前线程倒数第二个 entry（保留最近注册的 protect entry）。
+ * 用于 OPC_RETURN 最外层：先 gc_protect_push(v)，再调本函数移除 VM entry，
+ * 实现 protect 与 unregister 无窗口衔接。 */
+void gc_unregister_thread_keep_protect(void);
+
 /* 注册全局根扫描回调：外部模块（如线程表）注册需 GC 扫描的全局堆引用。
  * GC 标记阶段会调用此回调，确保全局表中的活跃堆对象不被误回收。 */
 typedef void (*GCGlobalRootScanFn)(void);
@@ -150,6 +155,8 @@ void gc_leave_native_block(void);
  * 必须严格配对；内部使用 TLS 保存旧根，不可嵌套调用。 */
 void gc_protect_push(Value v);
 void gc_protect_pop(void);
+void gc_protect_set(Value v);
+void gc_mark_internal_buf(void* ptr);
 
 /* ============================================================
  * 编译通道（C 代码生成）帧链表
