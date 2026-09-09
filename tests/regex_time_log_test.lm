@@ -4,7 +4,7 @@ print(regex_match("abc123", "[a-z]+[0-9]+"));  // true
 print(regex_match("abc123", "^[0-9]+"));        // false
 print(regex_match("hello", "hello"));            // true
 print(regex_match("hello", "hell"));             // false（非完整匹配）
-print(regex_match("2026-09-07", "\d{4}-\d{2}-\d{2}")); // true
+print(regex_match("2026-09-07", "\d\d\d\d-\d\d-\d\d")); // true（{n} 与字符串模板内插冲突，用重复写法）
 print("== 2. regex_search 分组捕获 ==");
 m = regex_search("price=99.5元", "([a-z]+)=([0-9.]+)");
 print(len(m));   // 3
@@ -13,7 +13,7 @@ print(m[1]);     // price
 print(m[2]);     // 99.5
 m2 = regex_search("no match", "\d+");
 print(len(m2));  // 0
-m3 = regex_search("2026-09-07", "(\d{4})-(\d{2})-(\d{2})");
+m3 = regex_search("2026-09-07", "(\d\d\d\d)-(\d\d)-(\d\d)");
 print(m3[1]);    // 2026
 print(m3[2]);    // 09
 print(m3[3]);    // 07

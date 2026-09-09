@@ -85,6 +85,12 @@ static int is_expr_end(int t)
     LEX_RET(STRING_LIT);
 }
 
+f\"([^"\\]|\\.)*\"   {
+    yylval.s = strdup(yytext+2);   /* 跳过 f 和开头引号 */
+    yylval.s[strlen(yylval.s)-1] = '\0';
+    LEX_RET(FSTRING_LIT);
+}
+
 '[^'\''\n]'      {
     yylval.ch = yytext[1];
     LEX_RET(TOK_CHAR_LIT);
