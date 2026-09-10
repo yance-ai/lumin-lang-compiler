@@ -1,0 +1,44 @@
+{
+  "name": "lumyr-lsp",
+  "displayName": "Lumyr Language Support",
+  "description": "LSP language server and syntax highlighting for the Lumyr programming language",
+  "version": "0.1.0",
+  "publisher": "lumyr",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:lumyr"],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [{
+      "id": "lumyr",
+      "aliases": ["Lumyr", "lumyr"],
+      "extensions": [".lm"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "lumyr",
+      "scopeName": "source.lumyr",
+      "path": "./syntaxes/lumyr.tmLanguage.json"
+    }],
+    "configuration": {
+      "title": "Lumyr LSP",
+      "properties": {
+        "lumyr-lsp.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Path to Python executable used to run the LSP server"
+        },
+        "lumyr-lsp.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the lumyr_lsp package directory (auto-detected if empty)"
+        }
+      }
+    }
+  },
+  "scripts": {},
+  "devDependencies": {},
+  "dependencies": {}
+}

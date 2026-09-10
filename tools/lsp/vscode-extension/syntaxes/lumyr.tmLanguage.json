@@ -1,0 +1,128 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Lumyr",
+  "scopeName": "source.lumyr",
+  "patterns": [
+    { "include": "#comment-block" },
+    { "include": "#comment-line" },
+    { "include": "#string-f" },
+    { "include": "#string-double" },
+    { "include": "#char-single" },
+    { "include": "#number-float" },
+    { "include": "#number-integer" },
+    { "include": "#keyword-control" },
+    { "include": "#keyword-declaration" },
+    { "include": "#keyword-constant" },
+    { "include": "#builtin-function" },
+    { "include": "#storage-type" },
+    { "include": "#annotation" },
+    { "include": "#operator" },
+    { "include": "#punctuation" },
+    { "include": "#identifier" }
+  ],
+  "repository": {
+    "comment-block": {
+      "name": "comment.block.lumyr",
+      "begin": "/\\*",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.comment.lumyr" }
+      },
+      "end": "\\*/",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.comment.lumyr" }
+      }
+    },
+    "comment-line": {
+      "name": "comment.line.double-slash.lumyr",
+      "match": "//.*$",
+      "captures": {
+        "0": { "name": "punctuation.definition.comment.lumyr" }
+      }
+    },
+    "string-f": {
+      "name": "string.interpolated.lumyr",
+      "begin": "f\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.lumyr" }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.lumyr" }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.lumyr",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "string-double": {
+      "name": "string.quoted.double.lumyr",
+      "begin": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.lumyr" }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.lumyr" }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.lumyr",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "char-single": {
+      "name": "string.quoted.single.lumyr",
+      "match": "'[^'\\n]'",
+      "captures": {
+        "0": { "name": "punctuation.definition.string.lumyr" }
+      }
+    },
+    "number-float": {
+      "name": "constant.numeric.float.lumyr",
+      "match": "\\b[0-9]+\\.[0-9]+\\b"
+    },
+    "number-integer": {
+      "name": "constant.numeric.integer.lumyr",
+      "match": "\\b[0-9]+\\b"
+    },
+    "keyword-control": {
+      "name": "keyword.control.lumyr",
+      "match": "\\b(if|elseif|else|while|do|for|in|switch|match|case|default|break|continue|return|try|throw|catch|finally)\\b"
+    },
+    "keyword-declaration": {
+      "name": "keyword.declaration.lumyr",
+      "match": "\\b(func|const|macro|type|enum)\\b"
+    },
+    "keyword-constant": {
+      "name": "constant.language.lumyr",
+      "match": "\\b(true|false|null)\\b"
+    },
+    "builtin-function": {
+      "name": "support.function.builtin.lumyr",
+      "match": "\\b(print|read|write)\\b"
+    },
+    "storage-type": {
+      "name": "storage.type.lumyr",
+      "match": "\\b(int|double|char|string|bool|ascii|byte|int8|int16|int32|int64|uint8|uint16|uint32|uint64|uint|long|float)\\b"
+    },
+    "annotation": {
+      "name": "meta.annotation.lumyr",
+      "match": "@[a-zA-Z_][a-zA-Z0-9_]*"
+    },
+    "operator": {
+      "name": "keyword.operator.lumyr",
+      "match": "(\\.\\.\\.|\\+\\+|--|\\?\\.|\\?\\?|>=|<=|==|!=|&&|\\|\\||[+\\-*/%=<>!?:]|@)"
+    },
+    "punctuation": {
+      "name": "punctuation.definition.lumyr",
+      "match": "[{}()\\[\\],;.]"
+    },
+    "identifier": {
+      "name": "variable.other.lumyr",
+      "match": "[a-zA-Z_][a-zA-Z0-9_]*"
+    }
+  }
+}

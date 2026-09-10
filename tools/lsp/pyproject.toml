@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lumyr-lsp"
+version = "0.1.0"
+description = "LSP language server for the Lumyr programming language"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "Apache-2.0"}
+authors = [{name = "Lumyr Team"}]
+keywords = ["lsp", "language-server", "lumyr", "compiler"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Compilers",
+]
+
+[project.scripts]
+lumyr-lsp = "lumyr_lsp.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["lumyr_lsp*"]
