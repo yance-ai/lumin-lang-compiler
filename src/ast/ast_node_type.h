@@ -78,6 +78,11 @@ struct AstNode {
             AstNode* right;
         } null_coalesce;
         struct {
+            char* name;
+            AstNode* params;  // AST_PARAM 链表
+            AstNode* body;    // 宏体（block_stmt）
+        } macro_def;
+        struct {
             AstNode* init;
             AstNode* cond;
             AstNode* update;

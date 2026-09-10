@@ -30,6 +30,7 @@ AstNode* ast_do_while(AstNode* cond, AstNode* body);
 AstNode* ast_annotation(char* name, AstNode* args);
 AstNode* ast_safe_call(AstNode* obj, char* method, AstNode* args);
 AstNode* ast_null_coalesce(AstNode* left, AstNode* right);
+AstNode* ast_macro_def(char* name, AstNode* params, AstNode* body);
 AstNode* ast_for(AstNode* init, AstNode* cond, AstNode* update, AstNode* body);
 AstNode* new_cast_node(int cast_type, AstNode* child);
 AstNode* ast_unary(BinOp op, AstNode* child);

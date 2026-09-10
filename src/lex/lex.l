@@ -37,6 +37,7 @@ static int is_expr_end(int t)
 "enum"          { LEX_RET(TOK_ENUM); }
 "func"          { LEX_RET(FUNC); }
 "const"         { LEX_RET(CONST); }
+"macro"         { LEX_RET(MACRO); }
 
 "print"         { LEX_RET(PRINT); }
 "true"          { LEX_RET(TRUE); }

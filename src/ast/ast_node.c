@@ -259,6 +259,15 @@ AstNode* ast_null_coalesce(AstNode* left, AstNode* right)
     return n;
 }
 
+AstNode* ast_macro_def(char* name, AstNode* params, AstNode* body)
+{
+    AstNode* n = ast_new(AST_MACRO_DEF);
+    n->u.macro_def.name = strdup(name);
+    n->u.macro_def.params = params;
+    n->u.macro_def.body = body;
+    return n;
+}
+
 AstNode* ast_for(AstNode* init, AstNode* cond, AstNode* update, AstNode* body)
 {
     AstNode* n = ast_new(AST_FOR);
@@ -318,6 +327,34 @@ AstNode* ast_clone_node(const AstNode* src)
         }
         case AST_INDEX:  return ast_index(ast_clone_node(src->u.index.arr),
                                           ast_clone_node(src->u.index.idx));
+        case AST_BLOCK: {
+            AstNode* n = ast_new(AST_BLOCK);
+            n->u.block.stmts = ast_clone_node(src->u.block.stmts);
+            return n;
+        }
+        case AST_CALL: {
+            AstNode* n = ast_new(AST_CALL);
+            n->u.call.name = strdup(src->u.call.name);
+            n->u.call.args = ast_clone_node(src->u.call.args);
+            return n;
+        }
+        case AST_SEQ: {
+            AstNode* n = ast_new(AST_SEQ);
+            n->u.seq.first = ast_clone_node(src->u.seq.first);
+            n->u.seq.second = ast_clone_node(src->u.seq.second);
+            return n;
+        }
+        case AST_PRINT: {
+            AstNode* n = ast_new(AST_PRINT);
+            n->u.print.expr = ast_clone_node(src->u.print.expr);
+            return n;
+        }
+        case AST_ASSIGN: {
+            AstNode* n = ast_new(AST_ASSIGN);
+            n->u.assign.varname = strdup(src->u.assign.varname);
+            n->u.assign.expr = ast_clone_node(src->u.assign.expr);
+            return n;
+        }
         default:
             // 复合赋值下标展开只会克隆表达式节点；其余类型直接复制（保守）
             {
@@ -578,6 +615,11 @@ void ast_free(AstNode* node) {
         case AST_NULL_COALESCE:
             ast_free(node->u.null_coalesce.left);
             ast_free(node->u.null_coalesce.right);
+            break;
+        case AST_MACRO_DEF:
+            free(node->u.macro_def.name);
+            ast_free(node->u.macro_def.params);
+            ast_free(node->u.macro_def.body);
             break;
         case AST_FOR:
             ast_free(node->u.for_node.init);

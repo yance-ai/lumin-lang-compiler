@@ -7,6 +7,7 @@
 #include "ast/ast.h"
 #include "ast/func_compile.h"
 #include "ast/ast_types.h"
+#include "parse/macro.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -80,7 +81,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
 %token CONTINUE
-%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE CONST
+%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE CONST MACRO
 %token READ WRITE
 %token COMMA
 %token AND OR NOT MOD
@@ -105,7 +106,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> elif_clause_list elif_clause else_part
 %type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
-%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list
+%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def
 %type<ll> type_name builtin_type_name
 %type <ch> char_lit
 %type<ll> INTEGER
@@ -132,6 +133,15 @@ closed_stmt
     }
     | PRINT LPAREN expr RPAREN SEMI  { $$ = ast_print($3); }
     | block_stmt                     { $$ = $1; }
+    /* 宏调用作为语句：如果是宏，则展开为语句列表；否则作为表达式语句 */
+    | ID LPAREN arg_list RPAREN SEMI {
+          if(macro_is_defined($1)) {
+              AstNode* mdef = macro_lookup($1);
+              $$ = macro_expand(mdef, $3);
+          } else {
+              $$ = L(ast_call($1, $3));
+          }
+      }
     | open_stmt                      { $$ = $1; }
     | WHILE LPAREN expr RPAREN closed_stmt     { $$ = ast_while($3, $5); }
     | FOR LPAREN for_init SEMI expr_opt SEMI for_incr RPAREN closed_stmt { $$ = ast_for($3, $5, $7, $9); }
@@ -173,6 +183,7 @@ closed_stmt
     | continue_stmt                  { $$ = $1; }
     | return_stmt                    { $$ = $1; }
     | func_def                       { $$ = $1; }          /* 新增函数定义语句 */
+    | macro_def                      { $$ = $1; }          /* 宏定义语句 */
     | WRITE STRING_LIT expr SEMI {
           /* write "path" value → write_file(path, value)；普通路径不内插 */
           AstNode* p = ast_string($2);
@@ -233,6 +244,13 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
           sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+        } ;
+
+/* 宏定义：macro name(params) { body } */
+macro_def : MACRO ID LPAREN param_list RPAREN block_stmt {
+          $$ = ast_macro_def($2, $4, $6);
+          /* 注册到宏表，供后续宏展开使用 */
+          macro_register($2, $4, $6);
         } ;
 
 /* 参数列表：支持 a,b,...rest；可变参数只能放在最后一个 */
@@ -386,7 +404,15 @@ primary
     | FSTRING_LIT             { $$ = L(maybe_template($1)); free($1); }
     | char_lit                { $$ = ast_new_char($1); }
     | ID                      { $$ = L(ast_var($1)); }
-    | ID LPAREN arg_list RPAREN { $$ = L(ast_call($1, $3)); }  /* 函数调用 foo(a,b,c) */
+    | ID LPAREN arg_list RPAREN {
+          /* 宏调用：如果是已注册的宏，则展开；否则作为普通函数调用 */
+          if(macro_is_defined($1)) {
+              AstNode* mdef = macro_lookup($1);
+              $$ = L(macro_expand(mdef, $3));
+          } else {
+              $$ = L(ast_call($1, $3));
+          }
+      }  /* 函数调用 foo(a,b,c) 或宏调用 */
     | ARRAY_OPEN arg_list RBRACKET { $$ = ast_array_lit($2); }  /* 数组字面量 [1,2,3] / []（lexer 按上下文消歧） */
     | MAP_OPEN map_items RBRACE   { $$ = ast_map_lit($2); }    /* 字典字面量 {"k": v, name: 1} / {}（lexer 上下文消歧：表达式位置） */
     | LPAREN expr RPAREN      { $$ = $2; }

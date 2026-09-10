@@ -29,6 +29,7 @@ typedef enum {
     AST_ANNOTATION,
     AST_SAFE_CALL,
     AST_NULL_COALESCE,
+    AST_MACRO_DEF,
     AST_FOR,
     AST_CAST,
     AST_TERNARY,
