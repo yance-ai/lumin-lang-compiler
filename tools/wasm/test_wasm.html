@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Lumyr WASM Test</title>
+</head>
+<body>
+    <h1>Lumyr WASM Output</h1>
+    <pre id="output"></pre>
+    <script>
+        const output = document.getElementById('output');
+        function log(s) {
+            output.textContent += s + '\n';
+            console.log(s);
+        }
+
+        const importObject = {
+            env: {
+                print_i32: function(x) { log(x); },
+                print_str: function(ptr, len) {
+                    const bytes = new Uint8Array(memory.buffer, ptr, len);
+                    const str = new TextDecoder().decode(bytes);
+                    log(str);
+                }
+            }
+        };
+
+        let memory;
+
+        WebAssembly.instantiateStreaming(fetch('test_wasm.wasm'), importObject)
+            .then(results => {
+                const instance = results.instance;
+                memory = instance.exports.memory;
+                if (instance.exports.main) {
+                    instance.exports.main();
+                }
+            })
+            .catch(err => {
+                log('Error: ' + err);
+            });
+    </script>
+</body>
+</html>
