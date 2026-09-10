@@ -47,6 +47,7 @@ static int is_expr_end(int t)
 "while"         { LEX_RET(WHILE); }
 "do"            { LEX_RET(TOK_DO); }
 "for"           { LEX_RET(FOR); }
+"in"            { LEX_RET(TOK_IN); }
 
 "switch"        {  LEX_RET(SWITCH); }
 "case"          { in_case_expr = 1;    LEX_RET(CASE); }

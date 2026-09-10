@@ -676,6 +676,7 @@ int typecheck_expr(AstNode* node)
         case AST_CALL: {
             // 默认参数填充：如果实参不足，用函数定义中的默认值表达式填充
             {
+                if(sym_has(node->u.call.name)) {
                 Value fv = sym_get(node->u.call.name);
                 if(fv.type == VAL_FUNC) {
                     RuntimeFunc* rf = (RuntimeFunc*)fv.v.func.func_obj;
@@ -694,6 +695,7 @@ int typecheck_expr(AstNode* node)
                             }
                         }
                     }
+                }
                 }
             }
             // 实参逐个检查（含嵌套调用）

@@ -71,7 +71,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token IF ELSEIF ELSE
 %token GE LE EQ NE GT LT
 %token LBRACE RBRACE
-%token WHILE FOR TOK_DO
+%token WHILE FOR TOK_DO TOK_IN
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT
@@ -134,6 +134,38 @@ closed_stmt
     | open_stmt                      { $$ = $1; }
     | WHILE LPAREN expr RPAREN closed_stmt     { $$ = ast_while($3, $5); }
     | FOR LPAREN for_init SEMI expr_opt SEMI for_incr RPAREN closed_stmt { $$ = ast_for($3, $5, $7, $9); }
+    /* for-each 循环：for x in arr / for k,v in map，转换为普通 for 循环 */
+    | FOR ID TOK_IN expr closed_stmt {
+        static int fe_counter = 0;
+        char iname[64]; snprintf(iname, sizeof(iname), "__fe_i_%d", fe_counter++);
+        AstNode* iter_copy = ast_clone_node($4);
+        AstNode* init = ast_assign(strdup(iname), ast_int(0));
+        AstNode* cond = ast_binop(OP_LT, ast_var(strdup(iname)),
+            ast_call(strdup("len"), ast_seq(ast_clone_node($4), NULL)));
+        AstNode* update = ast_unary(OP_POST_INC, ast_var(strdup(iname)));
+        AstNode* assign = ast_assign(strdup($2), ast_index(iter_copy, ast_var(strdup(iname))));
+        AstNode* body = ast_block(ast_seq(assign, $5));
+        $$ = ast_for(init, cond, update, body);
+    }
+    | FOR ID COMMA ID TOK_IN expr closed_stmt {
+        static int fe_counter2 = 0;
+        char kname[64], iname[64];
+        snprintf(kname, sizeof(kname), "__fe_keys_%d", fe_counter2);
+        snprintf(iname, sizeof(iname), "__fe_i_%d", fe_counter2++);
+        AstNode* iter_copy = ast_clone_node($6);
+        AstNode* keys_init = ast_assign(strdup(kname),
+            ast_call(strdup("keys"), ast_seq(ast_clone_node($6), NULL)));
+        AstNode* init = ast_assign(strdup(iname), ast_int(0));
+        AstNode* cond = ast_binop(OP_LT, ast_var(strdup(iname)),
+            ast_call(strdup("len"), ast_seq(ast_var(strdup(kname)), NULL)));
+        AstNode* update = ast_unary(OP_POST_INC, ast_var(strdup(iname)));
+        AstNode* k_assign = ast_assign(strdup($2), ast_index(ast_var(strdup(kname)), ast_var(strdup(iname))));
+        AstNode* v_assign = ast_assign(strdup($4), ast_index(iter_copy, ast_var(strdup($2))));
+        AstNode* body = ast_block(ast_seq(k_assign, ast_seq(v_assign, $7)));
+        AstNode* for_stmt = ast_for(init, cond, update, body);
+        $$ = ast_block(ast_seq(keys_init, for_stmt));
+    }
+
     | TOK_DO closed_stmt WHILE LPAREN expr RPAREN SEMI { $$ = ast_do_while($5, $2); }
     | switch_stmt                    { $$ = $1; }
     | break_stmt                     { $$ = $1; }
