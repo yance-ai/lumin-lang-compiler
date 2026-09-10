@@ -183,6 +183,7 @@ int ir_opt_constant_fold(BytecodeFunc* fn)
             case OPC_JMP:
             case OPC_JMP_IF_FALSE:
             case OPC_JMP_IF_TRUE:
+            case OPC_JMP_IF_NULL:
                 if(p->a >= 0 && p->a < n) p->a = map[p->a];
                 break;
             case OPC_TRY:
@@ -218,6 +219,7 @@ static void remap_targets(BytecodeFunc* fn, int np, int n, const int* map)
             case OPC_JMP:
             case OPC_JMP_IF_FALSE:
             case OPC_JMP_IF_TRUE:
+            case OPC_JMP_IF_NULL:
                 if(p->a >= 0 && p->a < n && map[p->a] >= 0) p->a = map[p->a];
                 break;
             case OPC_TRY:
@@ -259,7 +261,7 @@ static int branch_fold_pass(BytecodeFunc* fn)
         Instruction in = fn->code[i];
         int t;
         switch(in.op) {
-            case OPC_JMP: case OPC_JMP_IF_FALSE: case OPC_JMP_IF_TRUE:
+            case OPC_JMP: case OPC_JMP_IF_FALSE: case OPC_JMP_IF_TRUE: case OPC_JMP_IF_NULL:
                 t = in.a; if(t >= 0 && t < n) is_target[t] = 1; break;
             case OPC_TRY:
                 if(in.a > 0 && in.a < n) is_target[in.a] = 1;
@@ -350,7 +352,7 @@ static void compute_reachable(BytecodeFunc* fn, char* reach)
             }
             int t;
             switch(in.op) {
-                case OPC_JMP: case OPC_JMP_IF_FALSE: case OPC_JMP_IF_TRUE:
+                case OPC_JMP: case OPC_JMP_IF_FALSE: case OPC_JMP_IF_TRUE: case OPC_JMP_IF_NULL:
                     t = in.a; if(t >= 0 && t < n && !reach[t]) { reach[t] = 1; changed = 1; }
                     break;
                 case OPC_TRY:
@@ -429,7 +431,7 @@ static int propagate_pass(BytecodeFunc* fn)
         Instruction in = fn->code[i];
         int t;
         switch(in.op) {
-            case OPC_JMP: case OPC_JMP_IF_FALSE: case OPC_JMP_IF_TRUE:
+            case OPC_JMP: case OPC_JMP_IF_FALSE: case OPC_JMP_IF_TRUE: case OPC_JMP_IF_NULL:
                 t = in.a; if(t >= 0 && t < n) is_target[t] = 1; break;
             case OPC_TRY:
                 if(in.a > 0 && in.a < n) is_target[in.a] = 1;
@@ -476,7 +478,7 @@ static int propagate_pass(BytecodeFunc* fn)
                 }
                 break;
             case OPC_CALL: case OPC_CALLV: case OPC_BUILTIN: case OPC_MKCLOSURE:
-            case OPC_JMP: case OPC_JMP_IF_FALSE: case OPC_JMP_IF_TRUE:
+            case OPC_JMP: case OPC_JMP_IF_FALSE: case OPC_JMP_IF_TRUE: case OPC_JMP_IF_NULL:
             case OPC_RETURN: case OPC_RETURN_NIL: case OPC_HALT:
                 memset(known, -1, sizeof(int) * (size_t)nsym);
                 break;

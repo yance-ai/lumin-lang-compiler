@@ -3,6 +3,75 @@
 #include <stdlib.h>
 #include <string.h>
 
+// 递归设置 AST 节点的行号
+static void set_line_recursive(AstNode* node, int line)
+{
+    if(!node) return;
+    node->line = line;
+    switch(node->type) {
+        case AST_SEQ:
+            set_line_recursive(node->u.seq.first, line);
+            set_line_recursive(node->u.seq.second, line);
+            break;
+        case AST_BINOP:
+            set_line_recursive(node->u.bin.left, line);
+            set_line_recursive(node->u.bin.right, line);
+            break;
+        case AST_UNARY:
+            set_line_recursive(node->u.uny.child, line);
+            break;
+        case AST_CALL:
+            set_line_recursive(node->u.call.args, line);
+            break;
+        case AST_INDEX:
+            set_line_recursive(node->u.index.arr, line);
+            set_line_recursive(node->u.index.idx, line);
+            break;
+        case AST_ASSIGN:
+            set_line_recursive(node->u.assign.expr, line);
+            break;
+        case AST_IF:
+            set_line_recursive(node->u.ifnode.cond, line);
+            set_line_recursive(node->u.ifnode.then_stmt, line);
+            set_line_recursive(node->u.ifnode.elif_chain, line);
+            set_line_recursive(node->u.ifnode.else_stmt, line);
+            break;
+        case AST_IF_CHAIN:
+            set_line_recursive(node->u.if_chain.cond, line);
+            set_line_recursive(node->u.if_chain.if_body, line);
+            set_line_recursive(node->u.if_chain.elif_list, line);
+            set_line_recursive(node->u.if_chain.else_body, line);
+            break;
+        case AST_ELIF:
+            set_line_recursive(node->u.elif.cond, line);
+            set_line_recursive(node->u.elif.body, line);
+            set_line_recursive(node->u.elif.next, line);
+            break;
+        case AST_WHILE:
+        case AST_DO_WHILE:
+            set_line_recursive(node->u.while_node.cond, line);
+            set_line_recursive(node->u.while_node.body, line);
+            break;
+        case AST_FOR:
+            set_line_recursive(node->u.for_node.init, line);
+            set_line_recursive(node->u.for_node.cond, line);
+            set_line_recursive(node->u.for_node.update, line);
+            set_line_recursive(node->u.for_node.body, line);
+            break;
+        case AST_RETURN:
+            set_line_recursive(node->u.ret.ret_val, line);
+            break;
+        case AST_PRINT:
+            set_line_recursive(node->u.print.expr, line);
+            break;
+        case AST_BLOCK:
+            set_line_recursive(node->u.block.stmts, line);
+            break;
+        default:
+            break;
+    }
+}
+
 // ---- 全局宏表 ----
 #define MACRO_MAX 256
 static struct {
@@ -72,8 +141,9 @@ static AstNode* get_arg_by_index(AstNode* args, int idx)
     AstNode* a = args;
     int i = 0;
     while(a) {
-        if(i == idx) return a;
-        a = a->u.seq.second;
+        AstNode* param = (a->type == AST_SEQ) ? a->u.seq.first : a;
+        if(i == idx) return param;
+        a = (a->type == AST_SEQ) ? a->u.seq.second : NULL;
         i++;
     }
     return NULL;
@@ -133,6 +203,16 @@ static AstNode* substitute_params(AstNode* node, AstNode* params, AstNode* args)
             node->u.index.idx = substitute_params(node->u.index.idx, params, args);
             break;
         case AST_ASSIGN:
+            // 替换左值（变量名）
+            if(node->u.assign.varname && is_macro_param(params, node->u.assign.varname)) {
+                int idx = get_param_index(params, node->u.assign.varname);
+                AstNode* arg = get_arg_by_index(args, idx);
+                if(arg && arg->type == AST_VAR && arg->u.varname) {
+                    free(node->u.assign.varname);
+                    node->u.assign.varname = strdup(arg->u.varname);
+                }
+            }
+            // 替换右值
             node->u.assign.expr = substitute_params(node->u.assign.expr, params, args);
             break;
         case AST_IF:
@@ -141,7 +221,19 @@ static AstNode* substitute_params(AstNode* node, AstNode* params, AstNode* args)
             node->u.ifnode.elif_chain = substitute_params(node->u.ifnode.elif_chain, params, args);
             node->u.ifnode.else_stmt = substitute_params(node->u.ifnode.else_stmt, params, args);
             break;
+        case AST_IF_CHAIN:
+            node->u.if_chain.cond = substitute_params(node->u.if_chain.cond, params, args);
+            node->u.if_chain.if_body = substitute_params(node->u.if_chain.if_body, params, args);
+            node->u.if_chain.elif_list = substitute_params(node->u.if_chain.elif_list, params, args);
+            node->u.if_chain.else_body = substitute_params(node->u.if_chain.else_body, params, args);
+            break;
+        case AST_ELIF:
+            node->u.elif.cond = substitute_params(node->u.elif.cond, params, args);
+            node->u.elif.body = substitute_params(node->u.elif.body, params, args);
+            node->u.elif.next = substitute_params(node->u.elif.next, params, args);
+            break;
         case AST_WHILE:
+        case AST_DO_WHILE:
             node->u.while_node.cond = substitute_params(node->u.while_node.cond, params, args);
             node->u.while_node.body = substitute_params(node->u.while_node.body, params, args);
             break;
@@ -195,9 +287,12 @@ AstNode* macro_expand(AstNode* macro_def, AstNode* args)
     g_expand_depth--;
 
     // 释放临时的 macro_def 节点（由 macro_lookup 创建）
-    // 注意：不要释放 params 和 body，它们属于全局宏表
-    free(macro_def->u.macro_def.name);
+    // 注意：不要释放 name、params 和 body，它们属于全局宏表
     free(macro_def);
+
+    // 递归设置展开后节点的行号（避免行号为垃圾值导致 VM 执行崩溃）
+    extern int yylineno;
+    set_line_recursive(expanded, yylineno);
 
     // 如果宏体是 block_stmt，返回其中的语句列表（单语句直接返回，多语句返回 AST_SEQ）
     if(expanded && expanded->type == AST_BLOCK) {

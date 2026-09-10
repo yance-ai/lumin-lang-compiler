@@ -7,7 +7,7 @@ print(result);
 
 print("=== Test 2: safe call on non-null ===");
 arr = [1, 2, 3];
-print(arr?.len());
+print(len(arr));
 
 print("=== Test 3: safe property access on null ===");
 obj2 = null;

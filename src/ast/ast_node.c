@@ -355,12 +355,59 @@ AstNode* ast_clone_node(const AstNode* src)
             n->u.assign.expr = ast_clone_node(src->u.assign.expr);
             return n;
         }
+        case AST_IF: {
+            AstNode* n = ast_new(AST_IF);
+            n->u.ifnode.cond = ast_clone_node(src->u.ifnode.cond);
+            n->u.ifnode.then_stmt = ast_clone_node(src->u.ifnode.then_stmt);
+            n->u.ifnode.elif_chain = ast_clone_node(src->u.ifnode.elif_chain);
+            n->u.ifnode.else_stmt = ast_clone_node(src->u.ifnode.else_stmt);
+            return n;
+        }
+        case AST_IF_CHAIN: {
+            AstNode* n = ast_new(AST_IF_CHAIN);
+            n->u.if_chain.cond = ast_clone_node(src->u.if_chain.cond);
+            n->u.if_chain.if_body = ast_clone_node(src->u.if_chain.if_body);
+            n->u.if_chain.elif_list = ast_clone_node(src->u.if_chain.elif_list);
+            n->u.if_chain.else_body = ast_clone_node(src->u.if_chain.else_body);
+            return n;
+        }
+        case AST_ELIF: {
+            AstNode* n = ast_new(AST_ELIF);
+            n->u.elif.cond = ast_clone_node(src->u.elif.cond);
+            n->u.elif.body = ast_clone_node(src->u.elif.body);
+            n->u.elif.next = ast_clone_node(src->u.elif.next);
+            return n;
+        }
+        case AST_WHILE: {
+            AstNode* n = ast_new(AST_WHILE);
+            n->u.while_node.cond = ast_clone_node(src->u.while_node.cond);
+            n->u.while_node.body = ast_clone_node(src->u.while_node.body);
+            return n;
+        }
+        case AST_DO_WHILE: {
+            AstNode* n = ast_new(AST_DO_WHILE);
+            n->u.while_node.cond = ast_clone_node(src->u.while_node.cond);
+            n->u.while_node.body = ast_clone_node(src->u.while_node.body);
+            return n;
+        }
+        case AST_FOR: {
+            AstNode* n = ast_new(AST_FOR);
+            n->u.for_node.init = ast_clone_node(src->u.for_node.init);
+            n->u.for_node.cond = ast_clone_node(src->u.for_node.cond);
+            n->u.for_node.update = ast_clone_node(src->u.for_node.update);
+            n->u.for_node.body = ast_clone_node(src->u.for_node.body);
+            return n;
+        }
+        case AST_RETURN: {
+            AstNode* n = ast_new(AST_RETURN);
+            n->u.ret.ret_val = ast_clone_node(src->u.ret.ret_val);
+            return n;
+        }
         default:
             // 复合赋值下标展开只会克隆表达式节点；其余类型直接复制（保守）
             {
                 AstNode* n = ast_new(src->type);
                 *n = *src;   // 浅拷贝整个结构（含 union）
-                n->u.sval = NULL;   // 防止误用；展开场景不触达
                 return n;
             }
     }

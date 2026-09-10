@@ -528,7 +528,11 @@ _Bool lumyr_to_bool(Value v) {
         case VAL_BOOL:   return v.v.b;
         case VAL_CHAR:   return (unsigned char)v.v.c != 0;
         case VAL_BYTE:   return (v.v.i & 0xFF) != 0;
-        default: return 0;
+        case VAL_STRING: return v.v.s && v.v.s[0] != '\0';
+        case VAL_ARRAY:  return v.v.array && v.v.array->len > 0;
+        case VAL_MAP:    return v.v.map && v.v.map->len > 0;
+        case VAL_NONE:   return 0;
+        default: return 1;  // 其他类型（如函数、线程等）默认为 true
     }
 }
 

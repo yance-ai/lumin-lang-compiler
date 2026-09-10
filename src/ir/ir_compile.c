@@ -654,32 +654,59 @@ static void c_expr(Ctx* c, AstNode* node)
             break;
         }
         case AST_SAFE_CALL: {
-            // 安全调用：obj?.method(args) → 如果 obj 为 null，返回 null；否则调用 method(obj, args)
+            // 安全调用：用 OPC_JMP_IF_NULL 判断是否为 null
+            // 1. 压入 obj
             c_expr(c, node->u.safe_call.obj);
-            emit(c, OPC_DUP, 0, 0);  // 复制 obj
-            int jnull = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);  // 如果为 falsy（null），跳转
-            // obj 非 null，调用方法
-            int argc = 0;
-            c_args(c, node->u.safe_call.args, &argc);
-            emit(c, OPC_CALL, bf_sym(c->fn, node->u.safe_call.method), argc + 1);
+            // 2. 复制 obj（用于判断和返回）
+            emit(c, OPC_DUP, 0, 0);
+            // 3. 如果为 null，跳转到 null 分支
+            int jnull = emit_here(c, OPC_JMP_IF_NULL, 0, 0);
+            // 4. obj 非 null：弹出副本，执行方法调用或属性访问
+            emit(c, OPC_POP, 0, 0);
+            if(node->u.safe_call.args != NULL) {
+                // 安全方法调用：obj?.method(args) → method(obj, args)
+                c_expr(c, node->u.safe_call.obj);
+                int argc = 0;
+                c_args(c, node->u.safe_call.args, &argc);
+                // 检查是否为内置函数
+                static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values", "thread", "thread_join", "mutex", "rmutex", "rwlock", "spinlock", "lock", "unlock", "trylock", "rdlock", "wrlock", "tryrdlock", "trywrlock", "condvar", "cond_wait", "cond_wait_timeout", "cond_signal", "cond_broadcast", "threadlocal_get", "threadlocal_set", "get", "post", "put", "delete", "head", "patch", "json", "stringify", "add", "remove", "clear", "indexOf", "arr_get", "set", "first", "last", "has", "flat", "qs", "addAll", "bytes", "str", "encode", "decode", "encodeURL", "decodeURL", "md5", "encodeBase64", "decodeBase64", "regex_match", "regex_search", "regex_replace", "now", "timestamp", "timestamp_ms", "sleep", "date", "time", "datetime", "format_time", "debug", "info", "warn", "error", "fatal", "gc_count", "gc_bytes", "gc_collect", "gc_stw_ns"};
+                int bid = -1;
+                if(!ir_func_table_lookup(node->u.safe_call.method)) {
+                    for(int k = 0; k < BUILTIN_COUNT; k++) {
+                        if(strcmp(node->u.safe_call.method, bnames[k]) == 0) { bid = k; break; }
+                    }
+                }
+                if(bid >= 0) {
+                    emit(c, OPC_BUILTIN, bid, argc + 1);
+                } else {
+                    emit(c, OPC_CALL, bf_sym(c->fn, node->u.safe_call.method), argc + 1);
+                }
+            } else {
+                // 安全属性访问：obj?.property → obj["property"]
+                c_expr(c, node->u.safe_call.obj);
+                emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_string(node->u.safe_call.method)), 0);
+                emit(c, OPC_INDEX_GET, 0, 0);
+            }
+            // 5. 跳转到结束
             int jend = emit_here(c, OPC_JMP, 0, 0);
-            // obj 为 null，返回 null（栈顶已经是复制的 obj，即 null）
-            bf_patch(c->fn, jnull, here(c));
-            bf_patch(c->fn, jend, here(c));
+            // 6. null 分支：栈顶是 obj（null），直接返回
+            patch_to(c, jnull);
+            patch_to(c, jend);
             break;
         }
         case AST_NULL_COALESCE: {
             // 空值合并：left ?? right → 如果 left 为 null，返回 right；否则返回 left
-            // 简单版本：用三元表达式实现 (left) ? left : right
+            // 简化模式：非 null 分支直接返回栈顶的 left 副本
             c_expr(c, node->u.null_coalesce.left);
-            emit(c, OPC_DUP, 0, 0);  // 复制 left
-            int jf = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);  // 如果为 falsy，跳转
-            // left 为 truthy，返回 left（已经在栈顶）
+            emit(c, OPC_DUP, 0, 0);  // 复制 left，栈：[left, left]
+            int jnull = emit_here(c, OPC_JMP_IF_NULL, 0, 0);  // 弹出栈顶，如果为 null 跳转，栈：[left]
+            // 非 null 分支：栈顶是 left 副本，直接跳转到结束
             int jend = emit_here(c, OPC_JMP, 0, 0);
-            bf_patch(c->fn, jf, here(c));
+            // null 分支：栈顶是 left，弹出后返回 right
+            patch_to(c, jnull);
             emit(c, OPC_POP, 0, 0);  // 弹出 left
             c_expr(c, node->u.null_coalesce.right);  // 求值 right
-            bf_patch(c->fn, jend, here(c));
+            patch_to(c, jend);
             break;
         }
         case AST_INDEX:

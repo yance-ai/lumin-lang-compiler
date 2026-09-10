@@ -1334,6 +1334,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_JMP_IF_TRUE:
                 if(lumyr_to_bool(stack[--sp])) pc = in.a;
                 break;
+            case OPC_JMP_IF_NULL:
+                if(stack[--sp].type == VAL_NONE) pc = in.a;
+                break;
             case OPC_CALL: {
                 const char* fname = bf->syms[in.a];
                 int argc = in.b;
