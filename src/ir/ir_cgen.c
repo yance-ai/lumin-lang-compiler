@@ -1252,7 +1252,7 @@ static void emit_insns(BytecodeFunc* fn)
                 if(!g_cur_fn)
                     fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; gc_pop_cframe(); return 0; }\n");
                 else
-                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; if(g_trace_n > 0) g_trace_n--; gc_pop_cframe(); { Value __v = __g_pend_val; return __v; } }\n");
+                    fprintf(out, "      else if(__fa == 5) { __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0; if(g_trace_n > 0) g_trace_n--; gc_pop_cframe(); { Value __v = __g_pend_val; gc_protect_push(__v); gc_protect_pop(); return __v; } }\n");
                 fprintf(out, "      else runtime_error(\"finally 完成动作未知\");\n");
                 fprintf(out, "    }\n");
                 break;
