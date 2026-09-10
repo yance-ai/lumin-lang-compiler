@@ -31,7 +31,7 @@ lumyr-lang-compiler/
 ├── third_party/            # Prebuilt dependencies (Windows)
 ├── Makefile                # Cross-platform build
 ├── build.sh / build.bat    # Build scripts (Unix / Windows)
-└── regress_dual.sh / .bat # Dual-channel regression tests
+├── regress_dual.sh / .bat / .py  # Dual-channel regression tests (Unix/Windows/Python)
 ```
 
 ## Building
@@ -95,7 +95,8 @@ set LUMYR_LANG=ja        # Force Japanese (Windows)
 ```bash
 # Dual-channel regression (VM + compiled, compare stdout)
 ./regress_dual.sh        # Unix
-regress_dual.bat         # Windows
+python regress_dual.py   # Windows (recommended, reliable subprocess output capture)
+regress_dual.bat         # Windows (legacy, may have output buffering issues)
 ```
 
 ## License
