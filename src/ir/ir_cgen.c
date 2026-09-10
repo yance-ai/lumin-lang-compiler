@@ -330,7 +330,7 @@ static int is_jump_target(BytecodeFunc* fn, int idx)
     for(int i = 0; i < fn->code_len; i++) {
         Instruction in = fn->code[i];
         if((in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE
-            || in.op == OPC_TRY || in.op == OPC_ENDTRY) && in.a == idx)
+            || in.op == OPC_JMP_IF_NULL || in.op == OPC_TRY || in.op == OPC_ENDTRY) && in.a == idx)
             return 1;
         if((in.op == OPC_TRY || in.op == OPC_FIN_PUSH || in.op == OPC_PEND_RETURN) && in.b == idx)
             return 1;
@@ -1274,6 +1274,9 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_JMP_IF_TRUE:
                 fprintf(out, "    if (lumyr_to_bool(__stk[--__sp])) goto L%d;\n", in.a);
                 break;
+            case OPC_JMP_IF_NULL:
+                fprintf(out, "    if (__stk[--__sp].type == VAL_NONE) goto L%d;\n", in.a);
+                break;
             case OPC_CALL: {
                 /* STW 安全点：函数调用前检查 GC，避免参数弹出期间并发标记读到 torn Value */
                 fprintf(out, "    gc_stw_check_fast();\n");
@@ -1680,6 +1683,7 @@ static void analyze_escape_for(BytecodeFunc* fn, int target_op,
 
                 case OPC_JMP_IF_FALSE:
                 case OPC_JMP_IF_TRUE:
+                case OPC_JMP_IF_NULL:
                     sp--;
                     if(sp < 0) sp = 0;
                     break;
@@ -1702,7 +1706,7 @@ static void analyze_escape_for(BytecodeFunc* fn, int target_op,
             int succ_cnt = 0;
             if(in.op == OPC_JMP) {
                 if(in.a >= 0 && in.a < n) succ[succ_cnt++] = in.a;
-            } else if(in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE) {
+            } else if(in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE || in.op == OPC_JMP_IF_NULL) {
                 if(in.a >= 0 && in.a < n) succ[succ_cnt++] = in.a;
                 if(i + 1 < n) succ[succ_cnt++] = i + 1;
             } else if(in.op == OPC_TRY) {
@@ -1743,7 +1747,7 @@ static void analyze_escape_for(BytecodeFunc* fn, int target_op,
     uint8_t* in_loop = (uint8_t*)calloc(n, sizeof(uint8_t));
     for(int i = 0; i < n; i++) {
         Instruction in = fn->code[i];
-        if((in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE)
+        if((in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE || in.op == OPC_JMP_IF_NULL)
            && in.a >= 0 && in.a < i) {
             for(int k = in.a; k <= i; k++) in_loop[k] = 1;
         }
