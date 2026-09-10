@@ -1361,7 +1361,7 @@ static void emit_insns(BytecodeFunc* fn)
                 if(g_cur_fn) {
                     fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0;\n");
                     fprintf(out, "    if(g_trace_n > 0) g_trace_n--;\n");
-                    fprintf(out, "    { Value __v = __stk[--__sp]; gc_protect_push(__v); gc_pop_cframe(); gc_protect_pop(); return __v; }\n");
+                    fprintf(out, "    { Value __v = __stk[--__sp]; gc_pop_cframe(); gc_protect_push(__v); gc_protect_pop(); return __v; }\n");
                 } else {
                     fprintf(out, "    gc_pop_cframe();\n");
                     fprintf(out, "    return 0;\n");
@@ -2048,7 +2048,7 @@ static void emit_func_def(BytecodeFunc* fn)
             if(g_scalar_var && g_scalar_var[v]) _sr_total += g_scalar_count[v];
         int _nlocals = _total_params + fn_locals.count + _sr_total;
         int _arr_size = _nlocals > 0 ? _nlocals : 1;
-        fprintf(out, "    Value* __local_ptrs[%d] = { ", _arr_size);
+        fprintf(out, "    volatile Value* __local_ptrs[%d] = { ", _arr_size);
         int _idx = 0;
         for(int i = 0; i < _total_params; i++) {
             if(_idx) fprintf(out, ", ");
@@ -2082,7 +2082,7 @@ static void emit_func_def(BytecodeFunc* fn)
         fprintf(out, "    __frame.stack = __stk;\n");
         fprintf(out, "    __frame.sp = &__sp;\n");
         fprintf(out, "    __frame.stack_size = %d;\n", maxd + 2);
-        fprintf(out, "    __frame.local_ptrs = __local_ptrs;\n");
+        fprintf(out, "    __frame.local_ptrs = (Value**)__local_ptrs;\n");
         fprintf(out, "    __frame.nlocals = %d;\n", _nlocals);
         fprintf(out, "    gc_push_cframe(&__frame);\n");
         fprintf(out, "    gc_stw_check_fast();\n");
@@ -2248,7 +2248,7 @@ static void emit_main(BytecodeFunc* main_fn)
             if(g_scalar_var && g_scalar_var[v]) _sr_total += g_scalar_count[v];
         int _nlocals = g_globals.count + _sr_total;
         int _arr_size = _nlocals > 0 ? _nlocals : 1;
-        fprintf(out, "    Value* __local_ptrs[%d] = { ", _arr_size);
+        fprintf(out, "    volatile Value* __local_ptrs[%d] = { ", _arr_size);
         int _idx = 0;
         for(int i = 0; i < g_globals.count; i++) {
             if(_idx) fprintf(out, ", ");
@@ -2270,7 +2270,7 @@ static void emit_main(BytecodeFunc* main_fn)
         fprintf(out, "    __frame.stack = __stk;\n");
         fprintf(out, "    __frame.sp = &__sp;\n");
         fprintf(out, "    __frame.stack_size = %d;\n", maxd + 2);
-        fprintf(out, "    __frame.local_ptrs = __local_ptrs;\n");
+        fprintf(out, "    __frame.local_ptrs = (Value**)__local_ptrs;\n");
         fprintf(out, "    __frame.nlocals = %d;\n", _nlocals);
         fprintf(out, "    gc_push_cframe(&__frame);\n");
         fprintf(out, "    gc_stw_check_fast();\n");
