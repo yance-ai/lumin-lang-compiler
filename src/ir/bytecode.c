@@ -165,6 +165,7 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
             return 0;
         case OPC_JMP_IF_FALSE:
         case OPC_JMP_IF_TRUE:
+        case OPC_JMP_IF_NULL:
             return -1;                       // 弹条件
         case OPC_CALL:
             return -in.b + 1;                // 弹 argc 实参，压 1 返回值
@@ -214,7 +215,7 @@ int bc_analyze_stack(BytecodeFunc* fn, int* depth_out, int depth_cap)
                 free(d);
                 return -1;
             }
-            if(in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE) {
+            if(in.op == OPC_JMP || in.op == OPC_JMP_IF_FALSE || in.op == OPC_JMP_IF_TRUE || in.op == OPC_JMP_IF_NULL) {
                 if(in.a >= 0 && in.a < n && d[in.a] < nd) { d[in.a] = nd; changed = 1; }
             }
             /* try/catch/finally 的非跳转式目标：TRY.a=catch 入口（异常路径 sp 恢复后）、
@@ -367,6 +368,7 @@ void bc_disasm(FILE* out, BytecodeFunc* fn)
             case OPC_JMP:
             case OPC_JMP_IF_FALSE:
             case OPC_JMP_IF_TRUE:
+            case OPC_JMP_IF_NULL:
             case OPC_TRY:
             case OPC_ENDTRY:
                 snprintf(txt, sizeof(txt), "%s L%d", opc_name(in.op), in.a);
