@@ -20,6 +20,7 @@ static int is_expr_end(int t)
         case CASE_COLON:          /* case 10: { → 块 */
         case TRY:                 /* try { → 块 */
         case FINALLY:             /* finally { → 块 */
+        case TOK_DO:              /* do { → 块 */
             return 1;
         default:
             return 0;
@@ -44,6 +45,7 @@ static int is_expr_end(int t)
 "elseif"        { LEX_RET(ELSEIF); }
 "else"          { LEX_RET(ELSE); }
 "while"         { LEX_RET(WHILE); }
+"do"            { LEX_RET(TOK_DO); }
 "for"           { LEX_RET(FOR); }
 
 "switch"        {  LEX_RET(SWITCH); }

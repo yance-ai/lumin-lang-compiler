@@ -677,6 +677,7 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_IF_CHAIN:
         case AST_BLOCK:
         case AST_WHILE:
+        case AST_DO_WHILE:
         case AST_FOR:
         case AST_SWITCH:
             c_stmt(c, node);
@@ -898,6 +899,22 @@ static void c_stmt(Ctx* c, AstNode* node)
             for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
             /* try-finally 内 continue 的 FIN_PUSH.b 回填到 while 条件（此前遗漏导致跳 pc=0 死循环） */
             for(int i = 0; i < l.cont_fin_cnt; i++) bf_patch_b(c->fn, l.cont_fin[i], l_cond);
+            free(l.brk); free(l.cont);
+            break;
+        }
+        case AST_DO_WHILE: {
+            int l_body = here(c);
+            layer_push(c, 0, -1);              /* continue 目标未知（cond 前才知道） */
+            c_stmt(c, node->u.while_node.body);
+            Layer l = layer_pop(c);
+            int l_cond = here(c);              /* continue 跳到这里（cond 检查前） */
+            for(int i = 0; i < l.cont_cnt; i++) bf_patch(c->fn, l.cont[i], l_cond);
+            for(int i = 0; i < l.cont_fin_cnt; i++) bf_patch_b(c->fn, l.cont_fin[i], l_cond);
+            c_expr(c, node->u.while_node.cond);
+            emit(c, OPC_JMP_IF_TRUE, l_body, 0);  /* cond 为真则跳回 body */
+            int l_end = here(c);
+            for(int i = 0; i < l.brk_cnt; i++) bf_patch(c->fn, l.brk[i], l_end);
+            for(int i = 0; i < l.brk_fin_cnt; i++) bf_patch_b(c->fn, l.brk_fin[i], l_end);
             free(l.brk); free(l.cont);
             break;
         }

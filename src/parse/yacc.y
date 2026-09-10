@@ -71,7 +71,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token IF ELSEIF ELSE
 %token GE LE EQ NE GT LT
 %token LBRACE RBRACE
-%token WHILE FOR
+%token WHILE FOR TOK_DO
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT
@@ -134,6 +134,7 @@ closed_stmt
     | open_stmt                      { $$ = $1; }
     | WHILE LPAREN expr RPAREN closed_stmt     { $$ = ast_while($3, $5); }
     | FOR LPAREN for_init SEMI expr_opt SEMI for_incr RPAREN closed_stmt { $$ = ast_for($3, $5, $7, $9); }
+    | TOK_DO closed_stmt WHILE LPAREN expr RPAREN SEMI { $$ = ast_do_while($5, $2); }
     | switch_stmt                    { $$ = $1; }
     | break_stmt                     { $$ = $1; }
     | continue_stmt                  { $$ = $1; }
@@ -187,8 +188,9 @@ param_list
 ;
 
 param
-    : ID                     { $$ = ast_param($1, 0); } /*普通参数 is_ellipsis=0 */
-    | ELLIPSIS ID            { $$ = ast_param($2, 1); } /* ...args 可变参数 is_ellipsis=1 */
+    : ID                     { $$ = ast_param($1, 0, NULL); } /*普通参数 is_ellipsis=0 */
+    | ID ASSIGN expr         { $$ = ast_param($1, 0, $3); } /*带默认值的参数 */
+    | ELLIPSIS ID            { $$ = ast_param($2, 1, NULL); } /* ...args 可变参数 is_ellipsis=1 */
 ;
 
 /* 调用实参列表 */

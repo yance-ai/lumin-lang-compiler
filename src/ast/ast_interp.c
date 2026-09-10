@@ -329,6 +329,27 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
             }
             return make_int(0);
         }
+        case AST_DO_WHILE: {
+            ctx->hit_break = 0;
+            ctx->hit_continue = 0;
+            for(;;) {
+                ast_eval_ctx(node->u.while_node.body, ctx, frame);
+
+                if(ctx->hit_return) break;
+                if(ctx->hit_break) {
+                    ctx->hit_break = 0;
+                    break;
+                }
+                if(ctx->hit_continue) {
+                    ctx->hit_continue = 0;
+                }
+
+                Value cv = ast_eval_ctx(node->u.while_node.cond, ctx, frame);
+                _Bool cond = value_to_bool(cv);
+                if(!cond) break;
+            }
+            return make_int(0);
+        }
 
         case AST_FOR: {
             ctx->hit_break = 0;

@@ -10,8 +10,7 @@ extern int yylineno;
 
 AstNode* ast_int(long long v)
 {
-    AstNode* p = malloc(sizeof(AstNode));
-    p->type = AST_INT;
+    AstNode* p = ast_new(AST_INT);
     p->val_type = VAL_INT;
     p->u.inum = v;
     return p;
@@ -227,6 +226,14 @@ AstNode* ast_while(AstNode* cond, AstNode* body)
     return n;
 }
 
+AstNode* ast_do_while(AstNode* cond, AstNode* body)
+{
+    AstNode* n = ast_new(AST_DO_WHILE);
+    n->u.while_node.cond = cond;
+    n->u.while_node.body = body;
+    return n;
+}
+
 AstNode* ast_for(AstNode* init, AstNode* cond, AstNode* update, AstNode* body)
 {
     AstNode* n = ast_new(AST_FOR);
@@ -355,10 +362,11 @@ AstNode* ast_func_def(char* name, AstNode* params, AstNode* body) {
     return n;
 }
 
-AstNode* ast_param(char* name, int is_ellipsis) {
+AstNode* ast_param(char* name, int is_ellipsis, AstNode* default_val) {
     AstNode* n = ast_new(AST_PARAM);
     n->u.param.name = strdup(name);
     n->u.param.is_ellipsis = is_ellipsis;
+    n->u.param.default_val = default_val;
     n->u.param.next = NULL;
     return n;
 }
@@ -524,6 +532,10 @@ void ast_free(AstNode* node) {
         case AST_ELIF:
             break;
         case AST_WHILE:
+            ast_free(node->u.while_node.cond);
+            ast_free(node->u.while_node.body);
+            break;
+        case AST_DO_WHILE:
             ast_free(node->u.while_node.cond);
             ast_free(node->u.while_node.body);
             break;

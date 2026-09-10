@@ -11,6 +11,8 @@ typedef struct InterpFuncPayload {
     char** param_names;       // 参数名拷贝（普通参数在前，可变参数最后）
     int param_cnt;
     int has_variadic;
+    AstNode** default_vals;   // 默认值表达式数组（普通参数，NULL=无默认值），长度 param_cnt
+    int* has_default;          // 是否有默认值（1/0），长度 param_cnt
     /* 闭包捕获：仅闭包实例（capture_count==-1 且 captured_cell_count>0）使用。
      * captured_names[i] 为捕获变量名，captured_cells[i] 为对应的堆 Value* 单元指针。
      * 共享模板 payload（parse 期创建）此两字段为 NULL/0。 */
@@ -35,6 +37,10 @@ int interp_func_param_cnt(const RuntimeFunc* rf);
 _Bool interp_func_has_variadic(const RuntimeFunc* rf);
 // 参数名（普通参数在前，可变参数最后），索引越界返回 NULL
 const char* interp_func_param_name(const RuntimeFunc* rf, int idx);
+// 参数是否有默认值（普通参数索引），越界返回 0
+int interp_func_param_has_default(const RuntimeFunc* rf, int idx);
+// 参数默认值表达式 AST（普通参数索引），越界或无默认值返回 NULL
+AstNode* interp_func_param_default(const RuntimeFunc* rf, int idx);
 
 // ---- 解释器 entry 需要知道自己对应的 RuntimeFunc（payload 在 captures 里）----
 // 函数调用前设置当前被调函数，entry 入口读取；返回旧值用于调用后恢复

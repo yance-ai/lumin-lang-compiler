@@ -54,6 +54,22 @@ const char* interp_func_param_name(const RuntimeFunc* rf, int idx)
     return pl->param_names[idx];
 }
 
+int interp_func_param_has_default(const RuntimeFunc* rf, int idx)
+{
+    if(!interp_func_is_payload(rf)) return 0;
+    InterpFuncPayload* pl = (InterpFuncPayload*)rf->captures;
+    if(idx < 0 || idx >= pl->param_cnt) return 0;
+    return pl->has_default[idx];
+}
+
+AstNode* interp_func_param_default(const RuntimeFunc* rf, int idx)
+{
+    if(!interp_func_is_payload(rf)) return NULL;
+    InterpFuncPayload* pl = (InterpFuncPayload*)rf->captures;
+    if(idx < 0 || idx >= pl->param_cnt) return NULL;
+    return pl->default_vals[idx];
+}
+
 // ================= 闭包捕获侧表 =================
 // 单线程编译期状态：lambda 内部名 -> 其捕获的外层局部变量名列表。
 // 仅在 typecheck 阶段写入，IR/VM 阶段读取。
@@ -211,12 +227,18 @@ RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast)
     payload->param_cnt = normal_cnt;
     payload->has_variadic = has_var;
     payload->param_names = malloc(sizeof(char*)*(normal_cnt + (has_var?1:0)));
+    payload->default_vals = calloc(normal_cnt, sizeof(AstNode*));
+    payload->has_default = calloc(normal_cnt, sizeof(int));
 
     // 拷贝参数名字
     p = func_def_ast->u.func_def.params;
     int idx = 0;
     while(p) {
         payload->param_names[idx] = strdup(p->u.param.name);
+        if(!p->u.param.is_ellipsis && p->u.param.default_val) {
+            payload->default_vals[idx] = p->u.param.default_val;
+            payload->has_default[idx] = 1;
+        }
         idx++;
         p = p->u.param.next;
     }
@@ -267,6 +289,8 @@ void runtime_func_destroy(RuntimeFunc* f)
             free(pl->param_names[i]);
         }
         free(pl->param_names);
+        free(pl->default_vals);
+        free(pl->has_default);
         for(int i = 0; i < pl->captured_cell_count; i++) {
             free(pl->captured_names[i]);
             free(pl->captured_cells[i]);   // cell 由该闭包实例独占释放

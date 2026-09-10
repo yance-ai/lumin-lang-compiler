@@ -26,6 +26,7 @@ AstNode* ast_elif_append(AstNode* list, AstNode* elif);
 AstNode* ast_if_chain(AstNode* cond, AstNode* if_body, AstNode* elif_list, AstNode* else_body);
 AstNode* ast_new(AstType type);
 AstNode* ast_while(AstNode* cond, AstNode* body);
+AstNode* ast_do_while(AstNode* cond, AstNode* body);
 AstNode* ast_for(AstNode* init, AstNode* cond, AstNode* update, AstNode* body);
 AstNode* new_cast_node(int cast_type, AstNode* child);
 AstNode* ast_unary(BinOp op, AstNode* child);
@@ -40,7 +41,7 @@ AstNode* ast_case_append(AstNode* case_list, AstNode* one_case);
 // func def: func name(params) body
 AstNode* ast_func_def(char* name, AstNode* params, AstNode* body);
 // 形参；is_ellipsis=1代表 ...args
-AstNode* ast_param(char* name, int is_ellipsis);
+AstNode* ast_param(char* name, int is_ellipsis, AstNode* default_val);
 AstNode* ast_param_append(AstNode* list, AstNode* p);
 
 // 函数调用

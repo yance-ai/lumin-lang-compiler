@@ -5,8 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ast_symtab.h"
+#include "ast_runtime_sym.h"
 #include "func_compile.h"
 #include "ast_types.h"
+#include "ast_node.h"
 
 
 // ---------------- 作用域快照 ----------------
@@ -250,6 +252,10 @@ static void collect_top_level(AstNode* node) {
         case AST_WHILE:
             collect_top_level(node->u.while_node.cond);
             collect_top_level(node->u.while_node.body);
+            break;
+        case AST_DO_WHILE:
+            collect_top_level(node->u.while_node.body);
+            collect_top_level(node->u.while_node.cond);
             break;
         case AST_SWITCH:
             collect_top_level(node->u.sw.cond);
@@ -623,6 +629,11 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.while_node.body);
             node->val_type = VAL_DOUBLE;
             break;
+        case AST_DO_WHILE:
+            err |= typecheck_expr(node->u.while_node.body);
+            err |= typecheck_expr(node->u.while_node.cond);
+            node->val_type = VAL_DOUBLE;
+            break;
         case AST_FOR:
             if(node->u.for_node.init) err |= typecheck_expr(node->u.for_node.init);
             if(node->u.for_node.cond) err |= typecheck_expr(node->u.for_node.cond);
@@ -663,6 +674,28 @@ int typecheck_expr(AstNode* node)
             break;
         }
         case AST_CALL: {
+            // 默认参数填充：如果实参不足，用函数定义中的默认值表达式填充
+            {
+                Value fv = sym_get(node->u.call.name);
+                if(fv.type == VAL_FUNC) {
+                    RuntimeFunc* rf = (RuntimeFunc*)fv.v.func.func_obj;
+                    if(interp_func_is_payload(rf)) {
+                        int nargs = typecheck_arg_count(node->u.call.args);
+                        int pcount = interp_func_param_cnt(rf);
+                        // 从缺失的第一个参数开始，逐个填充默认值
+                        for(int pi = nargs; pi < pcount; pi++) {
+                            if(interp_func_param_has_default(rf, pi)) {
+                                AstNode* dv = interp_func_param_default(rf, pi);
+                                if(dv) {
+                                    // 深拷贝默认值表达式，避免与函数定义共享节点导致重复释放
+                                    AstNode* dv_copy = ast_clone_node(dv);
+                                    node->u.call.args = ast_arg_append(node->u.call.args, dv_copy);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // 实参逐个检查（含嵌套调用）
             err |= typecheck_call_args(node->u.call.args);
             // 函数名：已定义函数 或 赋过函数值的变量 均可（与解释器一致）；
