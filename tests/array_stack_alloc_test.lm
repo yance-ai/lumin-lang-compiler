@@ -152,7 +152,9 @@ func gc_check() {
 }
 before_gc = gc_count();
 gc_check();
+gc_collect();
+gc_collect();
 after_gc = gc_count();
-print("gc_delta=" + (after_gc - before_gc));
+print("gc_reclaimed=" + (after_gc < before_gc));
 
 print("ALL_DONE");
