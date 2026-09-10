@@ -1240,7 +1240,7 @@ static void emit_insns(BytecodeFunc* fn)
             case OPC_FIN_PUSH: {
                 /* finally 完成动作：1=JMP 2=RETHROW 3=BREAK 4=CONT 5=RETURN（b=目标 pc→label 编号） */
                 int fidx = in.b ? fin_lab_idx_of(in.b) : 0;
-                fprintf(out, "    __g_ensure(__g_fin_n + 2); __g_fin_act[__g_fin_n] = %d; __g_fin_tgt[__g_fin_n] = %d; __g_fin_dep[__g_fin_n] = __g_depth - 1; __g_fin_n++;\n", in.a, fidx);
+                fprintf(out, "    __g_ensure(__g_fin_n + 2); __g_fin_act[__g_fin_n] = %d; __g_fin_tgt[__g_fin_n] = %d; __g_fin_dep[__g_fin_n] = (__g_depth > 0) ? __g_depth - 1 : 0; __g_fin_n++;\n", in.a, fidx);
                 break;
             }
             case OPC_FINISH:
