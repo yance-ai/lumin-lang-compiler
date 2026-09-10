@@ -92,9 +92,9 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token ERROR
 
 %right PLUSPLUS MINUSMINUS   /*后置自增，最高优先级*/
-%left PLUS MINUS
-%left MUL DIV MOD
-%left GT LT GE LE EQ NE
+%left GT LT GE LE EQ NE       /*比较运算符，优先级低于加法（与C语言一致）*/
+%left PLUS MINUS              /*加法*/
+%left MUL DIV MOD             /*乘法*/
 %left AND
 %left OR
 %left NULL_COALESCE
