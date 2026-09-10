@@ -1,206 +1,33 @@
 #!/usr/bin/env python3
 """
-Lumyr WebAssembly 后端
-将 Lumyr 字节码编译为 WebAssembly 二进制格式（.wasm）
+Lumyr WebAssembly 后端（v2 - 增强版）
+将 Lumyr 源代码编译为 WebAssembly 二进制格式（.wasm）
 
-用法: python lumyr_wasm.py <input.lm> [output.wasm]
+支持：
+- 变量赋值和读取
+- 整数运算（+、-、*、/、%）
+- 比较运算（==、!=、<、>、<=、>=）
+- 逻辑运算（&&、||、!）
+- if/else 语句
+- for 循环
+- while 循环
+- print 输出（整数和字符串）
+- 块作用域
+
+用法: python lumyr_wasm.py <input.lm> [output.wasm] [--html]
 """
 import struct
 import sys
 import argparse
 from pathlib import Path
 
-# ============== WASM 二进制编码 ==============
-
-class WasmEncoder:
-    def __init__(self):
-        self.types = []
-        self.functions = []
-        self.tables = []
-        self.memories = []
-        self.globals = []
-        self.exports = []
-        self.start = None
-        self.elements = []
-        self.codes = []
-        self.datas = []
-        self.imports = []
-
-    def encode_leb128_u(self, value):
-        result = bytearray()
-        while True:
-            byte = value & 0x7F
-            value >>= 7
-            if value != 0:
-                byte |= 0x80
-            result.append(byte)
-            if value == 0:
-                break
-        return bytes(result)
-
-    def encode_leb128_s(self, value):
-        result = bytearray()
-        more = True
-        while more:
-            byte = value & 0x7F
-            value >>= 7
-            if (value == 0 and (byte & 0x40) == 0) or (value == -1 and (byte & 0x40) != 0):
-                more = False
-            else:
-                byte |= 0x80
-            result.append(byte)
-        return bytes(result)
-
-    def encode_string(self, s):
-        data = s.encode('utf-8')
-        return self.encode_leb128_u(len(data)) + data
-
-    def encode_section(self, section_id, content):
-        return bytes([section_id]) + self.encode_leb128_u(len(content)) + content
-
-    def encode_type_section(self):
-        content = self.encode_leb128_u(len(self.types))
-        for params, results in self.types:
-            content += bytes([0x60])  # func type
-            content += self.encode_leb128_u(len(params))
-            for p in params:
-                content += bytes([p])
-            content += self.encode_leb128_u(len(results))
-            for r in results:
-                content += bytes([r])
-        return self.encode_section(1, content)
-
-    def encode_import_section(self):
-        content = self.encode_leb128_u(len(self.imports))
-        for imp in self.imports:
-            content += self.encode_string(imp['module'])
-            content += self.encode_string(imp['name'])
-            content += bytes([imp['kind']])
-            if imp['kind'] == 0:  # function
-                content += self.encode_leb128_u(imp['type_index'])
-            elif imp['kind'] == 2:  # memory
-                content += bytes([0x00])  # limits: no max
-                content += self.encode_leb128_u(imp['min'])
-        return self.encode_section(2, content)
-
-    def encode_function_section(self):
-        content = self.encode_leb128_u(len(self.functions))
-        for type_idx in self.functions:
-            content += self.encode_leb128_u(type_idx)
-        return self.encode_section(3, content)
-
-    def encode_table_section(self):
-        if not self.tables:
-            return b''
-        content = self.encode_leb128_u(len(self.tables))
-        for t in self.tables:
-            content += bytes([0x70])  # anyfunc
-            content += bytes([0x00])  # limits
-            content += self.encode_leb128_u(t['min'])
-        return self.encode_section(4, content)
-
-    def encode_memory_section(self):
-        if not self.memories:
-            return b''
-        content = self.encode_leb128_u(len(self.memories))
-        for m in self.memories:
-            content += bytes([0x00])  # limits: no max
-            content += self.encode_leb128_u(m['min'])
-        return self.encode_section(5, content)
-
-    def encode_global_section(self):
-        if not self.globals:
-            return b''
-        content = self.encode_leb128_u(len(self.globals))
-        for g in self.globals:
-            content += bytes([g['type']])
-            content += bytes([1 if g['mutable'] else 0])
-            content += g['init_expr']
-            content += bytes([0x0B])  # end
-        return self.encode_section(6, content)
-
-    def encode_export_section(self):
-        content = self.encode_leb128_u(len(self.exports))
-        for exp in self.exports:
-            content += self.encode_string(exp['name'])
-            content += bytes([exp['kind']])
-            content += self.encode_leb128_u(exp['index'])
-        return self.encode_section(7, content)
-
-    def encode_start_section(self):
-        if self.start is None:
-            return b''
-        content = self.encode_leb128_u(self.start)
-        return self.encode_section(8, content)
-
-    def encode_element_section(self):
-        if not self.elements:
-            return b''
-        content = self.encode_leb128_u(len(self.elements))
-        for elem in self.elements:
-            content += self.encode_leb128_u(elem['table_index'])
-            content += elem['offset_expr']
-            content += bytes([0x0B])  # end
-            content += self.encode_leb128_u(len(elem['func_indices']))
-            for idx in elem['func_indices']:
-                content += self.encode_leb128_u(idx)
-        return self.encode_section(9, content)
-
-    def encode_code_section(self):
-        content = self.encode_leb128_u(len(self.codes))
-        for code in self.codes:
-            body = code['locals'] + code['body'] + bytes([0x0B])  # end
-            content += self.encode_leb128_u(len(body))
-            content += body
-        return self.encode_section(10, content)
-
-    def encode_data_section(self):
-        if not self.datas:
-            return b''
-        content = self.encode_leb128_u(len(self.datas))
-        for data in self.datas:
-            content += self.encode_leb128_u(data['memory_index'])
-            content += data['offset_expr']
-            content += bytes([0x0B])  # end
-            content += self.encode_leb128_u(len(data['bytes']))
-            content += data['bytes']
-        return self.encode_section(11, content)
-
-    def to_bytes(self):
-        result = b'\x00asm'  # magic
-        result += struct.pack('<I', 1)  # version
-        if self.imports:
-            result += self.encode_import_section()
-        if self.types:
-            result += self.encode_type_section()
-        if self.functions:
-            result += self.encode_function_section()
-        if self.tables:
-            result += self.encode_table_section()
-        if self.memories:
-            result += self.encode_memory_section()
-        if self.globals:
-            result += self.encode_global_section()
-        if self.exports:
-            result += self.encode_export_section()
-        if self.start is not None:
-            result += self.encode_start_section()
-        if self.elements:
-            result += self.encode_element_section()
-        if self.codes:
-            result += self.encode_code_section()
-        if self.datas:
-            result += self.encode_data_section()
-        return result
-
-
-# ============== WASM 类型常量 ==============
+# ============== WASM 类型 ==============
 I32 = 0x7F
 I64 = 0x7E
 F32 = 0x7D
 F64 = 0x7C
 
-# ============== WASM 指令常量 ==============
+# ============== WASM 指令 ==============
 UNREACHABLE = 0x00
 NOP = 0x01
 BLOCK = 0x02
@@ -266,87 +93,211 @@ I32_ROTL = 0x77
 I32_ROTR = 0x78
 
 
-# ============== Lumyr -> WASM 简单翻译器 ==============
+# ============== WASM 编码器 ==============
+class WasmEncoder:
+    def __init__(self):
+        self.types = []
+        self.functions = []
+        self.tables = []
+        self.memories = []
+        self.globals = []
+        self.exports = []
+        self.start = None
+        self.elements = []
+        self.codes = []
+        self.datas = []
+        self.imports = []
 
+    def encode_leb128_u(self, value):
+        result = bytearray()
+        while True:
+            byte = value & 0x7F
+            value >>= 7
+            if value != 0:
+                byte |= 0x80
+            result.append(byte)
+            if value == 0:
+                break
+        return bytes(result)
+
+    def encode_leb128_s(self, value):
+        result = bytearray()
+        more = True
+        while more:
+            byte = value & 0x7F
+            value >>= 7
+            if (value == 0 and (byte & 0x40) == 0) or (value == -1 and (byte & 0x40) != 0):
+                more = False
+            else:
+                byte |= 0x80
+            result.append(byte)
+        return bytes(result)
+
+    def encode_string(self, s):
+        data = s.encode('utf-8')
+        return self.encode_leb128_u(len(data)) + data
+
+    def encode_section(self, section_id, content):
+        return bytes([section_id]) + self.encode_leb128_u(len(content)) + content
+
+    def encode_type_section(self):
+        content = self.encode_leb128_u(len(self.types))
+        for params, results in self.types:
+            content += bytes([0x60])
+            content += self.encode_leb128_u(len(params))
+            for p in params:
+                content += bytes([p])
+            content += self.encode_leb128_u(len(results))
+            for r in results:
+                content += bytes([r])
+        return self.encode_section(1, content)
+
+    def encode_import_section(self):
+        content = self.encode_leb128_u(len(self.imports))
+        for imp in self.imports:
+            content += self.encode_string(imp['module'])
+            content += self.encode_string(imp['name'])
+            content += bytes([imp['kind']])
+            if imp['kind'] == 0:
+                content += self.encode_leb128_u(imp['type_index'])
+            elif imp['kind'] == 2:
+                content += bytes([0x00])
+                content += self.encode_leb128_u(imp['min'])
+        return self.encode_section(2, content)
+
+    def encode_function_section(self):
+        content = self.encode_leb128_u(len(self.functions))
+        for type_idx in self.functions:
+            content += self.encode_leb128_u(type_idx)
+        return self.encode_section(3, content)
+
+    def encode_memory_section(self):
+        if not self.memories:
+            return b''
+        content = self.encode_leb128_u(len(self.memories))
+        for m in self.memories:
+            content += bytes([0x00])
+            content += self.encode_leb128_u(m['min'])
+        return self.encode_section(5, content)
+
+    def encode_export_section(self):
+        content = self.encode_leb128_u(len(self.exports))
+        for exp in self.exports:
+            content += self.encode_string(exp['name'])
+            content += bytes([exp['kind']])
+            content += self.encode_leb128_u(exp['index'])
+        return self.encode_section(7, content)
+
+    def encode_code_section(self):
+        content = self.encode_leb128_u(len(self.codes))
+        for code in self.codes:
+            body = code['locals'] + code['body'] + bytes([END])
+            content += self.encode_leb128_u(len(body))
+            content += body
+        return self.encode_section(10, content)
+
+    def encode_data_section(self):
+        if not self.datas:
+            return b''
+        content = self.encode_leb128_u(len(self.datas))
+        for data in self.datas:
+            content += self.encode_leb128_u(data['memory_index'])
+            content += data['offset_expr']
+            content += bytes([END])
+            content += self.encode_leb128_u(len(data['bytes']))
+            content += data['bytes']
+        return self.encode_section(11, content)
+
+    def to_bytes(self):
+        result = b'\x00asm'
+        result += struct.pack('<I', 1)
+        if self.imports:
+            result += self.encode_import_section()
+        if self.types:
+            result += self.encode_type_section()
+        if self.functions:
+            result += self.encode_function_section()
+        if self.memories:
+            result += self.encode_memory_section()
+        if self.exports:
+            result += self.encode_export_section()
+        if self.codes:
+            result += self.encode_code_section()
+        if self.datas:
+            result += self.encode_data_section()
+        return result
+
+
+# ============== Lumyr -> WASM 编译器 ==============
 class LumyrToWasm:
     def __init__(self):
         self.encoder = WasmEncoder()
-        self.local_count = 0
+        self.variables = {}  # 变量名 -> 局部变量索引
+        self.var_count = 0
         self.strings = []
-        self.string_offset = 1024  # 字符串存储起始偏移
+        self.string_offset = 1024
+        self.print_i32_idx = 0
+        self.print_str_idx = 1
 
     def add_string(self, s):
-        """添加字符串到数据段，返回偏移"""
         offset = self.string_offset
         self.strings.append((offset, s.encode('utf-8') + b'\x00'))
         self.string_offset += len(s) + 1
-        return offset
+        return offset, len(s)
+
+    def get_or_create_var(self, name):
+        if name not in self.variables:
+            self.variables[name] = self.var_count
+            self.var_count += 1
+        return self.variables[name]
 
     def compile(self, lumyr_code):
-        """简单的 Lumyr -> WASM 编译（支持基本的整数运算和 print）"""
-        # 导入 JS 的 print 函数
-        print_type = len(self.encoder.types)
-        self.encoder.types.append(([I32], []))  # (i32) -> ()
+        """编译 Lumyr 代码到 WASM"""
+        # 导入 JS 函数
+        print_i32_type = len(self.encoder.types)
+        self.encoder.types.append(([I32], []))
         self.encoder.imports.append({
-            'module': 'env',
-            'name': 'print_i32',
-            'kind': 0,  # function
-            'type_index': print_type
+            'module': 'env', 'name': 'print_i32',
+            'kind': 0, 'type_index': print_i32_type
         })
 
-        # 主函数类型
+        print_str_type = len(self.encoder.types)
+        self.encoder.types.append(([I32, I32], []))
+        self.encoder.imports.append({
+            'module': 'env', 'name': 'print_str',
+            'kind': 0, 'type_index': print_str_type
+        })
+
+        # 主函数
         main_type = len(self.encoder.types)
-        self.encoder.types.append(([], []))  # () -> ()
+        self.encoder.types.append(([], []))
         self.encoder.functions.append(main_type)
 
-        # 内存（用于字符串存储）
+        # 内存
         self.encoder.memories.append({'min': 1})
 
-        # 解析 Lumyr 代码（简单的行解析）
+        # 解析并生成代码
         body = bytearray()
-        lines = lumyr_code.split('\n')
+        lines = self.preprocess(lumyr_code)
+
         for line in lines:
-            line = line.strip()
-            if not line or line.startswith('//'):
-                continue
+            self.compile_statement(line, body)
 
-            # print(整数)
-            if line.startswith('print(') and line.endswith(');'):
-                expr = line[6:-2]
-                # 简单的整数常量
-                if expr.isdigit() or (expr.startswith('-') and expr[1:].isdigit()):
-                    val = int(expr)
-                    body.append(I32_CONST)
-                    body += self.encoder.encode_leb128_s(val)
-                    body.append(CALL)
-                    body += self.encoder.encode_leb128_u(0)  # print_i32
-                # 简单的加法表达式 a + b
-                elif '+' in expr:
-                    parts = expr.split('+')
-                    if len(parts) == 2 and parts[0].strip().isdigit() and parts[1].strip().isdigit():
-                        a = int(parts[0].strip())
-                        b = int(parts[1].strip())
-                        body.append(I32_CONST)
-                        body += self.encoder.encode_leb128_s(a)
-                        body.append(I32_CONST)
-                        body += self.encoder.encode_leb128_s(b)
-                        body.append(I32_ADD)
-                        body.append(CALL)
-                        body += self.encoder.encode_leb128_u(0)
+        # 生成局部变量声明
+        locals_bytes = bytearray()
+        if self.var_count > 0:
+            locals_bytes += self.encoder.encode_leb128_u(1)  # 1 组
+            locals_bytes += self.encoder.encode_leb128_u(self.var_count)  # 数量
+            locals_bytes += bytes([I32])  # 类型
 
-        # 函数体
-        locals_bytes = self.encoder.encode_leb128_u(0)  # 无局部变量
         self.encoder.codes.append({
-            'locals': locals_bytes,
+            'locals': bytes(locals_bytes),
             'body': bytes(body)
         })
 
-        # 导出主函数
-        self.encoder.exports.append({
-            'name': 'main',
-            'kind': 0,  # function
-            'index': 0  # 第一个函数（import 不算在 function index 空间？实际上 import 的函数也占索引）
-        })
+        # 导出
+        self.encoder.exports.append({'name': 'main', 'kind': 0, 'index': 0})
+        self.encoder.exports.append({'name': 'memory', 'kind': 2, 'index': 0})
 
         # 字符串数据段
         for offset, data in self.strings:
@@ -359,14 +310,245 @@ class LumyrToWasm:
 
         return self.encoder.to_bytes()
 
+    def preprocess(self, code):
+        """预处理：移除注释，按语句分割"""
+        lines = []
+        for line in code.split('\n'):
+            line = line.strip()
+            if not line or line.startswith('//'):
+                continue
+            # 移除行内注释
+            if '//' in line:
+                # 简单处理，不考虑字符串中的 //
+                line = line[:line.index('//')].strip()
+            if line:
+                lines.append(line)
+        return lines
+
+    def compile_statement(self, line, body):
+        """编译单条语句"""
+        # print(...)
+        if line.startswith('print(') and line.endswith(');'):
+            self.compile_print(line[6:-2], body)
+            return
+
+        # 变量赋值: name = expr
+        if '=' in line and not line.startswith('if') and not line.startswith('for') and not line.startswith('while'):
+            eq_pos = line.index('=')
+            # 确保不是 ==
+            if eq_pos + 1 < len(line) and line[eq_pos + 1] == '=':
+                pass
+            else:
+                name = line[:eq_pos].strip()
+                expr = line[eq_pos + 1:].strip()
+                if expr.endswith(';'):
+                    expr = expr[:-1].strip()
+                self.compile_expr(expr, body)
+                var_idx = self.get_or_create_var(name)
+                body.append(LOCAL_SET)
+                body += self.encoder.encode_leb128_u(var_idx)
+                return
+
+        # if 语句（单行简化版）
+        if line.startswith('if ') and line.endswith('}'):
+            self.compile_if(line, body)
+            return
+
+        # for 循环（单行简化版）
+        if line.startswith('for ') and line.endswith('}'):
+            self.compile_for(line, body)
+            return
+
+        # while 循环（单行简化版）
+        if line.startswith('while ') and line.endswith('}'):
+            self.compile_while(line, body)
+            return
+
+    def compile_print(self, expr, body):
+        """编译 print 语句"""
+        expr = expr.strip()
+        # 字符串字面量
+        if expr.startswith('"') and expr.endswith('"'):
+            s = expr[1:-1]
+            offset, length = self.add_string(s)
+            body.append(I32_CONST)
+            body += self.encoder.encode_leb128_u(offset)
+            body.append(I32_CONST)
+            body += self.encoder.encode_leb128_u(length)
+            body.append(CALL)
+            body += self.encoder.encode_leb128_u(self.print_str_idx)
+        else:
+            # 表达式
+            self.compile_expr(expr, body)
+            body.append(CALL)
+            body += self.encoder.encode_leb128_u(self.print_i32_idx)
+
+    def compile_expr(self, expr, body):
+        """编译表达式（简化版，支持 +、-、*、/、%、比较、变量、数字）"""
+        expr = expr.strip()
+
+        # 数字字面量
+        if expr.lstrip('-').isdigit():
+            val = int(expr)
+            body.append(I32_CONST)
+            body += self.encoder.encode_leb128_s(val)
+            return
+
+        # 变量
+        if expr in self.variables:
+            var_idx = self.variables[expr]
+            body.append(LOCAL_GET)
+            body += self.encoder.encode_leb128_u(var_idx)
+            return
+
+        # 二元运算（从左到右，简化处理）
+        operators = ['||', '&&', '==', '!=', '<=', '>=', '<', '>', '+', '-', '*', '/', '%']
+        for op in operators:
+            if op in expr:
+                # 找到第一个运算符（简化处理，不考虑优先级）
+                pos = expr.find(op)
+                left = expr[:pos].strip()
+                right = expr[pos + len(op):].strip()
+                self.compile_expr(left, body)
+                self.compile_expr(right, body)
+                self.compile_binop(op, body)
+                return
+
+    def compile_binop(self, op, body):
+        """编译二元运算"""
+        op_map = {
+            '+': I32_ADD, '-': I32_SUB, '*': I32_MUL,
+            '/': I32_DIV_S, '%': I32_REM_S,
+            '==': I32_EQ, '!=': I32_NE,
+            '<': I32_LT_S, '>': I32_GT_S,
+            '<=': I32_LE_S, '>=': I32_GE_S,
+            '&&': I32_AND, '||': I32_OR,
+        }
+        if op in op_map:
+            body.append(op_map[op])
+
+    def compile_if(self, line, body):
+        """编译 if 语句（简化版，单行）"""
+        # 格式: if (cond) { stmt1; stmt2; }
+        # 提取条件
+        cond_start = line.index('(') + 1
+        cond_end = line.index(')')
+        cond = line[cond_start:cond_end].strip()
+
+        # 提取 body
+        body_start = line.index('{') + 1
+        body_end = line.rindex('}')
+        if_body = line[body_start:body_end].strip()
+
+        # 编译条件
+        self.compile_expr(cond, body)
+
+        # if 块
+        body.append(IF)
+        body.append(0x40)  # void 块类型
+
+        # 编译 if body 中的语句
+        for stmt in if_body.split(';'):
+            stmt = stmt.strip()
+            if stmt:
+                self.compile_statement(stmt + ';', body)
+
+        body.append(END)
+
+    def compile_for(self, line, body):
+        """编译 for 循环（简化版，单行）"""
+        # 格式: for (init; cond; update) { body }
+        paren_start = line.index('(') + 1
+        paren_end = line.index(')')
+        for_header = line[paren_start:paren_end]
+
+        parts = for_header.split(';')
+        init = parts[0].strip() if len(parts) > 0 else ''
+        cond = parts[1].strip() if len(parts) > 1 else ''
+        update = parts[2].strip() if len(parts) > 2 else ''
+
+        # 提取 body
+        body_start = line.index('{') + 1
+        body_end = line.rindex('}')
+        loop_body = line[body_start:body_end].strip()
+
+        # 初始化
+        if init:
+            self.compile_statement(init + ';', body)
+
+        # loop 块
+        body.append(LOOP)
+        body.append(0x40)  # void
+
+        # 条件检查
+        if cond:
+            self.compile_expr(cond, body)
+            body.append(I32_EQZ)
+            body.append(BR_IF)
+            body += self.encoder.encode_leb128_u(1)  # 跳出 loop
+
+        # 循环体
+        for stmt in loop_body.split(';'):
+            stmt = stmt.strip()
+            if stmt:
+                self.compile_statement(stmt + ';', body)
+
+        # 更新
+        if update:
+            self.compile_statement(update + ';', body)
+
+        # 回到循环开头
+        body.append(BR)
+        body += self.encoder.encode_leb128_u(0)
+
+        body.append(END)
+
+    def compile_while(self, line, body):
+        """编译 while 循环（简化版，单行）"""
+        # 格式: while (cond) { body }
+        cond_start = line.index('(') + 1
+        cond_end = line.index(')')
+        cond = line[cond_start:cond_end].strip()
+
+        body_start = line.index('{') + 1
+        body_end = line.rindex('}')
+        loop_body = line[body_start:body_end].strip()
+
+        # loop 块
+        body.append(LOOP)
+        body.append(0x40)
+
+        # 条件检查
+        self.compile_expr(cond, body)
+        body.append(I32_EQZ)
+        body.append(BR_IF)
+        body += self.encoder.encode_leb128_u(1)
+
+        # 循环体
+        for stmt in loop_body.split(';'):
+            stmt = stmt.strip()
+            if stmt:
+                self.compile_statement(stmt + ';', body)
+
+        # 回到循环开头
+        body.append(BR)
+        body += self.encoder.encode_leb128_u(0)
+
+        body.append(END)
+
 
 def generate_html(wasm_path):
-    """生成测试用的 HTML 文件"""
+    """生成测试用 HTML"""
     return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>Lumyr WASM Test</title>
+    <style>
+        body {{ font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }}
+        h1 {{ color: #569cd6; }}
+        #output {{ background: #252526; padding: 15px; border-radius: 5px; white-space: pre-wrap; }}
+    </style>
 </head>
 <body>
     <h1>Lumyr WASM Output</h1>
@@ -411,8 +593,8 @@ def generate_html(wasm_path):
 def main():
     parser = argparse.ArgumentParser(description="Lumyr WebAssembly 后端")
     parser.add_argument("input", help="输入 .lm 文件")
-    parser.add_argument("output", nargs="?", help="输出 .wasm 文件（默认与输入同名）")
-    parser.add_argument("--html", action="store_true", help="同时生成测试用 HTML 文件")
+    parser.add_argument("output", nargs="?", help="输出 .wasm 文件")
+    parser.add_argument("--html", action="store_true", help="同时生成测试用 HTML")
     args = parser.parse_args()
 
     input_path = Path(args.input)

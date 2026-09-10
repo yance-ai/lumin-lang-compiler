@@ -1,0 +1,18 @@
+// WASM 后端完整功能测试
+x = 10;
+y = 20;
+print(x + y);
+print(x * y);
+print(x - y);
+print(y / x);
+print(y % x);
+
+if (x > 5) { print("x is big"); }
+if (x < 5) { print("x is small"); } else { print("x is not small"); }
+
+for (i = 0; i < 5; i = i + 1) { print(i); }
+
+n = 0;
+while (n < 3) { print(n); n = n + 1; }
+
+print("done");
