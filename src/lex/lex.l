@@ -36,6 +36,7 @@ static int is_expr_end(int t)
 "type"          { LEX_RET(TOK_TYPE); }
 "enum"          { LEX_RET(TOK_ENUM); }
 "func"          { LEX_RET(FUNC); }
+"const"         { LEX_RET(CONST); }
 
 "print"         { LEX_RET(PRINT); }
 "true"          { LEX_RET(TRUE); }

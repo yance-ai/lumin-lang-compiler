@@ -24,6 +24,12 @@ typedef struct InterpFuncPayload {
 // 将AST_FUNC_DEF节点编译生成RuntimeFunc（不持有AstNode，内部提取信息生成IR/解释器句柄）
 RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast);
 
+// ---- 全局函数 AST 表（用于 const fn 编译期求值查找）----
+// 注册函数 AST 节点（compile_func_from_ast 内部自动调用）
+void func_ast_register(const char* name, AstNode* func_ast);
+// 通过函数名查找 AST 节点，未找到返回 NULL
+AstNode* func_ast_lookup(const char* name);
+
 // typecheck 转换函数名引用（AST_VAR→AST_FUNCREF）后重编译该函数字节码并替换
 void func_compile_recompile(AstNode* def);
 

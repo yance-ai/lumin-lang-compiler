@@ -10,6 +10,33 @@
 #include "ir/vm.h"
 #include "gc_runtime.h"
 
+// ---- 全局函数 AST 表（用于 const fn 编译期求值查找）----
+#define FUNC_AST_MAX 512
+static struct { char* name; AstNode* ast; } g_func_ast_table[FUNC_AST_MAX];
+static int g_func_ast_cnt = 0;
+
+void func_ast_register(const char* name, AstNode* func_ast) {
+    if(g_func_ast_cnt >= FUNC_AST_MAX) return;
+    // 检查是否已注册（避免重复）
+    for(int i = 0; i < g_func_ast_cnt; i++) {
+        if(strcmp(g_func_ast_table[i].name, name) == 0) {
+            g_func_ast_table[i].ast = func_ast;
+            return;
+        }
+    }
+    g_func_ast_table[g_func_ast_cnt].name = strdup(name);
+    g_func_ast_table[g_func_ast_cnt].ast = func_ast;
+    g_func_ast_cnt++;
+}
+
+AstNode* func_ast_lookup(const char* name) {
+    for(int i = 0; i < g_func_ast_cnt; i++) {
+        if(strcmp(g_func_ast_table[i].name, name) == 0)
+            return g_func_ast_table[i].ast;
+    }
+    return NULL;
+}
+
 // ---- 当前被调函数：解释器entry入口处查询自身payload用 ----
 // 调用点先set、entry入口立即读取到局部变量，之后嵌套调用不影响
 // _Thread_local：多线程 VM 通道（thread 启动的线程各自调用函数）需要每线程隔离
@@ -208,6 +235,9 @@ void lumyr_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value))
 RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast)
 {
     if(func_def_ast->type != AST_FUNC_DEF) return NULL;
+
+    // 注册到全局函数 AST 表（用于 const fn 编译期求值查找）
+    func_ast_register(func_def_ast->u.func_def.name, func_def_ast);
 
     // 1. 解析参数链表 AST_PARAM，拷贝参数名，**只拷贝字符串，不存AST指针**
     int normal_cnt = 0;

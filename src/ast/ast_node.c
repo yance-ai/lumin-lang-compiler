@@ -385,6 +385,7 @@ AstNode* ast_func_def(char* name, AstNode* params, AstNode* body) {
     n->u.func_def.params = params;
     n->u.func_def.body = body;
     n->u.func_def.annotations = NULL;
+    n->u.func_def.is_const = 0;
     return n;
 }
 

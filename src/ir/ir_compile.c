@@ -7,6 +7,7 @@
 #include "ast/lumyr_types.h"
 #include "ast/ast_types.h"
 #include "ast/func_compile.h"
+#include "ast/ast_interp.h"
 #include "lm_value.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -598,6 +599,28 @@ static void c_expr(Ctx* c, AstNode* node)
             break;
         }
         case AST_CALL: {
+            // ---- const fn 编译期求值 ----
+            AstNode* func_ast = func_ast_lookup(node->u.call.name);
+            if(func_ast && func_ast->u.func_def.is_const) {
+                // 检查所有参数是否都是编译期常量
+                _Bool all_const = 1;
+                AstNode* arg = node->u.call.args;
+                while(arg) {
+                    if(arg->type != AST_INT && arg->type != AST_NUM &&
+                       arg->type != AST_BOOL && arg->type != AST_STRING &&
+                       arg->type != AST_CHAR && arg->type != AST_NONE) {
+                        all_const = 0;
+                        break;
+                    }
+                    arg = arg->u.seq.second;
+                }
+                if(all_const) {
+                    // 编译期求值：用解释执行引擎求值函数调用
+                    Value cv = ast_eval(node);
+                    emit(c, OPC_LOAD_CONST, bf_const(c->fn, cv), 0);
+                    break;
+                }
+            }
             int ti = type_lookup(node->u.call.name);
             if(ti >= 0) {
                 /* 类型构造调用：Person(a, b) → map 字面量（属性按序强转） */

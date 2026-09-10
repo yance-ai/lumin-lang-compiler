@@ -80,7 +80,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
 %token CONTINUE
-%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE
+%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE CONST
 %token READ WRITE
 %token COMMA
 %token AND OR NOT MOD
@@ -216,6 +216,17 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
         | annotation_list FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);
           $$->u.func_def.annotations = $1;
+          /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
+          RuntimeFunc* rf = compile_func_from_ast($$);
+          Value func_val;
+          func_val.type = VAL_FUNC;
+          func_val.v.func.func_obj = rf;
+          sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+        }
+        | CONST FUNC ID LPAREN param_list RPAREN block_stmt {
+          $$ = ast_func_def($3, $5, $7);
+          $$->u.func_def.annotations = NULL;
+          $$->u.func_def.is_const = 1;
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val;

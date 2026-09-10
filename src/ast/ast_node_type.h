@@ -111,6 +111,7 @@ struct AstNode {
             AstNode* params;   // AST_PARAM链表
             AstNode* body;     // 函数体 block
             AstNode* annotations;  // 注解列表（AST_SEQ 链，每个节点是 AST_ANNOTATION）
+            int is_const;  // 编译期计算函数（const fn）
         } func_def;
 
         struct {
