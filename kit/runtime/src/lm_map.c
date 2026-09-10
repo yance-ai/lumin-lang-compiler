@@ -38,7 +38,7 @@ static uint32_t value_hash(Value v) {
             h ^= (uint32_t)(unsigned char)v.v.c;
             break;
         case VAL_STRING: {
-            const char* s = lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "";
+            const char* s = lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "";
             uint32_t hh = 5381;
             while(*s) hh = ((hh << 5) + hh) + (unsigned char)*s++;
             h ^= hh;
@@ -46,7 +46,7 @@ static uint32_t value_hash(Value v) {
         }
         case VAL_MAP: {
             // map 键：用 JSON 字符串的哈希（顺序无关，因为 JSON 序列化顺序固定）
-            char* js = lumin_json_stringify(v);
+            char* js = lumyr_json_stringify(v);
             if(js) {
                 uint32_t th = 5381;
                 for(const char* p = js; *p; p++) th = ((th << 5) + th) + (unsigned char)*p;
@@ -84,12 +84,12 @@ static int key_compare(Value a, Value b) {
             return ((unsigned char)a.v.c > (unsigned char)b.v.c) -
                    ((unsigned char)a.v.c < (unsigned char)b.v.c);
         case VAL_STRING: {
-            int c = strcmp(lumin_str_cstr(&a) ? lumin_str_cstr(&a) : "", lumin_str_cstr(&b) ? lumin_str_cstr(&b) : "");
+            int c = strcmp(lumyr_str_cstr(&a) ? lumyr_str_cstr(&a) : "", lumyr_str_cstr(&b) ? lumyr_str_cstr(&b) : "");
             return (c > 0) - (c < 0);
         }
         case VAL_MAP: {
-            char* sa = lumin_json_stringify(a);
-            char* sb = lumin_json_stringify(b);
+            char* sa = lumyr_json_stringify(a);
+            char* sb = lumyr_json_stringify(b);
             int c = strcmp(sa ? sa : "", sb ? sb : "");
             free(sa); free(sb);
             return (c > 0) - (c < 0);
@@ -112,14 +112,14 @@ static int key_eq(Value a, Value b) {
         case VAL_DOUBLE: return a.v.d == b.v.d;
         case VAL_BOOL: return a.v.b == b.v.b;
         case VAL_CHAR: return a.v.c == b.v.c;
-        case VAL_STRING: return strcmp(lumin_str_cstr(&a) ? lumin_str_cstr(&a) : "", lumin_str_cstr(&b) ? lumin_str_cstr(&b) : "") == 0;
+        case VAL_STRING: return strcmp(lumyr_str_cstr(&a) ? lumyr_str_cstr(&a) : "", lumyr_str_cstr(&b) ? lumyr_str_cstr(&b) : "") == 0;
         case VAL_MAP: {
             if(a.v.map->len != b.v.map->len) return 0;
             MapIter it; map_iter_init(&it, a.v.map);
             Value k, vv;
             while(map_iter_next(&it, &k, &vv)) {
-                if(!lumin_map_has((Value){.type=VAL_MAP,.v.map=b.v.map}, k)) return 0;
-                Value bv = lumin_map_get((Value){.type=VAL_MAP,.v.map=b.v.map}, k);
+                if(!lumyr_map_has((Value){.type=VAL_MAP,.v.map=b.v.map}, k)) return 0;
+                Value bv = lumyr_map_get((Value){.type=VAL_MAP,.v.map=b.v.map}, k);
                 if(!key_eq(vv, bv)) return 0;
             }
             return 1;
@@ -491,7 +491,7 @@ static void map_resize(ValueMap* m) {
 }
 
 // ============ 公共 API ============
-int lumin_map_find(const ValueMap* m, Value key) {
+int lumyr_map_find(const ValueMap* m, Value key) {
     uint32_t h = value_hash(key);
     int idx = bucket_idx(h, m->cap);
     if(m->tree[idx]) {
@@ -501,7 +501,7 @@ int lumin_map_find(const ValueMap* m, Value key) {
     }
 }
 
-void lumin_map_set(Value* map, Value key, Value val) {
+void lumyr_map_set(Value* map, Value key, Value val) {
     if(map->type != VAL_MAP) runtime_error("字典下标写需要 字典[键]");
     /* Remembered set 检查：老年代 map 写入新生代 key/val 时加入 rs */
     gc_remembered_set_check(*map, key);
@@ -530,7 +530,7 @@ void lumin_map_set(Value* map, Value key, Value val) {
         map_resize(m);
 }
 
-Value lumin_map_get(Value map, Value key) {
+Value lumyr_map_get(Value map, Value key) {
     if(map.type != VAL_MAP) runtime_error("字典下标读需要 字典[键]");
     ValueMap* m = map.v.map;
     uint32_t h = value_hash(key);
@@ -542,12 +542,12 @@ Value lumin_map_get(Value map, Value key) {
     return e->value;
 }
 
-int lumin_map_has(Value map, Value key) {
+int lumyr_map_has(Value map, Value key) {
     if(map.type != VAL_MAP) return 0;
-    return lumin_map_find(map.v.map, key) >= 0;
+    return lumyr_map_find(map.v.map, key) >= 0;
 }
 
-Value lumin_map_del(Value* map, Value key) {
+Value lumyr_map_del(Value* map, Value key) {
     if(map->type != VAL_MAP) runtime_error("del() 参数必须是数组或字典");
     ValueMap* m = map->v.map;
     uint32_t h = value_hash(key);
@@ -586,7 +586,7 @@ Value lumin_map_del(Value* map, Value key) {
     return *map;  // 键不存在，无操作
 }
 
-Value lumin_map_keys(Value map) {
+Value lumyr_map_keys(Value map) {
     if(map.type != VAL_MAP) runtime_error("keys() 参数必须是字典");
     ValueMap* m = map.v.map;
     Value r = val_array(m->len);
@@ -615,7 +615,7 @@ Value lumin_map_keys(Value map) {
     return r;
 }
 
-Value lumin_map_values(Value map) {
+Value lumyr_map_values(Value map) {
     if(map.type != VAL_MAP) runtime_error("values() 参数必须是字典");
     ValueMap* m = map.v.map;
     Value r = val_array(m->len);
@@ -644,10 +644,10 @@ Value lumin_map_values(Value map) {
     return r;
 }
 
-Value lumin_map_lit(Value* kv, int n) {
+Value lumyr_map_lit(Value* kv, int n) {
     Value r = val_map();
     for(int i = 0; i < n; i++)
-        lumin_map_set(&r, kv[i * 2], kv[i * 2 + 1]);
+        lumyr_map_set(&r, kv[i * 2], kv[i * 2 + 1]);
     return r;
 }
 

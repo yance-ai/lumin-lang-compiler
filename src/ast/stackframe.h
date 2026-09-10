@@ -1,7 +1,7 @@
 #ifndef STACKFRAME_H
 #define STACKFRAME_H
 
-#include "lumin_value_type.h"
+#include "lumyr_value_type.h"
 
 // 新建栈帧：parent 为调用者栈帧，可为 NULL（顶层帧）
 // 新建的帧默认非共享（线程私有）；全局共享帧需调用 stackframe_set_shared 标记

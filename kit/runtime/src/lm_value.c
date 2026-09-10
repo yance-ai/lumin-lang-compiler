@@ -9,29 +9,29 @@
 #include <math.h>
 #include <ctype.h>
 
-// 字典辅助（VAL_MAP）前向声明：lumin_eq 等在定义之前引用
-Value lumin_make_int(long long i) {
+// 字典辅助（VAL_MAP）前向声明：lumyr_eq 等在定义之前引用
+Value lumyr_make_int(long long i) {
     Value v;
     v.type = VAL_INT;
     v.v.i = i;
     return v;
 }
 
-Value lumin_make_double(double d) {
+Value lumyr_make_double(double d) {
     Value v;
     v.type = VAL_DOUBLE;
     v.v.d = d;
     return v;
 }
 
-Value lumin_make_bool(_Bool b) {
+Value lumyr_make_bool(_Bool b) {
     Value v;
     v.type = VAL_BOOL;
     v.v.b = b;
     return v;
 }
 
-Value lumin_make_string(const char* s) {
+Value lumyr_make_string(const char* s) {
     Value v;
     v.type = VAL_STRING;
     v.str_inline = 0;
@@ -41,7 +41,7 @@ Value lumin_make_string(const char* s) {
         return v;
     }
     size_t len = strlen(s);
-    if (len <= LUMIN_SSO_MAX) {
+    if (len <= LUMYR_SSO_MAX) {
         v.str_inline = 1;
         v.v.sso.len = (uint8_t)len;
         memcpy(v.v.sso.data, s, len);
@@ -54,14 +54,14 @@ Value lumin_make_string(const char* s) {
     return v;
 }
 
-Value lumin_make_char(char ch) {
+Value lumyr_make_char(char ch) {
     Value v;
     v.type = VAL_CHAR;
     v.v.c = ch;
     return v;
 }
 
-Value lumin_make_byte(unsigned char b) {
+Value lumyr_make_byte(unsigned char b) {
     Value v;
     v.type = VAL_BYTE;
     v.v.i = (long long)(b & 0xFF);
@@ -102,7 +102,7 @@ char* value_to_str(Value v) {
             break;
         case VAL_STRING:
         {
-            const char* cs = lumin_str_cstr(&v);
+            const char* cs = lumyr_str_cstr(&v);
             size_t l = cs ? strlen(cs) : 0;
             char* p = (char*)malloc(l+1);
             if (cs) memcpy(p, cs, l+1); else p[0] = '\0';
@@ -124,7 +124,7 @@ char* value_to_str(Value v) {
             return res;
         }
         case VAL_MAP:
-            return lumin_json_stringify(v);
+            return lumyr_json_stringify(v);
         default:
             strcpy(buf, "");
             break;
@@ -135,20 +135,20 @@ char* value_to_str(Value v) {
     return res;
 }
 
-Value lumin_unary_plus(Value v) {
+Value lumyr_unary_plus(Value v) {
     return v;
 }
 
-Value lumin_unary_minus(Value v) {
+Value lumyr_unary_minus(Value v) {
     if(v.type == VAL_INT) {
-        if(v.v.i == LLONG_MIN) return lumin_make_double(-(double)v.v.i);  // 溢出保护
-        return lumin_make_int(-v.v.i);
+        if(v.v.i == LLONG_MIN) return lumyr_make_double(-(double)v.v.i);  // 溢出保护
+        return lumyr_make_int(-v.v.i);
     }
     double num = value_as_number(v);
-    return lumin_make_double(-num);
+    return lumyr_make_double(-num);
 }
 
-Value lumin_add(Value a, Value b) {
+Value lumyr_add(Value a, Value b) {
     // 与解释器 ast_interp.c 语义对齐：
     // 1) 任一操作数为 string 或 bool → 字符串拼接（bool 转 "true"/"false"）
     // 2) int+int → int
@@ -179,7 +179,7 @@ Value lumin_add(Value a, Value b) {
         size_t total = la + lb;
         Value res;
         res.type = VAL_STRING;
-        if (total <= LUMIN_SSO_MAX) {
+        if (total <= LUMYR_SSO_MAX) {
             res.str_inline = 1;
             res.v.sso.len = (uint8_t)total;
             memcpy(res.v.sso.data, sa, la);
@@ -199,54 +199,54 @@ Value lumin_add(Value a, Value b) {
     }
     if(a.type == VAL_INT && b.type == VAL_INT)
     {
-        return lumin_make_int(a.v.i + b.v.i);
+        return lumyr_make_int(a.v.i + b.v.i);
     }
     // 算术加法
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_double(na + nb);
+    return lumyr_make_double(na + nb);
 }
 
-Value lumin_sub(Value a, Value b) {
+Value lumyr_sub(Value a, Value b) {
     if(a.type == VAL_INT && b.type == VAL_INT)
     {
-        return lumin_make_int(a.v.i - b.v.i);
+        return lumyr_make_int(a.v.i - b.v.i);
     }
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_double(na - nb);
+    return lumyr_make_double(na - nb);
 }
 
-Value lumin_mul(Value a, Value b) {
+Value lumyr_mul(Value a, Value b) {
     if(a.type == VAL_INT && b.type == VAL_INT)
     {
-        return lumin_make_int(a.v.i * b.v.i);
+        return lumyr_make_int(a.v.i * b.v.i);
     }
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_double(na * nb);
+    return lumyr_make_double(na * nb);
 }
 
-Value lumin_div(Value a, Value b) {
+Value lumyr_div(Value a, Value b) {
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_double(na / nb);
+    return lumyr_make_double(na / nb);
 }
 
 // % 取模：int%int → int（C 语义，负数与 C 一致）；任一 double → fmod
-Value lumin_mod(Value a, Value b) {
+Value lumyr_mod(Value a, Value b) {
     if(a.type == VAL_INT && b.type == VAL_INT) {
-        if(b.v.i == 0) return lumin_make_double(0.0 / 0.0);  // 除零得 NaN，避免 UB
-        return lumin_make_int(a.v.i % b.v.i);
+        if(b.v.i == 0) return lumyr_make_double(0.0 / 0.0);  // 除零得 NaN，避免 UB
+        return lumyr_make_int(a.v.i % b.v.i);
     }
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_double(fmod(na, nb));
+    return lumyr_make_double(fmod(na, nb));
 }
 
 // ! 逻辑非：返回 bool
-Value lumin_logic_not(Value v) {
-    return lumin_make_bool(!lumin_to_bool(v));
+Value lumyr_logic_not(Value v) {
+    return lumyr_make_bool(!lumyr_to_bool(v));
 }
 
 // ---------------- 数组 ----------------
@@ -260,7 +260,7 @@ long long array_index_of(Value idx) {
     return 0;
 }
 
-Value lumin_array_get(Value arr, Value idx) {
+Value lumyr_array_get(Value arr, Value idx) {
     if(arr.type != VAL_ARRAY) runtime_error("下标访问的对象不是数组");
     long long i = array_index_of(idx);
     if(i < 0 || i >= arr.v.array->len) {
@@ -272,29 +272,29 @@ Value lumin_array_get(Value arr, Value idx) {
 }
 
 // len(x)：数组长度 / 字符串字符数
-Value lumin_len(Value v) {
-    if(v.type == VAL_ARRAY) return lumin_make_int(v.v.array->len);
+Value lumyr_len(Value v) {
+    if(v.type == VAL_ARRAY) return lumyr_make_int(v.v.array->len);
     if(v.type == VAL_STRING) {
-        /* 已知是字符串，直接内联访问，跳过 lumin_str_len 的冗余 type 检查 */
+        /* 已知是字符串，直接内联访问，跳过 lumyr_str_len 的冗余 type 检查 */
         int l = v.str_inline ? (int)v.v.sso.len : (int)(v.v.s ? strlen(v.v.s) : 0);
-        return lumin_make_int((long long)l);
+        return lumyr_make_int((long long)l);
     }
-    if(v.type == VAL_MAP) return lumin_make_int(v.v.map->len);
+    if(v.type == VAL_MAP) return lumyr_make_int(v.v.map->len);
     runtime_error("len() 参数必须是数组、字符串或字典");
-    return lumin_make_int(0);
+    return lumyr_make_int(0);
 }
 
 // 下标读：数组元素 / 字符串字符（返回 char） / 字典键
-Value lumin_index_get(Value c, Value idx) {
+Value lumyr_index_get(Value c, Value idx) {
     if(c.type == VAL_MAP) {
-        return lumin_map_get(c, idx);
+        return lumyr_map_get(c, idx);
     }
     if(c.type == VAL_ERROR) {
         if(idx.type != VAL_STRING) runtime_error("错误对象下标必须是字符串键");
-        const char* idxcs = lumin_str_cstr(&idx);
-        if(strcmp(idxcs, "type") == 0) return lumin_make_string(c.v.err.type ? c.v.err.type : "");
-        if(strcmp(idxcs, "message") == 0) return lumin_make_string(c.v.err.message ? c.v.err.message : "");
-        if(strcmp(idxcs, "stack") == 0) return lumin_make_string(c.v.err.stack ? c.v.err.stack : "");
+        const char* idxcs = lumyr_str_cstr(&idx);
+        if(strcmp(idxcs, "type") == 0) return lumyr_make_string(c.v.err.type ? c.v.err.type : "");
+        if(strcmp(idxcs, "message") == 0) return lumyr_make_string(c.v.err.message ? c.v.err.message : "");
+        if(strcmp(idxcs, "stack") == 0) return lumyr_make_string(c.v.err.stack ? c.v.err.stack : "");
         runtime_error("错误对象只有 type/message/stack 三个字段");
         return val_none();
     }
@@ -308,14 +308,14 @@ Value lumin_index_get(Value c, Value idx) {
         return c.v.array->items[i];
     }
     if(c.type == VAL_STRING) {
-        const char* cs = lumin_str_cstr(&c);
+        const char* cs = lumyr_str_cstr(&c);
         long long n = cs ? (long long)strlen(cs) : 0;
         if(i < 0 || i >= n) {
             char buf[128];
             snprintf(buf, sizeof(buf), "字符串下标越界: %lld (长度 %lld)", i, n);
             runtime_error(buf);
         }
-        return lumin_make_char(cs ? cs[i] : '\0');
+        return lumyr_make_char(cs ? cs[i] : '\0');
     }
     runtime_error("下标访问的对象不是数组、字符串或字典");
     return val_none();
@@ -323,31 +323,31 @@ Value lumin_index_get(Value c, Value idx) {
 
 // ---------------- 内置函数 ----------------
 
-Value lumin_type(Value v) {
+Value lumyr_type(Value v) {
     switch(v.type) {
-        case VAL_NONE:   return lumin_make_string("none");
-        case VAL_INT:    return lumin_make_string("int");
-        case VAL_DOUBLE: return lumin_make_string("double");
-        case VAL_BOOL:   return lumin_make_string("bool");
-        case VAL_CHAR:   return lumin_make_string("char");
-        case VAL_BYTE:   return lumin_make_string("byte");
-        case VAL_STRING: return lumin_make_string("string");
-        case VAL_FUNC:   return lumin_make_string("func");
-        case VAL_ARRAY:  return lumin_make_string("array");
-        case VAL_MAP:    return lumin_make_string("map");
-        case VAL_ERROR:  return lumin_make_string("error");
+        case VAL_NONE:   return lumyr_make_string("none");
+        case VAL_INT:    return lumyr_make_string("int");
+        case VAL_DOUBLE: return lumyr_make_string("double");
+        case VAL_BOOL:   return lumyr_make_string("bool");
+        case VAL_CHAR:   return lumyr_make_string("char");
+        case VAL_BYTE:   return lumyr_make_string("byte");
+        case VAL_STRING: return lumyr_make_string("string");
+        case VAL_FUNC:   return lumyr_make_string("func");
+        case VAL_ARRAY:  return lumyr_make_string("array");
+        case VAL_MAP:    return lumyr_make_string("map");
+        case VAL_ERROR:  return lumyr_make_string("error");
     }
-    return lumin_make_string("unknown");
+    return lumyr_make_string("unknown");
 }
 
-Value lumin_input(void) {
+Value lumyr_input(void) {
     /* 动态读取整行：初始 64 字节，按需翻倍，无长度上限 */
     size_t cap = 64, n = 0;
     char* buf = (char*)malloc(cap);
     if(!buf) { fprintf(stderr, "input: 内存不足\n"); exit(EXIT_FAILURE); }
     for(;;) {
         if(!fgets(buf + n, (int)(cap - n), stdin)) {
-            if(n == 0) { free(buf); return lumin_make_string(""); }
+            if(n == 0) { free(buf); return lumyr_make_string(""); }
             break;
         }
         n = strlen(buf);
@@ -359,7 +359,7 @@ Value lumin_input(void) {
         buf = nb; cap = nc;
     }
     while(n > 0 && (buf[n-1] == '\n' || buf[n-1] == '\r')) buf[--n] = '\0';
-    Value r = lumin_make_string(buf);
+    Value r = lumyr_make_string(buf);
     free(buf);
     return r;
 }
@@ -373,17 +373,17 @@ long long range_to_ll(Value v) {
 
 // range(n) / range(a,b) / range(a,b,step)：生成等差数列数组
 // 只读属性检查：type 构造对象的 __classname__ 不可写/删（map 写路径统一拦截）
-void lumin_check_classname_ro(Value arr, Value idx, const char* op)
+void lumyr_check_classname_ro(Value arr, Value idx, const char* op)
 {
-    if(arr.type == VAL_MAP && idx.type == VAL_STRING && strcmp(lumin_str_cstr(&idx), "__classname__") == 0) {
+    if(arr.type == VAL_MAP && idx.type == VAL_STRING && strcmp(lumyr_str_cstr(&idx), "__classname__") == 0) {
         char b[96];
         snprintf(b, sizeof b, "只读属性 __classname__ 不能%s", op);
         runtime_error(b);
     }
 }
 
-Value lumin_array_set(Value arr, Value idx, Value val) {
-    if(arr.type == VAL_MAP) { lumin_check_classname_ro(arr, idx, "赋值"); lumin_map_set(&arr, idx, val); return val; }
+Value lumyr_array_set(Value arr, Value idx, Value val) {
+    if(arr.type == VAL_MAP) { lumyr_check_classname_ro(arr, idx, "赋值"); lumyr_map_set(&arr, idx, val); return val; }
     if(arr.type != VAL_ARRAY) runtime_error("下标访问的对象不是数组");
     long long i = array_index_of(idx);
     if(i < 0 || i >= arr.v.array->len) {
@@ -399,71 +399,71 @@ Value lumin_array_set(Value arr, Value idx, Value val) {
 }
 
 // > 弱类型：任意一方为字符串 → 字典序strcmp；否则数值比较
-Value lumin_gt(Value a, Value b) {
+Value lumyr_gt(Value a, Value b) {
     if (is_string(a,b)) {
         char *sa = value_to_str(a);
         char *sb = value_to_str(b);
         int r = strcmp(sa, sb);
         free(sa);
         free(sb);
-        return lumin_make_bool(r > 0);
+        return lumyr_make_bool(r > 0);
     }
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_bool(na > nb);
+    return lumyr_make_bool(na > nb);
 }
 
-Value lumin_lt(Value a, Value b) {
+Value lumyr_lt(Value a, Value b) {
     if (is_string(a,b)) {
         char *sa = value_to_str(a);
         char *sb = value_to_str(b);
         int r = strcmp(sa, sb);
         free(sa);
         free(sb);
-        return lumin_make_bool(r < 0);
+        return lumyr_make_bool(r < 0);
     }
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_bool(na < nb);
+    return lumyr_make_bool(na < nb);
 }
 
-Value lumin_ge(Value a, Value b) {
+Value lumyr_ge(Value a, Value b) {
     if (is_string(a,b)) {
         char *sa = value_to_str(a);
         char *sb = value_to_str(b);
         int r = strcmp(sa, sb);
         free(sa);
         free(sb);
-        return lumin_make_bool(r >= 0);
+        return lumyr_make_bool(r >= 0);
     }
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_bool(na >= nb);
+    return lumyr_make_bool(na >= nb);
 }
 
-Value lumin_le(Value a, Value b) {
+Value lumyr_le(Value a, Value b) {
     if (is_string(a,b)) {
         char *sa = value_to_str(a);
         char *sb = value_to_str(b);
         int r = strcmp(sa, sb);
         free(sa);
         free(sb);
-        return lumin_make_bool(r <= 0);
+        return lumyr_make_bool(r <= 0);
     }
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_bool(na <= nb);
+    return lumyr_make_bool(na <= nb);
 }
 
 // == 弱相等：一边字符串，全部转字符串比较；两边字符串strcmp；其余数值比较
-Value lumin_eq(Value a, Value b) {
+Value lumyr_eq(Value a, Value b) {
     if (a.type == VAL_STRING && b.type == VAL_STRING) {
-        /* 已知两边都是字符串，直接内联访问，跳过 lumin_str_cstr 的冗余 type 检查 */
+        /* 已知两边都是字符串，直接内联访问，跳过 lumyr_str_cstr 的冗余 type 检查 */
         const char* sa = a.str_inline ? a.v.sso.data : a.v.s;
         const char* sb = b.str_inline ? b.v.sso.data : b.v.s;
-        if (sa == NULL && sb == NULL) return lumin_make_bool(1);
-        if (sa == NULL || sb == NULL) return lumin_make_bool(0);
-        return lumin_make_bool(strcmp(sa, sb) == 0);
+        if (sa == NULL && sb == NULL) return lumyr_make_bool(1);
+        if (sa == NULL || sb == NULL) return lumyr_make_bool(0);
+        return lumyr_make_bool(strcmp(sa, sb) == 0);
     }
     if (is_string(a,b)) {
         char *sa = value_to_str(a);
@@ -471,56 +471,56 @@ Value lumin_eq(Value a, Value b) {
         int eq = (strcmp(sa, sb) == 0);
         free(sa);
         free(sb);
-        return lumin_make_bool(eq);
+        return lumyr_make_bool(eq);
     }
     if(a.type == VAL_ERROR || b.type == VAL_ERROR) {
         if(a.type == VAL_ERROR && b.type == VAL_ERROR) {
             int tm = strcmp(a.v.err.type ? a.v.err.type : "", b.v.err.type ? b.v.err.type : "");
             int mm = strcmp(a.v.err.message ? a.v.err.message : "", b.v.err.message ? b.v.err.message : "");
-            return lumin_make_bool(tm == 0 && mm == 0);
+            return lumyr_make_bool(tm == 0 && mm == 0);
         }
-        const char* am = (a.type == VAL_ERROR) ? a.v.err.message : (a.type == VAL_STRING ? lumin_str_cstr(&a) : NULL);
-        const char* bm = (b.type == VAL_ERROR) ? b.v.err.message : (b.type == VAL_STRING ? lumin_str_cstr(&b) : NULL);
-        if(a.type == VAL_ERROR && b.type == VAL_MAP && lumin_map_has(b, lumin_make_string("message"))) {
-            Value mv = lumin_map_get(b, lumin_make_string("message"));
-            if(mv.type != VAL_STRING) return lumin_make_bool(0);
+        const char* am = (a.type == VAL_ERROR) ? a.v.err.message : (a.type == VAL_STRING ? lumyr_str_cstr(&a) : NULL);
+        const char* bm = (b.type == VAL_ERROR) ? b.v.err.message : (b.type == VAL_STRING ? lumyr_str_cstr(&b) : NULL);
+        if(a.type == VAL_ERROR && b.type == VAL_MAP && lumyr_map_has(b, lumyr_make_string("message"))) {
+            Value mv = lumyr_map_get(b, lumyr_make_string("message"));
+            if(mv.type != VAL_STRING) return lumyr_make_bool(0);
             const char* tm = NULL;
             if(a.v.err.type) {
-                if(lumin_map_has(b, lumin_make_string("type"))) {
-                    Value tv = lumin_map_get(b, lumin_make_string("type"));
-                    if(tv.type == VAL_STRING) tm = lumin_str_cstr(&tv);
+                if(lumyr_map_has(b, lumyr_make_string("type"))) {
+                    Value tv = lumyr_map_get(b, lumyr_make_string("type"));
+                    if(tv.type == VAL_STRING) tm = lumyr_str_cstr(&tv);
                 }
-                if(tm && strcmp(tm, a.v.err.type) != 0) return lumin_make_bool(0);
+                if(tm && strcmp(tm, a.v.err.type) != 0) return lumyr_make_bool(0);
             }
-            return lumin_make_bool(strcmp(a.v.err.message, lumin_str_cstr(&mv)) == 0);
+            return lumyr_make_bool(strcmp(a.v.err.message, lumyr_str_cstr(&mv)) == 0);
         }
-        if(!am || !bm) return lumin_make_bool(0);
-        return lumin_make_bool(strcmp(am, bm) == 0);
+        if(!am || !bm) return lumyr_make_bool(0);
+        return lumyr_make_bool(strcmp(am, bm) == 0);
     }
     if(a.type == VAL_MAP || b.type == VAL_MAP) {
-        if(a.type != VAL_MAP || b.type != VAL_MAP) return lumin_make_bool(0);
-        if(a.v.map->len != b.v.map->len) return lumin_make_bool(0);
+        if(a.type != VAL_MAP || b.type != VAL_MAP) return lumyr_make_bool(0);
+        if(a.v.map->len != b.v.map->len) return lumyr_make_bool(0);
         MapIter it; map_iter_init(&it, a.v.map);
         Value k, vv;
         while(map_iter_next(&it, &k, &vv)) {
-            if(!lumin_map_has(b, k)) return lumin_make_bool(0);
-            Value bv = lumin_map_get(b, k);
-            Value eq = lumin_eq(vv, bv);
-            if(!eq.v.b) return lumin_make_bool(0);
+            if(!lumyr_map_has(b, k)) return lumyr_make_bool(0);
+            Value bv = lumyr_map_get(b, k);
+            Value eq = lumyr_eq(vv, bv);
+            if(!eq.v.b) return lumyr_make_bool(0);
         }
-        return lumin_make_bool(1);
+        return lumyr_make_bool(1);
     }
     double na = value_as_number(a);
     double nb = value_as_number(b);
-    return lumin_make_bool(na == nb);
+    return lumyr_make_bool(na == nb);
 }
 
-Value lumin_ne(Value a, Value b) {
-    Value eq = lumin_eq(a,b);
-    return lumin_make_bool(!eq.v.b);
+Value lumyr_ne(Value a, Value b) {
+    Value eq = lumyr_eq(a,b);
+    return lumyr_make_bool(!eq.v.b);
 }
 
-_Bool lumin_to_bool(Value v) {
+_Bool lumyr_to_bool(Value v) {
     switch(v.type)
     {
         case VAL_INT:    return v.v.i != 0;
@@ -533,7 +533,7 @@ _Bool lumin_to_bool(Value v) {
 }
 
 // (char)v 强转，C风格静默截断
-Value lumin_cast_char(Value v) {
+Value lumyr_cast_char(Value v) {
     char cv = 0;
     switch(v.type)
     {
@@ -550,7 +550,7 @@ Value lumin_cast_char(Value v) {
             cv = v.v.c;
             break;
         case VAL_STRING: {
-            const char* cs = lumin_str_cstr(&v);
+            const char* cs = lumyr_str_cstr(&v);
             if(cs == NULL || cs[0] == '\0'){
                 cv = '\0';
             }else{
@@ -561,7 +561,7 @@ Value lumin_cast_char(Value v) {
 case VAL_ARRAY: {
     Value r = val_array(v.v.array->len);
     for(int i = 0; i < v.v.array->len; i++)
-        r.v.array->items[i] = lumin_cast_char(v.v.array->items[i]);
+        r.v.array->items[i] = lumyr_cast_char(v.v.array->items[i]);
     return r;
 }
 case VAL_MAP: {
@@ -569,16 +569,16 @@ case VAL_MAP: {
     MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, __k, lumin_cast_char(__v));
+            lumyr_map_set(&r, __k, lumyr_cast_char(__v));
     return r;
 }
         default:
             runtime_error("(char) cast: unsupported type");
     }
-    return lumin_make_char(cv);
+    return lumyr_make_char(cv);
 }
 
-Value lumin_cast_byte(Value v) {
+Value lumyr_cast_byte(Value v) {
     unsigned long long bv = 0;
     switch(v.type)
     {
@@ -598,7 +598,7 @@ Value lumin_cast_byte(Value v) {
             bv = (unsigned long long)(v.v.i & 0xFF);
             break;
         case VAL_STRING:
-            bv = (unsigned long long)atoll(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "0") & 0xFFULL;
+            bv = (unsigned long long)atoll(lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "0") & 0xFFULL;
             break;
         case VAL_NONE:
             bv = 0;
@@ -606,7 +606,7 @@ Value lumin_cast_byte(Value v) {
 case VAL_ARRAY: {
     Value r = val_array(v.v.array->len);
     for(int i = 0; i < v.v.array->len; i++)
-        r.v.array->items[i] = lumin_cast_byte(v.v.array->items[i]);
+        r.v.array->items[i] = lumyr_cast_byte(v.v.array->items[i]);
     return r;
 }
 case VAL_MAP: {
@@ -614,22 +614,22 @@ case VAL_MAP: {
     MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, __k, lumin_cast_byte(__v));
+            lumyr_map_set(&r, __k, lumyr_cast_byte(__v));
     return r;
 }
         default:
             runtime_error("(byte) cast: unsupported type");
             return val_none();
     }
-    return lumin_make_byte((unsigned char)bv);
+    return lumyr_make_byte((unsigned char)bv);
 }
 
 // (ASCII)v：char ↔ int，0‑255范围校验
-Value lumin_cast_ascii(Value v) {
+Value lumyr_cast_ascii(Value v) {
     if(v.type == VAL_ARRAY) {
         Value r = val_array(v.v.array->len);
         for(int i = 0; i < v.v.array->len; i++)
-            r.v.array->items[i] = lumin_cast_ascii(v.v.array->items[i]);
+            r.v.array->items[i] = lumyr_cast_ascii(v.v.array->items[i]);
         return r;
     }
     if(v.type == VAL_MAP) {
@@ -637,13 +637,13 @@ Value lumin_cast_ascii(Value v) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, __k, lumin_cast_ascii(__v));
+            lumyr_map_set(&r, __k, lumyr_cast_ascii(__v));
         return r;
     }
     if(v.type == VAL_CHAR)
     {
         // char → int编码
-        return lumin_make_int((unsigned char)v.v.c);
+        return lumyr_make_int((unsigned char)v.v.c);
     }
     else if(v.type == VAL_INT)
     {
@@ -652,17 +652,17 @@ Value lumin_cast_ascii(Value v) {
         {
             runtime_error("(ASCII) value out of range 0~255");
         }
-        return lumin_make_char((char)(unsigned char)x);
+        return lumyr_make_char((char)(unsigned char)x);
     }
     else
     {
         runtime_error("(ASCII) cast only accept char / integer");
     }
-    return lumin_make_int(0);
+    return lumyr_make_int(0);
 }
 
 // (int)v 强转
-Value lumin_cast_int(Value v) {
+Value lumyr_cast_int(Value v) {
     long long iv = 0;
     switch(v.type)
     {
@@ -682,7 +682,7 @@ Value lumin_cast_int(Value v) {
             iv = v.v.i & 0xFF;
             break;
         case VAL_STRING: {
-            const char* t = lumin_str_cstr(&v);
+            const char* t = lumyr_str_cstr(&v);
             if(!t) { iv = 0; break; }
             while(*t && isspace((unsigned char)*t)) t++;
             char* end = NULL;
@@ -704,7 +704,7 @@ Value lumin_cast_int(Value v) {
 case VAL_ARRAY: {
     Value r = val_array(v.v.array->len);
     for(int i = 0; i < v.v.array->len; i++)
-        r.v.array->items[i] = lumin_cast_int(v.v.array->items[i]);
+        r.v.array->items[i] = lumyr_cast_int(v.v.array->items[i]);
     return r;
 }
 case VAL_MAP: {
@@ -712,17 +712,17 @@ case VAL_MAP: {
     MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, __k, lumin_cast_int(__v));
+            lumyr_map_set(&r, __k, lumyr_cast_int(__v));
     return r;
 }
         default:
             runtime_error("(int) cast: unsupported type");
     }
-    return lumin_make_int(iv);
+    return lumyr_make_int(iv);
 }
 
 // (double)v 强转
-Value lumin_cast_double(Value v) {
+Value lumyr_cast_double(Value v) {
     double dv = 0.0;
     switch(v.type)
     {
@@ -742,7 +742,7 @@ Value lumin_cast_double(Value v) {
             dv = (double)(v.v.i & 0xFF);
             break;
         case VAL_STRING: {
-            const char* t = lumin_str_cstr(&v);
+            const char* t = lumyr_str_cstr(&v);
             if(!t) { dv = 0.0; break; }
             while(*t && isspace((unsigned char)*t)) t++;
             char* end = NULL;
@@ -756,7 +756,7 @@ Value lumin_cast_double(Value v) {
 case VAL_ARRAY: {
     Value r = val_array(v.v.array->len);
     for(int i = 0; i < v.v.array->len; i++)
-        r.v.array->items[i] = lumin_cast_double(v.v.array->items[i]);
+        r.v.array->items[i] = lumyr_cast_double(v.v.array->items[i]);
     return r;
 }
 case VAL_MAP: {
@@ -764,21 +764,21 @@ case VAL_MAP: {
     MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, __k, lumin_cast_double(__v));
+            lumyr_map_set(&r, __k, lumyr_cast_double(__v));
     return r;
 }
         default:
             runtime_error("(double) cast: unsupported type");
     }
-    return lumin_make_double(dv);
+    return lumyr_make_double(dv);
 }
 
 // (bool)v 强转
-Value lumin_cast_bool(Value v) {
+Value lumyr_cast_bool(Value v) {
     if(v.type == VAL_ARRAY) {
         Value r = val_array(v.v.array->len);
         for(int i = 0; i < v.v.array->len; i++)
-            r.v.array->items[i] = lumin_cast_bool(v.v.array->items[i]);
+            r.v.array->items[i] = lumyr_cast_bool(v.v.array->items[i]);
         return r;
     }
     if(v.type == VAL_MAP) {
@@ -786,19 +786,19 @@ Value lumin_cast_bool(Value v) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, __k, lumin_cast_bool(__v));
+            lumyr_map_set(&r, __k, lumyr_cast_bool(__v));
         return r;
     }
-    _Bool b = lumin_to_bool(v);
-    return lumin_make_bool(b);
+    _Bool b = lumyr_to_bool(v);
+    return lumyr_make_bool(b);
 }
 
 // (string)v 强转
-Value lumin_cast_string(Value v) {
+Value lumyr_cast_string(Value v) {
     if(v.type == VAL_ARRAY) {
         Value r = val_array(v.v.array->len);
         for(int i = 0; i < v.v.array->len; i++) {
-            Value __cv = lumin_cast_string(v.v.array->items[i]);
+            Value __cv = lumyr_cast_string(v.v.array->items[i]);
             gc_write_barrier(__cv);
             r.v.array->items[i] = __cv;
         }
@@ -809,24 +809,24 @@ Value lumin_cast_string(Value v) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v))
-            lumin_map_set(&r, __k, lumin_cast_string(__v));
+            lumyr_map_set(&r, __k, lumyr_cast_string(__v));
         return r;
     }
     char *s = value_to_str(v);
-    Value res = lumin_make_string(s);  // 转为 gc_alloc 字符串（GC 要求所有 Value 字符串都是 gc_alloc）
+    Value res = lumyr_make_string(s);  // 转为 gc_alloc 字符串（GC 要求所有 Value 字符串都是 gc_alloc）
     free(s);                            // value_to_str 返回普通 malloc，需释放
     return res;
 }
 
-int lumin_extract_int(Value v) {
-    Value iv = lumin_cast_int(v);
+int lumyr_extract_int(Value v) {
+    Value iv = lumyr_cast_int(v);
     if (iv.type == VAL_INT) {
         return iv.v.i;
     }
     return 0;
 }
 
-void lumin_print(Value v) {
+void lumyr_print(Value v) {
     switch(v.type)
     {
         case VAL_INT:
@@ -839,7 +839,7 @@ void lumin_print(Value v) {
             printf("%s\n", v.v.b ? "true" : "false");
             break;
         case VAL_STRING:
-            printf("%s\n", lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "(null)");
+            printf("%s\n", lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "(null)");
             break;
         case VAL_CHAR:
             printf("%c\n", v.v.c);
@@ -857,7 +857,7 @@ void lumin_print(Value v) {
             printf("<array>\n");
             break;
         case VAL_MAP: {
-            char* js = lumin_json_stringify(v);   /* 字典按 JSON 序列化打印 */
+            char* js = lumyr_json_stringify(v);   /* 字典按 JSON 序列化打印 */
             printf("%s\n", js);
             free(js);
             break;
@@ -877,7 +877,7 @@ static long long value_to_ll(Value v) {
         case VAL_DOUBLE: return (long long)v.v.d;
         case VAL_BOOL: return v.v.b ? 1 : 0;
         case VAL_CHAR: return (long long)(unsigned char)v.v.c;
-        case VAL_STRING: return atoll(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "0");
+        case VAL_STRING: return atoll(lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "0");
         case VAL_NONE: return 0;
         default: runtime_error("整数强转: 不支持的类型"); return 0;
     }
@@ -888,7 +888,7 @@ static unsigned long long value_to_ull(Value v) {
         case VAL_DOUBLE: return (unsigned long long)v.v.d;
         case VAL_BOOL: return v.v.b ? 1ULL : 0ULL;
         case VAL_CHAR: return (unsigned long long)(unsigned char)v.v.c;
-        case VAL_STRING: return strtoull(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "0", NULL, 10);
+        case VAL_STRING: return strtoull(lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "0", NULL, 10);
         case VAL_NONE: return 0;
         default: runtime_error("整数强转: 不支持的类型"); return 0;
     }
@@ -905,7 +905,7 @@ static Value cast_int_width(Value v, int bits, int is_signed) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v)) {
-            lumin_map_set(&r, __k,
+            lumyr_map_set(&r, __k,
                           cast_int_width(__v, bits, is_signed));
         }
         return r;
@@ -913,23 +913,23 @@ static Value cast_int_width(Value v, int bits, int is_signed) {
     long long ll = value_to_ll(v);
     unsigned long long ull = value_to_ull(v);
     switch(bits) {
-        case 8:  return lumin_make_int(is_signed ? (long long)(int8_t)ll : (long long)(uint8_t)ull);
-        case 16: return lumin_make_int(is_signed ? (long long)(int16_t)ll : (long long)(uint16_t)ull);
-        case 32: return lumin_make_int(is_signed ? (long long)(int32_t)ll : (long long)(uint32_t)ull);
-        case 64: return lumin_make_int(is_signed ? (long long)(int64_t)ll : (long long)(uint64_t)ull);
+        case 8:  return lumyr_make_int(is_signed ? (long long)(int8_t)ll : (long long)(uint8_t)ull);
+        case 16: return lumyr_make_int(is_signed ? (long long)(int16_t)ll : (long long)(uint16_t)ull);
+        case 32: return lumyr_make_int(is_signed ? (long long)(int32_t)ll : (long long)(uint32_t)ull);
+        case 64: return lumyr_make_int(is_signed ? (long long)(int64_t)ll : (long long)(uint64_t)ull);
     }
-    return lumin_make_int(ll);
+    return lumyr_make_int(ll);
 }
-Value lumin_cast_int8(Value v)  { return cast_int_width(v, 8, 1); }
-Value lumin_cast_int16(Value v) { return cast_int_width(v, 16, 1); }
-Value lumin_cast_int32(Value v) { return cast_int_width(v, 32, 1); }
-Value lumin_cast_int64(Value v) { return cast_int_width(v, 64, 1); }
-Value lumin_cast_uint8(Value v)  { return cast_int_width(v, 8, 0); }
-Value lumin_cast_uint16(Value v) { return cast_int_width(v, 16, 0); }
-Value lumin_cast_uint32(Value v) { return cast_int_width(v, 32, 0); }
-Value lumin_cast_uint64(Value v) { return cast_int_width(v, 64, 0); }
-Value lumin_cast_long(Value v)     { return lumin_cast_int(v); }  // long → 64 位
-Value lumin_cast_longlong(Value v) { return lumin_cast_int(v); }  // long long → 64 位
+Value lumyr_cast_int8(Value v)  { return cast_int_width(v, 8, 1); }
+Value lumyr_cast_int16(Value v) { return cast_int_width(v, 16, 1); }
+Value lumyr_cast_int32(Value v) { return cast_int_width(v, 32, 1); }
+Value lumyr_cast_int64(Value v) { return cast_int_width(v, 64, 1); }
+Value lumyr_cast_uint8(Value v)  { return cast_int_width(v, 8, 0); }
+Value lumyr_cast_uint16(Value v) { return cast_int_width(v, 16, 0); }
+Value lumyr_cast_uint32(Value v) { return cast_int_width(v, 32, 0); }
+Value lumyr_cast_uint64(Value v) { return cast_int_width(v, 64, 0); }
+Value lumyr_cast_long(Value v)     { return lumyr_cast_int(v); }  // long → 64 位
+Value lumyr_cast_longlong(Value v) { return lumyr_cast_int(v); }  // long long → 64 位
 // float：32 位单精度截断（运行时仍存 double）
 static Value cast_float_rec(Value v) {
     if(v.type == VAL_ARRAY) {
@@ -943,7 +943,7 @@ static Value cast_float_rec(Value v) {
         MapIter it; map_iter_init(&it, v.v.map);
         Value __k, __v;
         while(map_iter_next(&it, &__k, &__v)) {
-            lumin_map_set(&r, __k,
+            lumyr_map_set(&r, __k,
                           cast_float_rec(__v));
         }
         return r;
@@ -954,10 +954,10 @@ static Value cast_float_rec(Value v) {
         case VAL_INT: case VAL_BYTE: d = (double)v.v.i; break;
         case VAL_BOOL: d = v.v.b ? 1.0 : 0.0; break;
         case VAL_CHAR: d = (double)(unsigned char)v.v.c; break;
-        case VAL_STRING: d = atof(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "0"); break;
+        case VAL_STRING: d = atof(lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "0"); break;
         case VAL_NONE: d = 0.0; break;
         default: runtime_error("(float) 强转: 不支持的类型"); return val_none();
     }
-    return lumin_make_double((double)(float)d);
+    return lumyr_make_double((double)(float)d);
 }
-Value lumin_cast_float(Value v) { return cast_float_rec(v); }
+Value lumyr_cast_float(Value v) { return cast_float_rec(v); }

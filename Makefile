@@ -1,4 +1,4 @@
-# lumin-lang-compiler Makefile
+# lumyr-lang-compiler Makefile
 # Cross-platform: macOS / Linux / Windows (MinGW-w64)
 # 大项目架构：runtime 编译为静态库 libruntime.a，编译器和生成代码都链接它
 CC ?= gcc
@@ -33,7 +33,7 @@ BIN_DIR     := bin
 LIB_DIR     := lib
 RUNTIME_DIR := kit/runtime
 
-BIN_NAME    := lumin
+BIN_NAME    := lumyr
 BIN_LOCAL   := $(BIN_DIR)/$(BIN_NAME)$(EXE_EXT)
 RUNTIME_LIB := $(LIB_DIR)/libruntime.a
 
@@ -94,13 +94,13 @@ RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_regex.c
 RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_time.c
 RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_qs.c
 # Value 类型定义已迁移到 kit/runtime/
-RUNTIME_SRCS += $(RUNTIME_DIR)/src/lumin_value.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lumyr_value.c
 
 RUNTIME_OBJS := $(RUNTIME_SRCS:.c=.o)
 
 # ========== 编译器本体源文件（不含 runtime） ==========
 C_SRCS := $(wildcard $(SRC_DIR)/ast/*.c)
-C_SRCS := $(filter-out $(RUNTIME_DIR)/src/lumin_value.c, $(C_SRCS))
+C_SRCS := $(filter-out $(RUNTIME_DIR)/src/lumyr_value.c, $(C_SRCS))
 C_SRCS += $(wildcard $(SRC_DIR)/ir/*.c)
 C_SRCS += $(wildcard $(SRC_DIR)/parse/*.c)
 C_SRCS += $(wildcard $(SRC_DIR)/i18n/*.c)

@@ -1,5 +1,5 @@
 /**
- * lm_i18n.c - Lumin Language Compiler Internationalization
+ * lm_i18n.c - Lumyr Language Compiler Internationalization
  *
  * Translation table and language detection implementation.
  */
@@ -409,8 +409,8 @@ void lm_i18n_init(void)
 {
     if (g_initialized) return;
 
-    /* Check LUMIN_LANG environment variable first for manual override */
-    const char* env_lang = getenv("LUMIN_LANG");
+    /* Check LUMYR_LANG environment variable first for manual override */
+    const char* env_lang = getenv("LUMYR_LANG");
     if (env_lang && *env_lang) {
         if (strcasecmp(env_lang, "zh-CN") == 0 || strcasecmp(env_lang, "zh_CN") == 0 ||
             strcasecmp(env_lang, "zh") == 0 || strcasecmp(env_lang, "zh-Hans") == 0) {

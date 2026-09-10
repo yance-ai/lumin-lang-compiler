@@ -1,6 +1,6 @@
 // ============ 数组 items 缓冲区栈分配（Phase 2）全场景测试 ============
-// 运行：./bin/lumin tests/array_items_stack_test.lm
-// 编译：./bin/lumin -c tests/array_items_stack_test.lm -o /tmp/aist && /tmp/aist
+// 运行：./bin/lumyr tests/array_items_stack_test.lm
+// 编译：./bin/lumyr -c tests/array_items_stack_test.lm -o /tmp/aist && /tmp/aist
 // 双通道语义输出必须逐行一致（gc_count 等内省指标在编译模式可能不同）
 
 // ---- 1. 不逃逸小数组：items 栈分配，gc_count 增长为 0 ----
@@ -17,9 +17,9 @@ print("small_gc_low=" + ((after - before) < 20));  // 双通道优化程度不�
 
 // ---- 2. 不逃逸字符串数组：items 栈分配，元素是堆字符串仍被 GC 标记 ----
 func string_nonescape() {
-    a = ["hello", "world", "lumin"];
+    a = ["hello", "world", "lumyr"];
     print(a[0]);       // hello
-    print(a[2]);       // lumin
+    print(a[2]);       // lumyr
     print(len(a));     // 3
 }
 before2 = gc_count();

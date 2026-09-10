@@ -1,7 +1,7 @@
 #ifndef AST_NODE_H
 #define AST_NODE_H
 
-#include "lumin_types.h"
+#include "lumyr_types.h"
 #include "ast_node_type.h"
 
 // 创建AST节点

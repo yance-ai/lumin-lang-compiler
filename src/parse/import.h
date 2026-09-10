@@ -1,10 +1,10 @@
 /*
- * lumin 模块系统（第二阶段）——文本预处理 + Name Mangling
+ * lumyr 模块系统（第二阶段）——文本预处理 + Name Mangling
  *
- * 设计背景：lumin 的 bison/flex parser 是全局不可重入状态，无法在语法动作中
+ * 设计背景：lumyr 的 bison/flex parser 是全局不可重入状态，无法在语法动作中
  * 递归解析被导入文件。因此采用「文本预处理」方案：在 yyparse() 之前，把
  * 主文件中的 `import "path" as name;` 语句展开为被导入模块的全部源码内联，
- * 并在模块末尾生成一个导出符号 map（利用 lumin 已有的 `a.b` map 点访问语法，
+ * 并在模块末尾生成一个导出符号 map（利用 lumyr 已有的 `a.b` map 点访问语法，
  * `math.add(1,2)` 天然等价于 `math["add"](1,2)`，无需新增成员访问语法）。
  *
  * 第二阶段在第一阶段基础上引入 Name Mangling 实现真正的符号隔离：

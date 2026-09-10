@@ -72,6 +72,6 @@ print("t7: sum7=" + sum7);
 
 // 8. 字符串拼接在返回中（跨线程字符串）
 func greet(name) { return "hi " + name; }
-t10 = thread(greet, "lumin");
+t10 = thread(greet, "lumyr");
 print("t8: " + thread_join(t10));
-// hi lumin
+// hi lumyr

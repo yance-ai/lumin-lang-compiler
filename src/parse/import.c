@@ -1,5 +1,5 @@
 /*
- * lumin 模块系统（第二阶段）——文本预处理 + Name Mangling
+ * lumyr 模块系统（第二阶段）——文本预处理 + Name Mangling
  * 详见 import.h。
  *
  * 第二阶段在第一阶段（import/export 文本剥离 + 内联）基础上新增：

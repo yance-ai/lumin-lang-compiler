@@ -1,6 +1,6 @@
 // ============ 数组栈分配（逃逸分析驱动）全场景测试 ============
-// 运行：./bin/lumin tests/array_stack_alloc_test.lm
-// 编译：./bin/lumin -c tests/array_stack_alloc_test.lm -o /tmp/asat && /tmp/asat
+// 运行：./bin/lumyr tests/array_stack_alloc_test.lm
+// 编译：./bin/lumyr -c tests/array_stack_alloc_test.lm -o /tmp/asat && /tmp/asat
 // 双通道输出必须逐行一致
 
 // ---- 1. 不逃逸数组：函数内创建使用后丢弃 ----
@@ -63,9 +63,9 @@ nested_arrays();
 
 // ---- 7. 数组含字符串 ----
 func array_with_strings() {
-    a = ["hello", "world", "lumin"];
+    a = ["hello", "world", "lumyr"];
     print(a[0]);       // hello
-    print(a[2]);       // lumin
+    print(a[2]);       // lumyr
     print(len(a));     // 3
     print(len(a[1]));  // 5
 }

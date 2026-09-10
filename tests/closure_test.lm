@@ -1,6 +1,6 @@
 // closure_test.lm —— 闭包局部变量捕获（引用语义）测试
 //
-// 运行：./bin/lumin tests/closure_test.lm
+// 运行：./bin/lumyr tests/closure_test.lm
 // 预期逐行输出见文末注释。编译通道（-c）暂不支持闭包捕获，故仅 VM 通道验证。
 
 // 1. 基本闭包捕获：make_counter 返回独立计数器

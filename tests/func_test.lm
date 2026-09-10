@@ -1,5 +1,5 @@
 // ============ 函数调用 / return / break / continue 集成测试 ============
-// 运行：./bin/lumin tests/func_test.lm
+// 运行：./bin/lumyr tests/func_test.lm
 // 期望输出按行标注在注释里
 
 // ---- 1. 基础函数：定义 + return ----

@@ -2,7 +2,7 @@
 # ============================================================
 # run_stw_bench.sh — 增量标记 STW 停顿对比测量
 #
-# 对 LUMIN_GC_INCREMENTAL=0（全量 STW）与 =1（增量标记）各跑一次，
+# 对 LUMYR_GC_INCREMENTAL=0（全量 STW）与 =1（增量标记）各跑一次，
 # 解析 stderr 中的 [GC major]/[GC minor] 停顿（us），统计：
 #   - Major 初始 STW / 最终 STW 的 P50/P99/max
 #   - Minor STW 的 P50/P99/max
@@ -10,13 +10,13 @@
 # ============================================================
 set -u
 cd "$(dirname "$0")/.."
-BIN=./bin/lumin
+BIN=./bin/lumyr
 
 run_one() {
     local mode="$1"   # "0" or "1"
     local out="/tmp/stw_inc_${mode}.out"
     local err="/tmp/stw_inc_${mode}.err"
-    LUMIN_GC_INCREMENTAL="$mode" LUMIN_GC_STATS=1 "$BIN" benchmarks/gc_stw_bench.lm >"$out" 2>"$err"
+    LUMYR_GC_INCREMENTAL="$mode" LUMYR_GC_STATS=1 "$BIN" benchmarks/gc_stw_bench.lm >"$out" 2>"$err"
     echo "$out" "$err"
 }
 
@@ -53,7 +53,7 @@ for MODE in 0 1; do
     read OUT ERR < <(run_one "$MODE")
     LABEL=$([ "$MODE" = "1" ] && echo "增量标记 ON" || echo "全量 STW (增量 OFF)")
     echo ""
-    echo "########## MODE: $LABEL  (LUMIN_GC_INCREMENTAL=$MODE) ##########"
+    echo "########## MODE: $LABEL  (LUMYR_GC_INCREMENTAL=$MODE) ##########"
     echo "--- 场景累计 STW ---"
     grep "^SCENARIO\|^BENCH DONE" "$OUT"
     echo "--- Major GC 单次停顿 (初始+最终, us) ---"

@@ -1,6 +1,6 @@
 #ifndef FUNC_COMPILE_H
 #define FUNC_COMPILE_H
-#include "lumin_value_type.h"
+#include "lumyr_value_type.h"
 #include "ast_node_type.h"
 #include "ir/bytecode.h"
 
@@ -58,6 +58,6 @@ Value closure_make_instance(RuntimeFunc* template_rf, StackFrame* cur_frame);
 void closure_bind_cells(const RuntimeFunc* rf, StackFrame* callee);
 
 // GC 回调：扫描闭包 payload 中捕获 cell 内的 Value（gc_runtime.c 在 VAL_FUNC 分支调用）。
-void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value));
+void lumyr_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value));
 
 #endif

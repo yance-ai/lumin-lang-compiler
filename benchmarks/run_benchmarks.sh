@@ -5,7 +5,7 @@
 # ============================================================
 
 OPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BASE_DIR="/tmp/lumin-baseline"
+BASE_DIR="/tmp/lumyr-baseline"
 BENCHES="bench_string bench_array bench_map bench_mixed bench_gc_pressure"
 
 # 动态获取 commit hash
@@ -13,7 +13,7 @@ OPT_COMMIT="$(cd "$OPT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "u
 BASE_COMMIT="ed15d49"  # 基线版本固定 commit
 
 echo "============================================================"
-echo "  Lumin-Lang Compiler Performance Benchmark Suite"
+echo "  Lumyr-Lang Compiler Performance Benchmark Suite"
 echo "  Optimized: HEAD (${OPT_COMMIT}) | Baseline: ${BASE_COMMIT}"
 echo "============================================================"
 echo ""
@@ -26,7 +26,7 @@ for VERSION in "optimized:$OPT_DIR" "baseline:$BASE_DIR"; do
 
     for BENCH in $BENCHES; do
         echo "------ $BENCH ------"
-        if "$VDIR/bin/lumin" -c "$VDIR/benchmarks/$BENCH.lm" -o "/tmp/${VNAME}_${BENCH}" 2>/dev/null; then
+        if "$VDIR/bin/lumyr" -c "$VDIR/benchmarks/$BENCH.lm" -o "/tmp/${VNAME}_${BENCH}" 2>/dev/null; then
             echo "compiled OK"
         else
             echo "COMPILE FAILED"

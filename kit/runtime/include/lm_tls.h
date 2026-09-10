@@ -10,7 +10,7 @@
 
 #include "lm_value.h"
 
-void  lumin_tls_set(const char* name, Value v);   // threadlocal_set(name, value)
-Value lumin_tls_get(const char* name);            // threadlocal_get(name)
+void  lumyr_tls_set(const char* name, Value v);   // threadlocal_set(name, value)
+Value lumyr_tls_get(const char* name);            // threadlocal_get(name)
 
 #endif // LM_TLS_H

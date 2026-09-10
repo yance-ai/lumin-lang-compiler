@@ -113,7 +113,7 @@ static Value jp_parse_string(JP* j)
         if(len + 8 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); }
     }
     buf[len] = '\0';
-    Value v = lumin_make_string(buf);  // 转为 gc_alloc 字符串
+    Value v = lumyr_make_string(buf);  // 转为 gc_alloc 字符串
     free(buf);                          // 释放普通 malloc 缓冲区
     return v;
 }
@@ -135,12 +135,12 @@ static Value jp_parse_number(JP* j)
         char* endp = NULL;
         long long ll = strtoll(tmp, &endp, 10);
         if(*endp == '\0' && endp != tmp) {
-            v = lumin_make_int(ll);
+            v = lumyr_make_int(ll);
         } else {
-            v = lumin_make_double(strtod(tmp, NULL));
+            v = lumyr_make_double(strtod(tmp, NULL));
         }
     } else {
-        v = lumin_make_double(strtod(tmp, NULL));
+        v = lumyr_make_double(strtod(tmp, NULL));
     }
     free(tmp);
     return v;
@@ -164,7 +164,7 @@ static Value jp_parse_value(JP* j)
             if(j->p >= j->end || *j->p != ':') { runtime_error("json parse error: expect ':'"); return m; }
             j->p++;
             Value val = jp_parse_value(j);
-            lumin_map_set(&m, k, val);
+            lumyr_map_set(&m, k, val);
             jp_ws(j);
             if(j->p < j->end && *j->p == ',') { j->p++; continue; }
             if(j->p < j->end && *j->p == '}') { j->p++; break; }
@@ -195,18 +195,18 @@ static Value jp_parse_value(JP* j)
         return r;
     }
     if(c == '"') return jp_parse_string(j);
-    if(c == 't') { if(j->end - j->p >= 4 && strncmp(j->p, "true", 4) == 0) { j->p += 4; return lumin_make_bool(1); } runtime_error("json parse error: bad literal"); return val_none(); }
-    if(c == 'f') { if(j->end - j->p >= 5 && strncmp(j->p, "false", 5) == 0) { j->p += 5; return lumin_make_bool(0); } runtime_error("json parse error: bad literal"); return val_none(); }
+    if(c == 't') { if(j->end - j->p >= 4 && strncmp(j->p, "true", 4) == 0) { j->p += 4; return lumyr_make_bool(1); } runtime_error("json parse error: bad literal"); return val_none(); }
+    if(c == 'f') { if(j->end - j->p >= 5 && strncmp(j->p, "false", 5) == 0) { j->p += 5; return lumyr_make_bool(0); } runtime_error("json parse error: bad literal"); return val_none(); }
     if(c == 'n') { if(j->end - j->p >= 4 && strncmp(j->p, "null", 4) == 0) { j->p += 4; return val_none(); } runtime_error("json parse error: bad literal"); return val_none(); }
     if(c == '-' || isdigit((unsigned char)c)) return jp_parse_number(j);
     runtime_error("json parse error: unexpected character");
     return val_none();
 }
 
-Value lumin_json_parse_enc(const char* s, Value enc)
+Value lumyr_json_parse_enc(const char* s, Value enc)
 {
     if(!s) { runtime_error("json(): input is null"); return val_none(); }
-    char* conv = lumin_text_to_utf8(s, strlen(s), enc);
+    char* conv = lumyr_text_to_utf8(s, strlen(s), enc);
     if(!conv) { runtime_error("json() 字符编码转换失败"); return val_none(); }
     JP j;
     j.p = conv;
@@ -218,9 +218,9 @@ Value lumin_json_parse_enc(const char* s, Value enc)
     return v;
 }
 
-Value lumin_json_parse(const char* s)
+Value lumyr_json_parse(const char* s)
 {
-    return lumin_json_parse_enc(s, val_none());
+    return lumyr_json_parse_enc(s, val_none());
 }
 
 /* ========== 序列化 ========== */
@@ -296,15 +296,15 @@ static void jq_stringify(SB* b, Value v, Value enc)
         }
         case VAL_CHAR: {
             char one[2] = { v.v.c, '\0' };
-            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc))))
+            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumyr_str_cstr(&enc) || !*lumyr_str_cstr(&enc))))
                 sb_json_string(b, one);
-            else { char* t = lumin_utf8_to_text(one, enc); sb_json_string(b, t ? t : one); free(t); }
+            else { char* t = lumyr_utf8_to_text(one, enc); sb_json_string(b, t ? t : one); free(t); }
             break;
         }
         case VAL_STRING: {
-            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc))))
-                sb_json_string(b, lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "");
-            else { char* t = lumin_utf8_to_text(lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "", enc); sb_json_string(b, t ? t : ""); free(t); }
+            if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumyr_str_cstr(&enc) || !*lumyr_str_cstr(&enc))))
+                sb_json_string(b, lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "");
+            else { char* t = lumyr_utf8_to_text(lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "", enc); sb_json_string(b, t ? t : ""); free(t); }
             break;
         }
         case VAL_ARRAY: {
@@ -324,9 +324,9 @@ static void jq_stringify(SB* b, Value v, Value enc)
                 if(!first) sb_putc(b, ',');
                 first = 0;
                 char* kstr = value_to_str(k);
-                if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc))))
+                if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumyr_str_cstr(&enc) || !*lumyr_str_cstr(&enc))))
                     sb_json_string(b, kstr);
-                else { char* t = lumin_utf8_to_text(kstr, enc); sb_json_string(b, t ? t : kstr); free(t); }
+                else { char* t = lumyr_utf8_to_text(kstr, enc); sb_json_string(b, t ? t : kstr); free(t); }
                 free(kstr);
                 sb_putc(b, ':');
                 jq_stringify(b, vv, enc);
@@ -338,7 +338,7 @@ static void jq_stringify(SB* b, Value v, Value enc)
     }
 }
 
-char* lumin_json_stringify_enc(Value v, Value enc)
+char* lumyr_json_stringify_enc(Value v, Value enc)
 {
     SB b;
     b.buf = NULL;
@@ -349,7 +349,7 @@ char* lumin_json_stringify_enc(Value v, Value enc)
     return b.buf;
 }
 
-char* lumin_json_stringify(Value v)
+char* lumyr_json_stringify(Value v)
 {
-    return lumin_json_stringify_enc(v, val_none());
+    return lumyr_json_stringify_enc(v, val_none());
 }

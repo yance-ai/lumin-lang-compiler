@@ -78,7 +78,7 @@ type Product { id: int, price: double }
 type Book { title: string, pages: int }
 type Car { brand: string, speed: int }
 pr = Product(1, 99.5);
-bk = Book("Lumin 语言", 300);
+bk = Book("Lumyr 语言", 300);
 cr = Car("BYD", 120);
 pr.clear();
 bk.clear();

@@ -1,4 +1,4 @@
-# lumin-lang-compiler
+# lumyr-lang-compiler
 
 A minimal compiled programming language implemented with Flex/Bison. Transpiles source to C and compiles to native binary. For compiler-principle learning.
 
@@ -18,14 +18,14 @@ A minimal compiled programming language implemented with Flex/Bison. Transpiles 
 ## Project Structure
 
 ```
-lumin-lang-compiler/
+lumyr-lang-compiler/
 ├── src/                    # Compiler source
 │   ├── lex/                # Lexer (Flex)
 │   ├── parse/              # Parser (Bison) + module import
 │   ├── ast/                # AST nodes + semantic analysis
 │   ├── ir/                 # Bytecode IR, optimizer, VM, C codegen
 │   └── i18n/               # Internationalization (6 languages)
-├── kit/                    # Lumin Kit (sub-projects)
+├── kit/                    # Lumyr Kit (sub-projects)
 │   └── runtime/            # Runtime library (GC, value types, stdlib)
 ├── tests/                  # Test suite
 ├── third_party/            # Prebuilt dependencies (Windows)
@@ -63,13 +63,13 @@ build.bat run             # Build and run REPL
 
 ```bash
 # Interpret (VM mode)
-lumin source.lm
+lumyr source.lm
 
 # Compile to native binary
-lumin -c source.lm -o output
+lumyr -c source.lm -o output
 
 # Emit C source only
-lumin -S source.lm -o output.c
+lumyr -S source.lm -o output.c
 ```
 
 ## Internationalization
@@ -86,8 +86,8 @@ The compiler supports 6 languages, auto-detected from system locale:
 Override with environment variable:
 
 ```bash
-export LUMIN_LANG=en     # Force English
-set LUMIN_LANG=ja        # Force Japanese (Windows)
+export LUMYR_LANG=en     # Force English
+set LUMYR_LANG=ja        # Force Japanese (Windows)
 ```
 
 ## Testing

@@ -1,7 +1,7 @@
 #include "func_compile.h"
 #include "ast_interp.h"
 #include "stackframe.h"
-#include "lumin_value.h"
+#include "lumyr_value.h"
 #include <stdlib.h>
 #include <string.h>
 #include "ast_node.h"
@@ -178,7 +178,7 @@ void closure_bind_cells(const RuntimeFunc* rf, StackFrame* callee)
     }
 }
 
-void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value))
+void lumyr_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value))
 {
     if(!rf || !interp_func_is_payload(rf)) return;
     InterpFuncPayload* pl = (InterpFuncPayload*)rf->captures;

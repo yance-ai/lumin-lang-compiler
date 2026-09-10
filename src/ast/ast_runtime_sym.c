@@ -91,12 +91,12 @@ int value_equal(Value a, Value b) {
         case VAL_DOUBLE:  return a.v.d == b.v.d;
         case VAL_BOOL:    return a.v.b == b.v.b;
         case VAL_CHAR:    return a.v.c == b.v.c;
-        case VAL_STRING:  return strcmp(lumin_str_cstr(&a), lumin_str_cstr(&b)) == 0;
+        case VAL_STRING:  return strcmp(lumyr_str_cstr(&a), lumyr_str_cstr(&b)) == 0;
         default: return 0;
     }
 }
 
-char* lumin_concat(const char* s1, const char* s2) {
+char* lumyr_concat(const char* s1, const char* s2) {
     size_t l1 = strlen(s1);
     size_t l2 = strlen(s2);
     char* out = malloc(l1 + l2 + 1);

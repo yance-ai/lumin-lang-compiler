@@ -96,9 +96,9 @@ int main(int argc, char** argv) {
         const char* win_tmp = getenv("TEMP");
         if (!win_tmp) win_tmp = getenv("TMP");
         if (!win_tmp) win_tmp = ".";
-        snprintf(pp_tmp, sizeof(pp_tmp), "%s/lumin_pp_XXXXXX", win_tmp);
+        snprintf(pp_tmp, sizeof(pp_tmp), "%s/lumyr_pp_XXXXXX", win_tmp);
 #else
-        snprintf(pp_tmp, sizeof(pp_tmp), "%s/lumin_pp_XXXXXX", P_tmpdir ? P_tmpdir : "/tmp");
+        snprintf(pp_tmp, sizeof(pp_tmp), "%s/lumyr_pp_XXXXXX", P_tmpdir ? P_tmpdir : "/tmp");
 #endif
         int fd = mkstemp(pp_tmp);
         if(fd < 0) {

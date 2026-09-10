@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include "lumin_value_type.h"
+#include "lumyr_value_type.h"
 
 /* ============================================================
  * 标记-清除 GC（Mark-Sweep）

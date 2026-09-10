@@ -67,11 +67,11 @@ print(join(parts, "-"));     // a-b-c
 print(repeat("ab", 3));      // ababab
 print(replace("banana", "na", "NA")); // baNANA
 print(format("{} + {} = {}", 1, 2, 3)); // 1 + 2 = 3
-name = "lumin";
+name = "lumyr";
 nn = 99;
-print(f"hi {name} #{nn}");       // hi lumin #99
+print(f"hi {name} #{nn}");       // hi lumyr #99
 print(f"{{x}}={nn}");            // {x}=99
-print(f"s[0]={s[0]} up={toupper(name)}"); // s[0]=H up=LUMIN
+print(f"s[0]={s[0]} up={toupper(name)}"); // s[0]=H up=LUMYR
 print("a" + "b" + "c");         // abc
 print("v=" + 7);                // v=7
 print(7 + "v");                 // 7v
@@ -171,8 +171,8 @@ print((int)"3.9");           // 3
 print((double)"3.14");       // 3.14
 
 // ============ 8. 综合交叉 ============
-words = ["hello", "world", "lumin"];
-print(join(map(words, func(w) { return toupper(w); }), ","));  // HELLO,WORLD,LUMIN
+words = ["hello", "world", "lumyr"];
+print(join(map(words, func(w) { return toupper(w); }), ","));  // HELLO,WORLD,LUMYR
 words2 = ["a", "bb", "ccc"];
 print(join(map(words2, func(w) { return w + "!"; }), " "));    // a! bb! ccc!
 v = 1;
@@ -219,8 +219,8 @@ print(join(arr.sort(), ","));           // 1,2,3
 print(arr.len());                       // 3
 print([1, 2, 3].sum());                 // 6
 print([1, 2, 3].avg());                 // 2
-nm = " lumin ";
-print(f"[{nm.strip().toupper()}]");      // [LUMIN]
+nm = " lumyr ";
+print(f"[{nm.strip().toupper()}]");      // [LUMYR]
 
 // ============ 10. 动态字符串内插安全性 ============
 server = "hello {{name}}";            // 运行时值 hello {{name}}（源码 {{ 转义）

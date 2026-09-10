@@ -126,12 +126,12 @@ static LockObj* lock_get(int id)
     return o;
 }
 
-int lumin_mutex_create(void)    { return lock_alloc(LK_MUTEX); }
-int lumin_rmutex_create(void)   { return lock_alloc(LK_RMUTEX); }
-int lumin_rwlock_create(void)   { return lock_alloc(LK_RW); }
-int lumin_spinlock_create(void) { return lock_alloc(LK_SPIN); }
+int lumyr_mutex_create(void)    { return lock_alloc(LK_MUTEX); }
+int lumyr_rmutex_create(void)   { return lock_alloc(LK_RMUTEX); }
+int lumyr_rwlock_create(void)   { return lock_alloc(LK_RW); }
+int lumyr_spinlock_create(void) { return lock_alloc(LK_SPIN); }
 
-void lumin_lock(int id)
+void lumyr_lock(int id)
 {
     LockObj* o = lock_get(id);
     if(!o) runtime_error("lock(): 无效的锁id（未创建或已销毁）");
@@ -147,7 +147,7 @@ void lumin_lock(int id)
     }
 }
 
-void lumin_unlock(int id)
+void lumyr_unlock(int id)
 {
     LockObj* o = lock_get(id);
     if(!o) runtime_error("unlock(): 无效的锁id（未创建或已销毁）");
@@ -158,7 +158,7 @@ void lumin_unlock(int id)
     }
 }
 
-int lumin_trylock(int id)
+int lumyr_trylock(int id)
 {
     LockObj* o = lock_get(id);
     if(!o) runtime_error("trylock(): 无效的锁id（未创建或已销毁）");
@@ -170,7 +170,7 @@ int lumin_trylock(int id)
     return 0;
 }
 
-void lumin_rdlock(int id)
+void lumyr_rdlock(int id)
 {
     LockObj* o = lock_get(id);
     if(!o) runtime_error("rdlock(): 无效的锁id（未创建或已销毁）");
@@ -180,7 +180,7 @@ void lumin_rdlock(int id)
     gc_leave_native_block();
 }
 
-void lumin_wrlock(int id)
+void lumyr_wrlock(int id)
 {
     LockObj* o = lock_get(id);
     if(!o) runtime_error("wrlock(): 无效的锁id（未创建或已销毁）");
@@ -190,7 +190,7 @@ void lumin_wrlock(int id)
     gc_leave_native_block();
 }
 
-int lumin_tryrdlock(int id)
+int lumyr_tryrdlock(int id)
 {
     LockObj* o = lock_get(id);
     if(!o) runtime_error("tryrdlock(): 无效的锁id（未创建或已销毁）");
@@ -198,7 +198,7 @@ int lumin_tryrdlock(int id)
     return pthread_rwlock_tryrdlock(&o->u.rw) == 0;
 }
 
-int lumin_trywrlock(int id)
+int lumyr_trywrlock(int id)
 {
     LockObj* o = lock_get(id);
     if(!o) runtime_error("trywrlock(): 无效的锁id（未创建或已销毁）");
@@ -248,9 +248,9 @@ static CondObj* cond_get(int id)
     return o;
 }
 
-int lumin_condvar_create(void) { return cond_alloc(); }
+int lumyr_condvar_create(void) { return cond_alloc(); }
 
-void lumin_cond_wait(int cond, int lock)
+void lumyr_cond_wait(int cond, int lock)
 {
     CondObj* c = cond_get(cond);
     if(!c) runtime_error("cond_wait(): 无效的条件id（未创建或已销毁）");
@@ -266,7 +266,7 @@ void lumin_cond_wait(int cond, int lock)
     gc_leave_native_block();
 }
 
-int lumin_cond_timedwait(int cond, int lock, long long ms)
+int lumyr_cond_timedwait(int cond, int lock, long long ms)
 {
     CondObj* c = cond_get(cond);
     if(!c) runtime_error("cond_wait_timeout(): 无效的条件id（未创建或已销毁）");
@@ -289,14 +289,14 @@ int lumin_cond_timedwait(int cond, int lock, long long ms)
     return 0;
 }
 
-void lumin_cond_signal(int cond)
+void lumyr_cond_signal(int cond)
 {
     CondObj* c = cond_get(cond);
     if(!c) runtime_error("cond_signal(): 无效的条件id（未创建或已销毁）");
     pthread_cond_signal(&c->cond);
 }
 
-void lumin_cond_broadcast(int cond)
+void lumyr_cond_broadcast(int cond)
 {
     CondObj* c = cond_get(cond);
     if(!c) runtime_error("cond_broadcast(): 无效的条件id（未创建或已销毁）");

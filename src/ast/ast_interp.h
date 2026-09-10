@@ -4,7 +4,7 @@
 
 #ifndef AST_INTERP_H
 #define AST_INTERP_H
-#include "lumin_value_type.h"
+#include "lumyr_value_type.h"
 #include "ast_node_type.h"
 
 Value make_int(long long i);

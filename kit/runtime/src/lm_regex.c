@@ -49,7 +49,7 @@ static int regex_compile(regex_t* re, const char* pattern) {
     return 0;
 }
 
-_Bool lumin_regex_match(const char* s, const char* pattern) {
+_Bool lumyr_regex_match(const char* s, const char* pattern) {
     if(!s || !pattern) return 0;
     regex_t re;
     if(regex_compile(&re, pattern) != 0) return 0;
@@ -61,7 +61,7 @@ _Bool lumin_regex_match(const char* s, const char* pattern) {
     return 0;
 }
 
-Value lumin_regex_search(const char* s, const char* pattern) {
+Value lumyr_regex_search(const char* s, const char* pattern) {
     Value arr = val_array(0);
     if(!s || !pattern) return arr;
     regex_t re;
@@ -75,7 +75,7 @@ Value lumin_regex_search(const char* s, const char* pattern) {
             char* sub = malloc(len + 1);
             memcpy(sub, s + m[i].rm_so, len);
             sub[len] = 0;
-            lumin_array_add(&arr, lumin_make_string(sub));
+            lumyr_array_add(&arr, lumyr_make_string(sub));
             free(sub);
         }
     }
@@ -83,7 +83,7 @@ Value lumin_regex_search(const char* s, const char* pattern) {
     return arr;
 }
 
-char* lumin_regex_replace(const char* s, const char* pattern, const char* repl) {
+char* lumyr_regex_replace(const char* s, const char* pattern, const char* repl) {
     if(!s || !pattern || !repl) return strdup(s ? s : "");
     regex_t re;
     if(regex_compile(&re, pattern) != 0) return strdup(s);

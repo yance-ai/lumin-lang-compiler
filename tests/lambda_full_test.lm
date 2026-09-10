@@ -15,7 +15,7 @@
 //  12. lambda 返回值链式调用 f()(x)
 //
 // 设计说明：
-//   lumin 的 lambda 是"无闭包"设计——编译期（ast_typecheck.c）强制禁止
+//   lumyr 的 lambda 是"无闭包"设计——编译期（ast_typecheck.c）强制禁止
 //   lambda 体访问外层函数局部变量，只能访问：自身参数、全局变量、
 //   以及 lambda 体内赋值产生的局部变量。这从根本上杜绝了 UAF 和
 //   闭包生命周期问题。本测试验证该设计下的所有可用场景。
@@ -54,7 +54,7 @@ print(bump());                        // 1（读全局 counter=0，+1=1，但写
 print(bump());                        // 1（每次调用都读全局 counter=0）
 print(bump());                        // 1
 print(counter);                       // 0（全局 counter 从未被修改）
-// 设计说明：lumin 函数/lambda 内的赋值总是绑定当前帧局部（C 语义词法遮蔽），
+// 设计说明：lumyr 函数/lambda 内的赋值总是绑定当前帧局部（C 语义词法遮蔽），
 // 不会沿帧链更新全局。要修改全局需在 main 帧直接操作或通过参数返回。
 
 // ===== 4. lambda 内部局部变量 =====
@@ -82,7 +82,7 @@ func make_double() {
 dbl = make_double();
 print(dbl(21));                       // 42
 
-// 设计说明：lumin 不支持 lambda 捕获外层函数局部变量。
+// 设计说明：lumyr 不支持 lambda 捕获外层函数局部变量。
 // 例如 func make_adder(n) { return func(x) { return x + n; }; } 会被
 // 语义检查拒绝（"匿名函数不能访问外层函数局部变量 n"）。
 // 需要共享状态时通过全局变量传递：

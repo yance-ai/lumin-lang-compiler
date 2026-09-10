@@ -1,7 +1,7 @@
 #ifndef AST_TYPES_H
 #define AST_TYPES_H
 
-#include "lumin_value_type.h"
+#include "lumyr_value_type.h"
 
 // type 声明（提前声明对象属性）与枚举声明
 // type Person { name: string, age: int }   → 形状表（属性名 + 期望类型）

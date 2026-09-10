@@ -1,7 +1,7 @@
 #ifndef AST_SYMTAB_H
 #define AST_SYMTAB_H
 
-#include "lumin_types.h"
+#include "lumyr_types.h"
 
 #define STATIC_SYM_INITIAL_CAP 128
 

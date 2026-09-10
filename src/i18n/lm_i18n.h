@@ -1,5 +1,5 @@
 /**
- * lm_i18n.h - Lumin Language Compiler Internationalization
+ * lm_i18n.h - Lumyr Language Compiler Internationalization
  *
  * Lightweight i18n framework for C.
  * Supports: Simplified Chinese (default), Traditional Chinese,

@@ -1,5 +1,5 @@
 // lm_thread.c —— 多线程运行时：线程表 + 通用线程启动/join
-// 依赖上一批多线程预备：执行器状态 _Thread_local（vm.c / lumin_value.c）、GC CAS 头插
+// 依赖上一批多线程预备：执行器状态 _Thread_local（vm.c / lumyr_value.c）、GC CAS 头插
 #include "lm_thread.h"
 #include "lm_value.h"
 #include "gc_runtime.h"
@@ -29,7 +29,7 @@ static int g_next_id = 0;             // 线程 id 自增（int，实际到不�
  * 注意：GC 在 STW 下运行，所有线程已暂停，无需取 g_lock（否则死锁：
  * 暂停线程可能正持有 g_lock）。Value 读取在 x86-64 对齐原子，安全。 */
 static void gc_scan_thread_roots(void) {
-    /* 必须持 g_lock：lumin_thread_set_result/thread_join 在 g_lock 下读写
+    /* 必须持 g_lock：lumyr_thread_set_result/thread_join 在 g_lock 下读写
      * g_slots.result/used。不加锁读取会看到撕裂或旧值（如刚复用槽位但 result
      * 仍是上一轮的悬挂指针），导致 GC 标记阶段读已释放内存 → UAF。 */
     pthread_mutex_lock(&g_lock);
@@ -62,7 +62,7 @@ static void* lm_thread_main(void* p)
     t.argc = job->argc;
     t.args = job->args;
     t.data = job->data;
-    job->body(&t);   // 线程体：执行函数调用 + lumin_thread_set_result
+    job->body(&t);   // 线程体：执行函数调用 + lumyr_thread_set_result
     pthread_mutex_lock(&g_lock);
     g_slots[job->slot].done = 1;
     pthread_mutex_unlock(&g_lock);
@@ -71,7 +71,7 @@ static void* lm_thread_main(void* p)
     return NULL;
 }
 
-int lumin_thread_start(ThreadBody body, void* data, const Value* args, int argc)
+int lumyr_thread_start(ThreadBody body, void* data, const Value* args, int argc)
 {
     pthread_mutex_lock(&g_lock);
     if(!g_slots) {   // 首次：分配初始容量
@@ -136,7 +136,7 @@ int lumin_thread_start(ThreadBody body, void* data, const Value* args, int argc)
     return tid;
 }
 
-void lumin_thread_set_result(ThreadLaunch* t, Value r)
+void lumyr_thread_set_result(ThreadLaunch* t, Value r)
 {
     /* 工作线程此时可能已 gc_unregister_thread()（VM 通道 vm_run 退出时注销，
      * 编译通道 lm_c_thread_body 在 cf 返回后注销），结果值 r 在 C 栈上不被 GC 扫描。
@@ -149,7 +149,7 @@ void lumin_thread_set_result(ThreadLaunch* t, Value r)
     gc_protect_pop();
 }
 
-void lumin_thread_set_result_protected(ThreadLaunch* t, Value r)
+void lumyr_thread_set_result_protected(ThreadLaunch* t, Value r)
 {
     /* 调用方已 gc_protect_push(r)，此处直接 clone 不再重复保护。
      * 调用方负责随后 gc_protect_pop()。 */
@@ -159,7 +159,7 @@ void lumin_thread_set_result_protected(ThreadLaunch* t, Value r)
 }
 
 // C 生成端线程体：直接调函数指针
-// 修复 root scanning bug：必须在 lumin_thread_set_result 完成后再 unregister，
+// 修复 root scanning bug：必须在 lumyr_thread_set_result 完成后再 unregister，
 // 否则 unregister→protect_push 之间 r 在 C 栈上不被根扫描覆盖，
 // 其他线程触发 GC 时 r 引用的堆对象会被错误回收 → UAF。
 static void lm_c_thread_body(ThreadLaunch* t)
@@ -171,17 +171,17 @@ static void lm_c_thread_body(ThreadLaunch* t)
     gc_protect_push(val_none());
     Value r = cf(t->args, t->argc);
     gc_protect_set(r);
-    lumin_thread_set_result(t, r);
+    lumyr_thread_set_result(t, r);
     gc_protect_pop();
     gc_unregister_cframe_thread();
 }
 
-int lumin_thread_start_c(Value (*cf)(Value*, int), const Value* args, int argc)
+int lumyr_thread_start_c(Value (*cf)(Value*, int), const Value* args, int argc)
 {
-    return lumin_thread_start(lm_c_thread_body, (void*)cf, args, argc);
+    return lumyr_thread_start(lm_c_thread_body, (void*)cf, args, argc);
 }
 
-Value lumin_thread_join(int id)
+Value lumyr_thread_join(int id)
 {
     pthread_mutex_lock(&g_lock);
     int slot = -1;

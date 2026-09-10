@@ -1,6 +1,6 @@
 // ============ map 结构体栈分配全场景测试 ============
-// 运行：./bin/lumin tests/map_stack_alloc_test.lm
-// 编译：./bin/lumin -c tests/map_stack_alloc_test.lm -o /tmp/msat && /tmp/msat
+// 运行：./bin/lumyr tests/map_stack_alloc_test.lm
+// 编译：./bin/lumyr -c tests/map_stack_alloc_test.lm -o /tmp/msat && /tmp/msat
 // 双通道语义输出必须逐行一致（gc_count 等内省指标在编译模式可能不同）
 
 // ---- 1. 不逃逸 map：ValueMap 结构体栈分配，gc_count 下降 ----

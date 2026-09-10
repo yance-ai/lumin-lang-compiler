@@ -38,8 +38,8 @@ static void qs_decode(QSB* b, const char* s) {
 
 // ===== stringify（递归） =====
 static const char* qs_enc_str(Value enc) {
-    if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc)))) return NULL;
-    return enc.type == VAL_STRING ? lumin_str_cstr(&enc) : NULL;
+    if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumyr_str_cstr(&enc) || !*lumyr_str_cstr(&enc)))) return NULL;
+    return enc.type == VAL_STRING ? lumyr_str_cstr(&enc) : NULL;
 }
 static void qs_stringify_rec(QSB* b, const char* key, Value v, Value enc) {
     if(v.type == VAL_MAP) {
@@ -64,22 +64,22 @@ static void qs_stringify_rec(QSB* b, const char* key, Value v, Value enc) {
     } else {
         if(b->len) qsb_ch(b, '&');
         const char* e = qs_enc_str(enc);
-        if(e) { char* kt = lumin_utf8_to_text(key, enc); qsb_str(b, kt ? kt : key); free(kt); }
+        if(e) { char* kt = lumyr_utf8_to_text(key, enc); qsb_str(b, kt ? kt : key); free(kt); }
         else qsb_str(b, key);
         qsb_ch(b, '=');
         char* sv = value_to_str(v);
-        if(e) { char* vt = lumin_utf8_to_text(sv, enc); qs_encode(b, vt ? vt : sv, 0); free(vt); }
+        if(e) { char* vt = lumyr_utf8_to_text(sv, enc); qs_encode(b, vt ? vt : sv, 0); free(vt); }
         else qs_encode(b, sv, 1);
         free(sv);
     }
 }
-char* lumin_qs_stringify_enc(Value v, Value enc) {
+char* lumyr_qs_stringify_enc(Value v, Value enc) {
     QSB b; qsb_init(&b);
     qs_stringify_rec(&b, "", v, enc);
     return b.s;
 }
-char* lumin_qs_stringify(Value v) {
-    return lumin_qs_stringify_enc(v, val_none());
+char* lumyr_qs_stringify(Value v) {
+    return lumyr_qs_stringify_enc(v, val_none());
 }
 
 // ===== parse =====
@@ -115,9 +115,9 @@ static Value qs_child_get(Value container, const char* seg) {
             if(idx >= 0 && idx < container.v.array->len) return val_clone(&container.v.array->items[idx]);
         }
     } else if(container.type == VAL_MAP) {
-        Value k = lumin_make_string((char*)seg);
-        Value r = lumin_map_get(container, k);
-        /* 容器深拷贝：qs_child_set 替换父键时 lumin_map_set 会 val_destroy 旧值，
+        Value k = lumyr_make_string((char*)seg);
+        Value r = lumyr_map_get(container, k);
+        /* 容器深拷贝：qs_child_set 替换父键时 lumyr_map_set 会 val_destroy 旧值，
            共享引用会 use-after-free */
         if(r.type == VAL_MAP || r.type == VAL_ARRAY) return val_clone(&r);
         return r;
@@ -126,12 +126,12 @@ static Value qs_child_get(Value container, const char* seg) {
 }
 static void qs_child_set(Value* container, const char* seg, Value child) {
     if(seg_is_num(seg)) qs_arr_set_grow(container, atoi(seg), child);
-    else lumin_map_set(container, lumin_make_string((char*)seg), child);
+    else lumyr_map_set(container, lumyr_make_string((char*)seg), child);
 }
 static void qs_set_path(Value* container, char** segs, int i, int nseg, Value v) {
     if(i == nseg - 1) {  // 叶子
         if(seg_is_num(segs[i])) qs_arr_set_grow(container, atoi(segs[i]), v);
-        else lumin_map_set(container, lumin_make_string(segs[i]), v);
+        else lumyr_map_set(container, lumyr_make_string(segs[i]), v);
         return;
     }
     const char* seg = segs[i];
@@ -143,7 +143,7 @@ static void qs_set_path(Value* container, char** segs, int i, int nseg, Value v)
     qs_set_path(&child, segs, i + 1, nseg, v);
     qs_child_set(container, seg, child);
 }
-Value lumin_qs_parse_enc(const char* s, Value enc) {
+Value lumyr_qs_parse_enc(const char* s, Value enc) {
     Value root = val_map();
     if(!s || !*s) return root;
     char* dup = strdup(s);
@@ -175,17 +175,17 @@ Value lumin_qs_parse_enc(const char* s, Value enc) {
         for(int i = 0; i < nseg; i++) {
             QSB d; qsb_init(&d); qs_decode(&d, segs[i]);
             if(qs_enc_str(enc)) {
-                char* u = lumin_text_to_utf8(d.s, d.len, enc);
+                char* u = lumyr_text_to_utf8(d.s, d.len, enc);
                 if(u) { free(d.s); d.s = u; d.len = (int)strlen(u); }
             }
             dec_segs[i] = d.s;
         }
         QSB vd; qsb_init(&vd); qs_decode(&vd, val);
         if(qs_enc_str(enc)) {
-            char* u = lumin_text_to_utf8(vd.s, vd.len, enc);
+            char* u = lumyr_text_to_utf8(vd.s, vd.len, enc);
             if(u) { free(vd.s); vd.s = u; vd.len = (int)strlen(u); }
         }
-        Value v = lumin_make_string(vd.s);
+        Value v = lumyr_make_string(vd.s);
         qs_set_path(&root, dec_segs, 0, nseg, v);
         for(int i = 0; i < nseg; i++) free(dec_segs[i]);
         free(vd.s);
@@ -194,6 +194,6 @@ Value lumin_qs_parse_enc(const char* s, Value enc) {
     return root;
 }
 
-Value lumin_qs_parse(const char* s) {
-    return lumin_qs_parse_enc(s, val_none());
+Value lumyr_qs_parse(const char* s) {
+    return lumyr_qs_parse_enc(s, val_none());
 }

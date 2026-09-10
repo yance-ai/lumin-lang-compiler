@@ -58,7 +58,7 @@ static size_t hdr_cb(char* ptr, size_t size, size_t nmemb, void* ud)
         char* ve = v + strlen(v);
         while(ve > v && (ve[-1] == ' ' || ve[-1] == '\t' || ve[-1] == '\r' || ve[-1] == '\n')) *--ve = '\0';
         if(k[0] && v[0])
-            lumin_map_set(hm, lumin_make_string(k), lumin_make_string(v));
+            lumyr_map_set(hm, lumyr_make_string(k), lumyr_make_string(v));
     }
     free(line);
     return n;
@@ -67,7 +67,7 @@ static size_t hdr_cb(char* ptr, size_t size, size_t nmemb, void* ud)
 static pthread_once_t g_curl_once = PTHREAD_ONCE_INIT;
 static void curl_global_init_once(void) { curl_global_init(CURL_GLOBAL_DEFAULT); }
 
-Value lumin_http_request(const char* method, Value url, Value params, Value config)
+Value lumyr_http_request(const char* method, Value url, Value params, Value config)
 {
     pthread_once(&g_curl_once, curl_global_init_once);
 
@@ -84,7 +84,7 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
 
     // 1. URL + 查询串
     Buf full_url = {0};
-    buf_append(&full_url, lumin_str_cstr(&url), strlen(lumin_str_cstr(&url)));
+    buf_append(&full_url, lumyr_str_cstr(&url), strlen(lumyr_str_cstr(&url)));
     Buf qs = {0};
     if(params.type == VAL_MAP) {
         MapIter pit; map_iter_init(&pit, params.v.map);
@@ -109,10 +109,10 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
             else buf_append(&full_url, "&", 1);
             buf_append(&full_url, qs.data, qs.len);
         }
-    } else if(params.type == VAL_STRING && lumin_str_cstr(&params) && lumin_str_cstr(&params)[0]) {
+    } else if(params.type == VAL_STRING && lumyr_str_cstr(&params) && lumyr_str_cstr(&params)[0]) {
         if(strchr(full_url.data, '?') == NULL) buf_append(&full_url, "?", 1);
         else buf_append(&full_url, "&", 1);
-        buf_append(&full_url, lumin_str_cstr(&params), strlen(lumin_str_cstr(&params)));
+        buf_append(&full_url, lumyr_str_cstr(&params), strlen(lumyr_str_cstr(&params)));
     }
     free(qs.data);
 
@@ -120,8 +120,8 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
     long timeout_s = 30;
     Value body = val_none();
     if(config.type == VAL_MAP) {
-        if(lumin_map_has(config, lumin_make_string("headers"))) {
-            Value hv = lumin_map_get(config, lumin_make_string("headers"));
+        if(lumyr_map_has(config, lumyr_make_string("headers"))) {
+            Value hv = lumyr_map_get(config, lumyr_make_string("headers"));
             if(hv.type != VAL_MAP) { curl_easy_cleanup(h); free(full_url.data); runtime_error("requests: config.headers 必须是字典"); }
             MapIter hit; map_iter_init(&hit, hv.v.map);
             Value hk, hv2;
@@ -139,20 +139,20 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
                 free(sv);
             }
         }
-        if(lumin_map_has(config, lumin_make_string("body"))) {
-            body = lumin_map_get(config, lumin_make_string("body"));
+        if(lumyr_map_has(config, lumyr_make_string("body"))) {
+            body = lumyr_map_get(config, lumyr_make_string("body"));
             if(body.type != VAL_STRING) { curl_easy_cleanup(h); free(full_url.data); if(hdrs) curl_slist_free_all(hdrs); runtime_error("requests: config.body 必须是字符串"); }
         }
-        if(lumin_map_has(config, lumin_make_string("timeout"))) {
-            Value tv = lumin_map_get(config, lumin_make_string("timeout"));
+        if(lumyr_map_has(config, lumyr_make_string("timeout"))) {
+            Value tv = lumyr_map_get(config, lumyr_make_string("timeout"));
             if(tv.type == VAL_INT) timeout_s = tv.v.i;
         }
     }
 
     // 3. 请求体
     if(body.type == VAL_STRING) {
-        curl_easy_setopt(h, CURLOPT_POSTFIELDS, lumin_str_cstr(&body));
-        curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, (long)strlen(lumin_str_cstr(&body)));
+        curl_easy_setopt(h, CURLOPT_POSTFIELDS, lumyr_str_cstr(&body));
+        curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, (long)strlen(lumyr_str_cstr(&body)));
     }
 
     // 4. 执行
@@ -185,9 +185,9 @@ Value lumin_http_request(const char* method, Value url, Value params, Value conf
     }
 
     Value r = val_map();
-    lumin_map_set(&r, lumin_make_string("status"), lumin_make_int(code));
-    lumin_map_set(&r, lumin_make_string("body"), lumin_make_string(resp_body.data ? resp_body.data : ""));
-    lumin_map_set(&r, lumin_make_string("headers"), resp_headers);
+    lumyr_map_set(&r, lumyr_make_string("status"), lumyr_make_int(code));
+    lumyr_map_set(&r, lumyr_make_string("body"), lumyr_make_string(resp_body.data ? resp_body.data : ""));
+    lumyr_map_set(&r, lumyr_make_string("headers"), resp_headers);
     free(resp_body.data);
     return r;
 }

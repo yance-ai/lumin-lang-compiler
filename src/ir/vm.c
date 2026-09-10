@@ -129,7 +129,7 @@ static void vm_thread_body(ThreadLaunch* t)
     Value r = rf->entry(t->argc, t->args, &ctx, callee);
     /* r 已被 OPC_RETURN 中的 gc_protect_push 保护（VM entry 已 unregister）。
      * 直接 set_result，完成后 pop 释放该 protect entry。 */
-    lumin_thread_set_result(t, r);
+    lumyr_thread_set_result(t, r);
     gc_protect_pop();
     if(g_trace_n > 0) g_trace_n--;
     interp_set_current_rf(prev_rf);
@@ -228,7 +228,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     jmp_buf* saved_gj = g_err_jmp;
     int saved_fin = vm_fin_n;
 
-    if(getenv("LUMIN_BC_DUMP")) {
+    if(getenv("LUMYR_BC_DUMP")) {
         fprintf(stderr, "== bc dump: %s (code_len=%d, max_stack=%d) ==\n",
                 bf->name ? bf->name : "<main>", bf->code_len, maxd);
         for(int i = 0; i < bf->code_len; i++) {
@@ -282,62 +282,62 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp++] = v;             // 原值压回（表达式值）
                 break;
             }
-            case OPC_ADD: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_add(l, r); break; }
-            case OPC_SUB: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_sub(l, r); break; }
-            case OPC_MUL: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_mul(l, r); break; }
-            case OPC_DIV: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_div(l, r); break; }
-            case OPC_MOD: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_mod(l, r); break; }
-            case OPC_GT:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_gt(l, r); break; }
-            case OPC_LT:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_lt(l, r); break; }
-            case OPC_GE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_ge(l, r); break; }
-            case OPC_LE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_le(l, r); break; }
-            case OPC_EQ:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_eq(l, r); break; }
-            case OPC_NE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_ne(l, r); break; }
-            case OPC_NEG: { Value v = stack[--sp]; stack[sp++] = lumin_unary_minus(v); break; }
-            case OPC_POS: { Value v = stack[--sp]; stack[sp++] = lumin_unary_plus(v); break; }
+            case OPC_ADD: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_add(l, r); break; }
+            case OPC_SUB: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_sub(l, r); break; }
+            case OPC_MUL: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_mul(l, r); break; }
+            case OPC_DIV: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_div(l, r); break; }
+            case OPC_MOD: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_mod(l, r); break; }
+            case OPC_GT:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_gt(l, r); break; }
+            case OPC_LT:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_lt(l, r); break; }
+            case OPC_GE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_ge(l, r); break; }
+            case OPC_LE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_le(l, r); break; }
+            case OPC_EQ:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_eq(l, r); break; }
+            case OPC_NE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_ne(l, r); break; }
+            case OPC_NEG: { Value v = stack[--sp]; stack[sp++] = lumyr_unary_minus(v); break; }
+            case OPC_POS: { Value v = stack[--sp]; stack[sp++] = lumyr_unary_plus(v); break; }
             case OPC_PRE_INC:  { const char* n = bf->syms[in.a]; _Bool fnd = 0;
                                  Value __old = stackframe_get(frame, n, &fnd);
                                  if(!fnd) runtime_undefined("变量", n);
-                                 Value __nv = lumin_pre_inc(&__old);
+                                 Value __nv = lumyr_pre_inc(&__old);
                                  stackframe_bind(frame, n, __nv);          // 词法遮蔽：写当前帧
                                  stack[sp++] = __nv; break; }
             case OPC_POST_INC: { const char* n = bf->syms[in.a]; _Bool fnd = 0;
                                  Value __old = stackframe_get(frame, n, &fnd);
                                  if(!fnd) runtime_undefined("变量", n);
-                                 Value __nv = lumin_post_inc(&__old);
+                                 Value __nv = lumyr_post_inc(&__old);
                                  stackframe_bind(frame, n, __old);          // 参数已被改为新值
                                  stack[sp++] = __nv; break; }               // 返回值 = 旧值
             case OPC_PRE_DEC:  { const char* n = bf->syms[in.a]; _Bool fnd = 0;
                                  Value __old = stackframe_get(frame, n, &fnd);
                                  if(!fnd) runtime_undefined("变量", n);
-                                 Value __nv = lumin_pre_dec(&__old);
+                                 Value __nv = lumyr_pre_dec(&__old);
                                  stackframe_bind(frame, n, __nv);          // 词法遮蔽：写当前帧
                                  stack[sp++] = __nv; break; }
             case OPC_POST_DEC: { const char* n = bf->syms[in.a]; _Bool fnd = 0;
                                  Value __old = stackframe_get(frame, n, &fnd);
                                  if(!fnd) runtime_undefined("变量", n);
-                                 Value __nv = lumin_post_dec(&__old);
+                                 Value __nv = lumyr_post_dec(&__old);
                                  stackframe_bind(frame, n, __old);          // 参数已被改为新值
                                  stack[sp++] = __nv; break; }               // 返回值 = 旧值
-            case OPC_CAST_INT:    { Value v = stack[--sp]; stack[sp++] = lumin_cast_int(v); break; }
-            case OPC_CAST_DOUBLE: { Value v = stack[--sp]; stack[sp++] = lumin_cast_double(v); break; }
-            case OPC_CAST_CHAR:   { Value v = stack[--sp]; stack[sp++] = lumin_cast_char(v); break; }
-            case OPC_CAST_BOOL:   { Value v = stack[--sp]; stack[sp++] = lumin_cast_bool(v); break; }
-            case OPC_CAST_STRING: { Value v = stack[--sp]; stack[sp++] = lumin_cast_string(v); break; }
-            case OPC_CAST_ASCII:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_ascii(v); break; }
-            case OPC_CAST_BYTE:   { Value v = stack[--sp]; stack[sp++] = lumin_cast_byte(v); break; }
-            case OPC_CAST_INT8:   { Value v = stack[--sp]; stack[sp++] = lumin_cast_int8(v); break; }
-            case OPC_CAST_INT16:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_int16(v); break; }
-            case OPC_CAST_INT32:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_int32(v); break; }
-            case OPC_CAST_INT64:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_int64(v); break; }
-            case OPC_CAST_UINT8:  { Value v = stack[--sp]; stack[sp++] = lumin_cast_uint8(v); break; }
-            case OPC_CAST_UINT16: { Value v = stack[--sp]; stack[sp++] = lumin_cast_uint16(v); break; }
-            case OPC_CAST_UINT32: { Value v = stack[--sp]; stack[sp++] = lumin_cast_uint32(v); break; }
-            case OPC_CAST_UINT64: { Value v = stack[--sp]; stack[sp++] = lumin_cast_uint64(v); break; }
-            case OPC_CAST_LONG: { Value v = stack[--sp]; stack[sp++] = lumin_cast_long(v); break; }
-            case OPC_CAST_LONGLONG: { Value v = stack[--sp]; stack[sp++] = lumin_cast_longlong(v); break; }
-            case OPC_CAST_FLOAT: { Value v = stack[--sp]; stack[sp++] = lumin_cast_float(v); break; }
-            case OPC_LOGIC_NOT:   { Value v = stack[--sp]; stack[sp++] = lumin_logic_not(v); break; }
+            case OPC_CAST_INT:    { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int(v); break; }
+            case OPC_CAST_DOUBLE: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_double(v); break; }
+            case OPC_CAST_CHAR:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_char(v); break; }
+            case OPC_CAST_BOOL:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_bool(v); break; }
+            case OPC_CAST_STRING: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_string(v); break; }
+            case OPC_CAST_ASCII:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_ascii(v); break; }
+            case OPC_CAST_BYTE:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_byte(v); break; }
+            case OPC_CAST_INT8:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int8(v); break; }
+            case OPC_CAST_INT16:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int16(v); break; }
+            case OPC_CAST_INT32:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int32(v); break; }
+            case OPC_CAST_INT64:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int64(v); break; }
+            case OPC_CAST_UINT8:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint8(v); break; }
+            case OPC_CAST_UINT16: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint16(v); break; }
+            case OPC_CAST_UINT32: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint32(v); break; }
+            case OPC_CAST_UINT64: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint64(v); break; }
+            case OPC_CAST_LONG: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_long(v); break; }
+            case OPC_CAST_LONGLONG: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_longlong(v); break; }
+            case OPC_CAST_FLOAT: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_float(v); break; }
+            case OPC_LOGIC_NOT:   { Value v = stack[--sp]; stack[sp++] = lumyr_logic_not(v); break; }
             case OPC_ARRAY_LIT: {
                 int n = in.b;
                 Value arr = val_array(n);
@@ -349,7 +349,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             }
             case OPC_MAP_LIT: {
                 int n = in.b;
-                Value m = lumin_map_lit(&stack[sp - 2 * n], n);
+                Value m = lumyr_map_lit(&stack[sp - 2 * n], n);
                 sp = sp - 2 * n + 1;
                 sp--; stack[sp++] = m;     /* 安全原地写 */
                 break;
@@ -357,14 +357,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_INDEX_GET: {
                 Value idx = stack[--sp];
                 Value c = stack[--sp];
-                stack[sp++] = lumin_index_get(c, idx);
+                stack[sp++] = lumyr_index_get(c, idx);
                 break;
             }
             case OPC_INDEX_SET: {
                 Value val = stack[--sp];
                 Value idx = stack[--sp];
                 Value arr = stack[--sp];
-                stack[sp++] = lumin_array_set(arr, idx, val);
+                stack[sp++] = lumyr_array_set(arr, idx, val);
                 break;
             }
             case OPC_BUILTIN: {
@@ -372,21 +372,21 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 switch(in.a) {
                     case BUILTIN_LEN: {
                         Value v = stack[--sp];
-                        stack[sp++] = lumin_len(v);
+                        stack[sp++] = lumyr_len(v);
                         break;
                     }
                     case BUILTIN_TYPE: {
                         Value v = stack[--sp];
-                        stack[sp++] = lumin_type(v);
+                        stack[sp++] = lumyr_type(v);
                         break;
                     }
                     case BUILTIN_INPUT: {
-                        stack[sp++] = lumin_input();
+                        stack[sp++] = lumyr_input();
                         break;
                     }
                     case BUILTIN_RANGE: {
                         int n = in.b;
-                        Value r = lumin_range_n(&stack[sp - n], n);
+                        Value r = lumyr_range_n(&stack[sp - n], n);
                         sp = sp - n + 1;
                         sp--; stack[sp++] = r;
                         break;
@@ -395,44 +395,44 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value n = stack[--sp];
                         Value st = stack[--sp];
                         Value s = stack[--sp];
-                        stack[sp++] = lumin_substr(s, st, n);
+                        stack[sp++] = lumyr_substr(s, st, n);
                         break;
                     }
                     case BUILTIN_TOUPPER: {
                         Value v = stack[--sp];
-                        stack[sp++] = lumin_toupper(v);
+                        stack[sp++] = lumyr_toupper(v);
                         break;
                     }
                     case BUILTIN_TOLOWER: {
                         Value v = stack[--sp];
-                        stack[sp++] = lumin_tolower(v);
+                        stack[sp++] = lumyr_tolower(v);
                         break;
                     }
                     case BUILTIN_SPLIT: {
                         Value sep = stack[--sp];
                         Value s = stack[--sp];
-                        stack[sp++] = lumin_split(s, sep);
+                        stack[sp++] = lumyr_split(s, sep);
                         break;
                     }
                     case BUILTIN_DEL: {
                         Value idx = stack[--sp];
-                        lumin_del(&stack[sp-1], idx);
+                        lumyr_del(&stack[sp-1], idx);
                         break;
                     }
                     case BUILTIN_INSERT: {
                         Value val = stack[--sp];
                         Value idx = stack[--sp];
-                        lumin_insert(&stack[sp-1], idx, val);
+                        lumyr_insert(&stack[sp-1], idx, val);
                         break;
                     }
-                    case BUILTIN_FLOOR: { Value v = stack[--sp]; stack[sp++] = lumin_floor(v); break; }
-                    case BUILTIN_CEIL:  { Value v = stack[--sp]; stack[sp++] = lumin_ceil(v); break; }
-                    case BUILTIN_ABS:   { Value v = stack[--sp]; stack[sp++] = lumin_abs(v); break; }
-                    case BUILTIN_SQRT:  { Value v = stack[--sp]; stack[sp++] = lumin_sqrt(v); break; }
+                    case BUILTIN_FLOOR: { Value v = stack[--sp]; stack[sp++] = lumyr_floor(v); break; }
+                    case BUILTIN_CEIL:  { Value v = stack[--sp]; stack[sp++] = lumyr_ceil(v); break; }
+                    case BUILTIN_ABS:   { Value v = stack[--sp]; stack[sp++] = lumyr_abs(v); break; }
+                    case BUILTIN_SQRT:  { Value v = stack[--sp]; stack[sp++] = lumyr_sqrt(v); break; }
                     case BUILTIN_MAX:
                     case BUILTIN_MIN: {
                         int n = in.b;
-                        Value r = (in.a == BUILTIN_MAX) ? lumin_max(&stack[sp - n], n) : lumin_min(&stack[sp - n], n);
+                        Value r = (in.a == BUILTIN_MAX) ? lumyr_max(&stack[sp - n], n) : lumyr_min(&stack[sp - n], n);
                         sp = sp - n + 1;
                         sp--; stack[sp++] = r;
                         break;
@@ -440,47 +440,47 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     case BUILTIN_JOIN: {
                         Value sep = stack[--sp];
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_join(arr, sep);
+                        stack[sp++] = lumyr_join(arr, sep);
                         break;
                     }
                     case BUILTIN_CONTAINS: {
                         Value needle = stack[--sp];
                         Value hay = stack[--sp];
-                        stack[sp++] = lumin_contains(hay, needle);
+                        stack[sp++] = lumyr_contains(hay, needle);
                         break;
                     }
                     case BUILTIN_REPEAT: {
                         Value n = stack[--sp];
                         Value s = stack[--sp];
-                        stack[sp++] = lumin_repeat(s, n);
+                        stack[sp++] = lumyr_repeat(s, n);
                         break;
                     }
                     case BUILTIN_REPLACE: {
                         Value to = stack[--sp];
                         Value from = stack[--sp];
                         Value s = stack[--sp];
-                        stack[sp++] = lumin_replace(s, from, to);
+                        stack[sp++] = lumyr_replace(s, from, to);
                         break;
                     }
-                    case BUILTIN_SUM: { Value v = stack[--sp]; stack[sp++] = lumin_sum(v); break; }
-                    case BUILTIN_AVG: { Value v = stack[--sp]; stack[sp++] = lumin_avg(v); break; }
+                    case BUILTIN_SUM: { Value v = stack[--sp]; stack[sp++] = lumyr_sum(v); break; }
+                    case BUILTIN_AVG: { Value v = stack[--sp]; stack[sp++] = lumyr_avg(v); break; }
                     case BUILTIN_FORMAT: {
                         int n = in.b;
-                        Value r = lumin_format(&stack[sp - n], n);
+                        Value r = lumyr_format(&stack[sp - n], n);
                         sp = sp - n + 1;
                         sp--; stack[sp++] = r;
                         break;
                     }
-                    case BUILTIN_SORT:    { Value v = stack[--sp]; stack[sp++] = lumin_sort(v); break; }
-                    case BUILTIN_REVERSE:{ Value v = stack[--sp]; stack[sp++] = lumin_reverse(v); break; }
-                    case BUILTIN_STRIP:   { Value v = stack[--sp]; stack[sp++] = lumin_strip(v); break; }
-                    case BUILTIN_STARTSWITH: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_startswith(l, r); break; }
-                    case BUILTIN_ENDSWITH:   { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumin_endswith(l, r); break; }
-                    case BUILTIN_READ_FILE:  { int n2 = in.b; Value r = lumin_read_file(&stack[sp - n2], n2); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
-                    case BUILTIN_WRITE_FILE: { int n2 = in.b; Value r = lumin_write_file(&stack[sp - n2], n2); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
-                    case BUILTIN_FILE_EXISTS:{ int n2 = in.b; Value r = lumin_file_exists(&stack[sp - n2], n2); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
-                    case BUILTIN_KEYS:     { int n2 = in.b; Value r = lumin_map_keys(stack[sp - n2]); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
-                    case BUILTIN_VALUES:   { int n2 = in.b; Value r = lumin_map_values(stack[sp - n2]); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
+                    case BUILTIN_SORT:    { Value v = stack[--sp]; stack[sp++] = lumyr_sort(v); break; }
+                    case BUILTIN_REVERSE:{ Value v = stack[--sp]; stack[sp++] = lumyr_reverse(v); break; }
+                    case BUILTIN_STRIP:   { Value v = stack[--sp]; stack[sp++] = lumyr_strip(v); break; }
+                    case BUILTIN_STARTSWITH: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_startswith(l, r); break; }
+                    case BUILTIN_ENDSWITH:   { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_endswith(l, r); break; }
+                    case BUILTIN_READ_FILE:  { int n2 = in.b; Value r = lumyr_read_file(&stack[sp - n2], n2); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
+                    case BUILTIN_WRITE_FILE: { int n2 = in.b; Value r = lumyr_write_file(&stack[sp - n2], n2); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
+                    case BUILTIN_FILE_EXISTS:{ int n2 = in.b; Value r = lumyr_file_exists(&stack[sp - n2], n2); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
+                    case BUILTIN_KEYS:     { int n2 = in.b; Value r = lumyr_map_keys(stack[sp - n2]); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
+                    case BUILTIN_VALUES:   { int n2 = in.b; Value r = lumyr_map_values(stack[sp - n2]); sp = sp - n2 + 1; sp--; stack[sp++] = r; break; }
                     case BUILTIN_THREAD: {
                         int argc = in.b;
                         if(argc < 1) runtime_error("thread() 至少需要一个函数参数");
@@ -492,55 +492,55 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(!a) runtime_error("thread: 内存不足");
                         a->rf = rf;
                         a->global_frame = s_global_frame;
-                        int tid = lumin_thread_start(vm_thread_body, (void*)a, (nargs > 0) ? &stack[sp - nargs] : NULL, nargs);
+                        int tid = lumyr_thread_start(vm_thread_body, (void*)a, (nargs > 0) ? &stack[sp - nargs] : NULL, nargs);
                         sp = sp - argc + 1;
-                        sp--; stack[sp++] = lumin_make_int(tid);
+                        sp--; stack[sp++] = lumyr_make_int(tid);
                         break;
                     }
                     case BUILTIN_THREAD_JOIN: {
                         Value idv = stack[--sp];
                         if(idv.type != VAL_INT) runtime_error("thread_join() 参数必须是线程id（整数）");
-                        stack[sp++] = lumin_thread_join((int)idv.v.i);
+                        stack[sp++] = lumyr_thread_join((int)idv.v.i);
                         break;
                     }
-                    case BUILTIN_MUTEX:    { stack[sp++] = lumin_make_int(lumin_mutex_create()); break; }
-                    case BUILTIN_RMUTEX:   { stack[sp++] = lumin_make_int(lumin_rmutex_create()); break; }
-                    case BUILTIN_RWLOCK:   { stack[sp++] = lumin_make_int(lumin_rwlock_create()); break; }
-                    case BUILTIN_SPINLOCK: { stack[sp++] = lumin_make_int(lumin_spinlock_create()); break; }
-                    case BUILTIN_LOCK:   { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("lock() 参数必须是锁id（整数）"); lumin_lock((int)v.v.i); stack[sp++] = v; break; }
-                    case BUILTIN_UNLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("unlock() 参数必须是锁id（整数）"); lumin_unlock((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_MUTEX:    { stack[sp++] = lumyr_make_int(lumyr_mutex_create()); break; }
+                    case BUILTIN_RMUTEX:   { stack[sp++] = lumyr_make_int(lumyr_rmutex_create()); break; }
+                    case BUILTIN_RWLOCK:   { stack[sp++] = lumyr_make_int(lumyr_rwlock_create()); break; }
+                    case BUILTIN_SPINLOCK: { stack[sp++] = lumyr_make_int(lumyr_spinlock_create()); break; }
+                    case BUILTIN_LOCK:   { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("lock() 参数必须是锁id（整数）"); lumyr_lock((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_UNLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("unlock() 参数必须是锁id（整数）"); lumyr_unlock((int)v.v.i); stack[sp++] = v; break; }
                     case BUILTIN_TRYLOCK: {
                         Value v = stack[--sp];
                         if(v.type != VAL_INT) runtime_error("trylock() 参数必须是锁id（整数）");
-                        stack[sp++] = lumin_make_bool(lumin_trylock((int)v.v.i));
+                        stack[sp++] = lumyr_make_bool(lumyr_trylock((int)v.v.i));
                         break;
                     }
-                    case BUILTIN_RDLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("rdlock() 参数必须是锁id（整数）"); lumin_rdlock((int)v.v.i); stack[sp++] = v; break; }
-                    case BUILTIN_WRLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("wrlock() 参数必须是锁id（整数）"); lumin_wrlock((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_RDLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("rdlock() 参数必须是锁id（整数）"); lumyr_rdlock((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_WRLOCK: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("wrlock() 参数必须是锁id（整数）"); lumyr_wrlock((int)v.v.i); stack[sp++] = v; break; }
                     case BUILTIN_TRYRDLOCK: {
                         Value v = stack[--sp];
                         if(v.type != VAL_INT) runtime_error("tryrdlock() 参数必须是锁id（整数）");
-                        stack[sp++] = lumin_make_bool(lumin_tryrdlock((int)v.v.i));
+                        stack[sp++] = lumyr_make_bool(lumyr_tryrdlock((int)v.v.i));
                         break;
                     }
                     case BUILTIN_TRYWRLOCK: {
                         Value v = stack[--sp];
                         if(v.type != VAL_INT) runtime_error("trywrlock() 参数必须是锁id（整数）");
-                        stack[sp++] = lumin_make_bool(lumin_trywrlock((int)v.v.i));
+                        stack[sp++] = lumyr_make_bool(lumyr_trywrlock((int)v.v.i));
                         break;
                     }
-                    case BUILTIN_CONDVAR: { stack[sp++] = lumin_make_int(lumin_condvar_create()); break; }
+                    case BUILTIN_CONDVAR: { stack[sp++] = lumyr_make_int(lumyr_condvar_create()); break; }
                     case BUILTIN_COND_WAIT: {
                         Value lk = stack[--sp];
                         Value cd = stack[--sp];
                         if(lk.type != VAL_INT) runtime_error("cond_wait() 锁参数必须是锁id（整数）");
                         if(cd.type != VAL_INT) runtime_error("cond_wait() 条件参数必须是条件id（整数）");
-                        lumin_cond_wait((int)cd.v.i, (int)lk.v.i);
+                        lumyr_cond_wait((int)cd.v.i, (int)lk.v.i);
                         stack[sp++] = lk;    // 压回原值（表达式值）
                         break;
                     }
-                    case BUILTIN_COND_SIGNAL: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("cond_signal() 参数必须是条件id（整数）"); lumin_cond_signal((int)v.v.i); stack[sp++] = v; break; }
-                    case BUILTIN_COND_BROADCAST: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("cond_broadcast() 参数必须是条件id（整数）"); lumin_cond_broadcast((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_COND_SIGNAL: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("cond_signal() 参数必须是条件id（整数）"); lumyr_cond_signal((int)v.v.i); stack[sp++] = v; break; }
+                    case BUILTIN_COND_BROADCAST: { Value v = stack[--sp]; if(v.type != VAL_INT) runtime_error("cond_broadcast() 参数必须是条件id（整数）"); lumyr_cond_broadcast((int)v.v.i); stack[sp++] = v; break; }
                     case BUILTIN_COND_TIMEDWAIT: {
                         Value ms = stack[--sp];
                         Value lk = stack[--sp];
@@ -548,20 +548,20 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(ms.type != VAL_INT) runtime_error("cond_wait_timeout() 超时参数必须是整数毫秒");
                         if(lk.type != VAL_INT) runtime_error("cond_wait_timeout() 锁参数必须是锁id（整数）");
                         if(cd.type != VAL_INT) runtime_error("cond_wait_timeout() 条件参数必须是条件id（整数）");
-                        stack[sp++] = lumin_make_bool(lumin_cond_timedwait((int)cd.v.i, (int)lk.v.i, ms.v.i));
+                        stack[sp++] = lumyr_make_bool(lumyr_cond_timedwait((int)cd.v.i, (int)lk.v.i, ms.v.i));
                         break;
                     }
                     case BUILTIN_THREADLOCAL_GET: {
                         Value nm = stack[--sp];
                         if(nm.type != VAL_STRING) runtime_error("threadlocal_get() 名字参数必须是字符串");
-                        stack[sp++] = lumin_tls_get(lumin_str_cstr(&nm));
+                        stack[sp++] = lumyr_tls_get(lumyr_str_cstr(&nm));
                         break;
                     }
                     case BUILTIN_THREADLOCAL_SET: {
                         Value v = stack[--sp];
                         Value nm = stack[--sp];
                         if(nm.type != VAL_STRING) runtime_error("threadlocal_set() 名字参数必须是字符串");
-                        lumin_tls_set(lumin_str_cstr(&nm), v);
+                        lumyr_tls_set(lumyr_str_cstr(&nm), v);
                         stack[sp++] = v;    // 压回原值（表达式值）
                         break;
                     }
@@ -573,55 +573,55 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             Value v = stack[--sp];
                             Value k = stack[--sp];
                             Value m = stack[--sp];
-                            stack[sp++] = lumin_map_add(m, k, v);
+                            stack[sp++] = lumyr_map_add(m, k, v);
                         } else {
                             Value v = stack[--sp];
-                            lumin_array_add(&stack[sp-1], v);
+                            lumyr_array_add(&stack[sp-1], v);
                         }
                         break;
                     }
                     case BUILTIN_ARRAY_REMOVE: {
                         Value idx = stack[--sp];
-                        lumin_del(&stack[sp-1], idx);
+                        lumyr_del(&stack[sp-1], idx);
                         break;
                     }
                     case BUILTIN_ARRAY_INDEXOF: {
                         Value x = stack[--sp];
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_index_of(arr, x);
+                        stack[sp++] = lumyr_index_of(arr, x);
                         break;
                     }
                     case BUILTIN_ARRAY_GET: {
                         Value i = stack[--sp];
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_get_safe(arr, i);
+                        stack[sp++] = lumyr_array_get_safe(arr, i);
                         break;
                     }
                     case BUILTIN_ARRAY_SET: {
                         Value v = stack[--sp];
                         Value i = stack[--sp];
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_set_method(arr, i, v);
+                        stack[sp++] = lumyr_array_set_method(arr, i, v);
                         break;
                     }
                     case BUILTIN_ARRAY_FIRST: {
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_first(arr);
+                        stack[sp++] = lumyr_array_first(arr);
                         break;
                     }
                     case BUILTIN_ARRAY_LAST: {
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_last(arr);
+                        stack[sp++] = lumyr_array_last(arr);
                         break;
                     }
                     case BUILTIN_ARRAY_CLEAR: {
-                        lumin_array_clear(&stack[sp-1]);
+                        lumyr_array_clear(&stack[sp-1]);
                         break;
                     }
                     case BUILTIN_MAP_HAS: {
                         Value k = stack[--sp];
                         Value m = stack[--sp];
-                        stack[sp++] = lumin_make_bool(lumin_map_has(m, k));
+                        stack[sp++] = lumyr_make_bool(lumyr_map_has(m, k));
                         break;
                     }
                     case BUILTIN_JSON: {
@@ -629,7 +629,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_json_parse_enc(lumin_str_cstr(&v), enc);
+                        stack[sp++] = lumyr_json_parse_enc(lumyr_str_cstr(&v), enc);
                         break;
                     }
                     case BUILTIN_STRINGIFY: {
@@ -637,18 +637,18 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        char* js = lumin_json_stringify_enc(v, enc);
-                        Value r = lumin_make_string(js);
+                        char* js = lumyr_json_stringify_enc(v, enc);
+                        Value r = lumyr_make_string(js);
                         free(js);
                         stack[sp++] = r;
                         break;
                     }
                     case BUILTIN_ARRAY_FLAT: {
-                        Value depth = lumin_make_int(1);
+                        Value depth = lumyr_make_int(1);
                         Value v;
                         if(in.b >= 2) { depth = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_array_flat(v, lumin_extract_int(depth));
+                        stack[sp++] = lumyr_array_flat(v, lumyr_extract_int(depth));
                         break;
                     }
                     case BUILTIN_QS: {
@@ -657,11 +657,11 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
                         if(v.type == VAL_MAP || v.type == VAL_ARRAY) {
-                            char* q = lumin_qs_stringify_enc(v, enc);
-                            stack[sp++] = lumin_make_string(q);
+                            char* q = lumyr_qs_stringify_enc(v, enc);
+                            stack[sp++] = lumyr_make_string(q);
                             free(q);
                         } else if(v.type == VAL_STRING) {
-                            stack[sp++] = lumin_qs_parse_enc(lumin_str_cstr(&v), enc);
+                            stack[sp++] = lumyr_qs_parse_enc(lumyr_str_cstr(&v), enc);
                         } else {
                             runtime_error("qs() 参数必须是字典/数组（序列化）或字符串（解析）");
                         }
@@ -669,7 +669,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_ARRAY_ADDALL: {
                         Value b = stack[--sp];
-                        lumin_array_addall(&stack[sp-1], b);
+                        lumyr_array_addall(&stack[sp-1], b);
                         break;
                     }
                     case BUILTIN_BYTES: {
@@ -677,7 +677,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_to_bytes(v, enc);
+                        stack[sp++] = lumyr_to_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_STR: {
@@ -685,7 +685,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_from_bytes(v, enc);
+                        stack[sp++] = lumyr_from_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_ENCODE: {
@@ -693,7 +693,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_to_bytes(v, enc);
+                        stack[sp++] = lumyr_to_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_DECODE: {
@@ -701,108 +701,108 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_from_bytes(v, enc);
+                        stack[sp++] = lumyr_from_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_ENCODE_URL: {
                         Value v = stack[--sp];
-                        char* r = lumin_url_encode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "");
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_url_encode(v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "");
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_DECODE_URL: {
                         Value v = stack[--sp];
-                        char* r = lumin_url_decode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "");
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_url_decode(v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "");
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_MD5: {
                         Value v = stack[--sp];
-                        const char* inp = v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "";
-                        char* r = lumin_md5_hex(inp, (int)strlen(inp));
-                        stack[sp++] = lumin_make_string(r);
+                        const char* inp = v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "";
+                        char* r = lumyr_md5_hex(inp, (int)strlen(inp));
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_ENCODE_BASE64: {
                         Value v = stack[--sp];
-                        const char* inp = v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "";
-                        char* r = lumin_base64_encode(inp, (int)strlen(inp));
-                        stack[sp++] = lumin_make_string(r);
+                        const char* inp = v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "";
+                        char* r = lumyr_base64_encode(inp, (int)strlen(inp));
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_DECODE_BASE64: {
                         Value v = stack[--sp];
                         int olen = 0;
-                        char* r = lumin_base64_decode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "", &olen);
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_base64_decode(v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "", &olen);
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_REGEX_MATCH: {
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
-                        stack[sp++] = lumin_make_bool(lumin_regex_match(
-                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
-                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : ""));
+                        stack[sp++] = lumyr_make_bool(lumyr_regex_match(
+                            str.type == VAL_STRING ? (lumyr_str_cstr(&str) ? lumyr_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumyr_str_cstr(&pat) ? lumyr_str_cstr(&pat) : "") : ""));
                         break;
                     }
                     case BUILTIN_REGEX_SEARCH: {
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
-                        stack[sp++] = lumin_regex_search(
-                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
-                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : "");
+                        stack[sp++] = lumyr_regex_search(
+                            str.type == VAL_STRING ? (lumyr_str_cstr(&str) ? lumyr_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumyr_str_cstr(&pat) ? lumyr_str_cstr(&pat) : "") : "");
                         break;
                     }
                     case BUILTIN_REGEX_REPLACE: {
                         Value repl = stack[--sp];
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
-                        char* r = lumin_regex_replace(
-                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
-                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : "",
-                            repl.type == VAL_STRING ? (lumin_str_cstr(&repl) ? lumin_str_cstr(&repl) : "") : "");
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_regex_replace(
+                            str.type == VAL_STRING ? (lumyr_str_cstr(&str) ? lumyr_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumyr_str_cstr(&pat) ? lumyr_str_cstr(&pat) : "") : "",
+                            repl.type == VAL_STRING ? (lumyr_str_cstr(&repl) ? lumyr_str_cstr(&repl) : "") : "");
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_NOW: {
-                        stack[sp++] = lumin_now();
+                        stack[sp++] = lumyr_now();
                         break;
                     }
                     case BUILTIN_TIMESTAMP: {
-                        stack[sp++] = lumin_make_double(lumin_timestamp());
+                        stack[sp++] = lumyr_make_double(lumyr_timestamp());
                         break;
                     }
                     case BUILTIN_TIMESTAMP_MS: {
-                        stack[sp++] = lumin_make_int(lumin_timestamp_ms());
+                        stack[sp++] = lumyr_make_int(lumyr_timestamp_ms());
                         break;
                     }
                     case BUILTIN_SLEEP: {
                         Value v = stack[--sp];
-                        lumin_sleep_ms((long long)lumin_extract_int(v));
+                        lumyr_sleep_ms((long long)lumyr_extract_int(v));
                         stack[sp++] = val_none();
                         break;
                     }
                     case BUILTIN_DATE: {
-                        char* r = lumin_date_str();
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_date_str();
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_TIME: {
-                        char* r = lumin_time_str();
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_time_str();
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_DATETIME: {
-                        char* r = lumin_datetime_str();
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_datetime_str();
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
@@ -811,9 +811,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value fmt;
                         if(in.b >= 2) { ts = stack[--sp]; fmt = stack[--sp]; }
                         else { fmt = stack[--sp]; }
-                        double tsv = (ts.type == VAL_NONE) ? -1.0 : (ts.type == VAL_DOUBLE ? ts.v.d : (double)lumin_extract_int(ts));
-                        char* r = lumin_format_time(fmt.type == VAL_STRING ? (lumin_str_cstr(&fmt) ? lumin_str_cstr(&fmt) : "") : "", tsv);
-                        stack[sp++] = lumin_make_string(r);
+                        double tsv = (ts.type == VAL_NONE) ? -1.0 : (ts.type == VAL_DOUBLE ? ts.v.d : (double)lumyr_extract_int(ts));
+                        char* r = lumyr_format_time(fmt.type == VAL_STRING ? (lumyr_str_cstr(&fmt) ? lumyr_str_cstr(&fmt) : "") : "", tsv);
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
@@ -827,17 +827,17 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(in.b >= 2) { msg = stack[--sp]; stack[--sp]; }  // 方法链：先弹消息，再丢弃 receiver
                         else { msg = stack[--sp]; }
                         char* ms = value_to_str(msg);
-                        lumin_log(lvl, ms);
+                        lumyr_log(lvl, ms);
                         free(ms);
                         stack[sp++] = val_none();
                         break;
                     }
                     case BUILTIN_GC_COUNT: {
-                        stack[sp++] = lumin_make_int((long long)gc_count());
+                        stack[sp++] = lumyr_make_int((long long)gc_count());
                         break;
                     }
                     case BUILTIN_GC_BYTES: {
-                        stack[sp++] = lumin_make_int((long long)gc_bytes());
+                        stack[sp++] = lumyr_make_int((long long)gc_bytes());
                         break;
                     }
                     case BUILTIN_GC_COLLECT: {
@@ -846,7 +846,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                     }
                     case BUILTIN_GC_STW_NS: {
-                        stack[sp++] = lumin_make_int((long long)gc_stw_time_ns());
+                        stack[sp++] = lumyr_make_int((long long)gc_stw_time_ns());
                         break;
                     }
                     case BUILTIN_HTTP_DELETE:
@@ -863,55 +863,55 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             Value v = stack[--sp];
                             Value k = stack[--sp];
                             Value m = stack[--sp];
-                            stack[sp++] = lumin_map_add(m, k, v);
+                            stack[sp++] = lumyr_map_add(m, k, v);
                         } else {
                             Value v = stack[--sp];
-                            lumin_array_add(&stack[sp-1], v);
+                            lumyr_array_add(&stack[sp-1], v);
                         }
                         break;
                     }
                     case BUILTIN_ARRAY_REMOVE: {
                         Value idx = stack[--sp];
-                        lumin_del(&stack[sp-1], idx);
+                        lumyr_del(&stack[sp-1], idx);
                         break;
                     }
                     case BUILTIN_ARRAY_INDEXOF: {
                         Value x = stack[--sp];
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_index_of(arr, x);
+                        stack[sp++] = lumyr_index_of(arr, x);
                         break;
                     }
                     case BUILTIN_ARRAY_GET: {
                         Value i = stack[--sp];
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_get_safe(arr, i);
+                        stack[sp++] = lumyr_array_get_safe(arr, i);
                         break;
                     }
                     case BUILTIN_ARRAY_SET: {
                         Value v = stack[--sp];
                         Value i = stack[--sp];
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_set_method(arr, i, v);
+                        stack[sp++] = lumyr_array_set_method(arr, i, v);
                         break;
                     }
                     case BUILTIN_ARRAY_FIRST: {
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_first(arr);
+                        stack[sp++] = lumyr_array_first(arr);
                         break;
                     }
                     case BUILTIN_ARRAY_LAST: {
                         Value arr = stack[--sp];
-                        stack[sp++] = lumin_array_last(arr);
+                        stack[sp++] = lumyr_array_last(arr);
                         break;
                     }
                     case BUILTIN_ARRAY_CLEAR: {
-                        lumin_array_clear(&stack[sp-1]);
+                        lumyr_array_clear(&stack[sp-1]);
                         break;
                     }
                     case BUILTIN_MAP_HAS: {
                         Value k = stack[--sp];
                         Value m = stack[--sp];
-                        stack[sp++] = lumin_make_bool(lumin_map_has(m, k));
+                        stack[sp++] = lumyr_make_bool(lumyr_map_has(m, k));
                         break;
                     }
                     case BUILTIN_JSON: {
@@ -919,7 +919,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_json_parse_enc(lumin_str_cstr(&v), enc);
+                        stack[sp++] = lumyr_json_parse_enc(lumyr_str_cstr(&v), enc);
                         break;
                     }
                     case BUILTIN_STRINGIFY: {
@@ -927,18 +927,18 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        char* js = lumin_json_stringify_enc(v, enc);
-                        Value r = lumin_make_string(js);
+                        char* js = lumyr_json_stringify_enc(v, enc);
+                        Value r = lumyr_make_string(js);
                         free(js);
                         stack[sp++] = r;
                         break;
                     }
                     case BUILTIN_ARRAY_FLAT: {
-                        Value depth = lumin_make_int(1);
+                        Value depth = lumyr_make_int(1);
                         Value v;
                         if(in.b >= 2) { depth = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_array_flat(v, lumin_extract_int(depth));
+                        stack[sp++] = lumyr_array_flat(v, lumyr_extract_int(depth));
                         break;
                     }
                     case BUILTIN_QS: {
@@ -947,11 +947,11 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
                         if(v.type == VAL_MAP || v.type == VAL_ARRAY) {
-                            char* q = lumin_qs_stringify_enc(v, enc);
-                            stack[sp++] = lumin_make_string(q);
+                            char* q = lumyr_qs_stringify_enc(v, enc);
+                            stack[sp++] = lumyr_make_string(q);
                             free(q);
                         } else if(v.type == VAL_STRING) {
-                            stack[sp++] = lumin_qs_parse_enc(lumin_str_cstr(&v), enc);
+                            stack[sp++] = lumyr_qs_parse_enc(lumyr_str_cstr(&v), enc);
                         } else {
                             runtime_error("qs() 参数必须是字典/数组（序列化）或字符串（解析）");
                         }
@@ -959,7 +959,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     }
                     case BUILTIN_ARRAY_ADDALL: {
                         Value b = stack[--sp];
-                        lumin_array_addall(&stack[sp-1], b);
+                        lumyr_array_addall(&stack[sp-1], b);
                         break;
                     }
                     case BUILTIN_BYTES: {
@@ -967,7 +967,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_to_bytes(v, enc);
+                        stack[sp++] = lumyr_to_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_STR: {
@@ -975,7 +975,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_from_bytes(v, enc);
+                        stack[sp++] = lumyr_from_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_ENCODE: {
@@ -983,7 +983,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_to_bytes(v, enc);
+                        stack[sp++] = lumyr_to_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_DECODE: {
@@ -991,108 +991,108 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value v;
                         if(in.b >= 2) { enc = stack[--sp]; v = stack[--sp]; }
                         else { v = stack[--sp]; }
-                        stack[sp++] = lumin_from_bytes(v, enc);
+                        stack[sp++] = lumyr_from_bytes(v, enc);
                         break;
                     }
                     case BUILTIN_ENCODE_URL: {
                         Value v = stack[--sp];
-                        char* r = lumin_url_encode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "");
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_url_encode(v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "");
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_DECODE_URL: {
                         Value v = stack[--sp];
-                        char* r = lumin_url_decode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "");
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_url_decode(v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "");
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_MD5: {
                         Value v = stack[--sp];
-                        const char* inp = v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "";
-                        char* r = lumin_md5_hex(inp, (int)strlen(inp));
-                        stack[sp++] = lumin_make_string(r);
+                        const char* inp = v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "";
+                        char* r = lumyr_md5_hex(inp, (int)strlen(inp));
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_ENCODE_BASE64: {
                         Value v = stack[--sp];
-                        const char* inp = v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "";
-                        char* r = lumin_base64_encode(inp, (int)strlen(inp));
-                        stack[sp++] = lumin_make_string(r);
+                        const char* inp = v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "";
+                        char* r = lumyr_base64_encode(inp, (int)strlen(inp));
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_DECODE_BASE64: {
                         Value v = stack[--sp];
                         int olen = 0;
-                        char* r = lumin_base64_decode(v.type == VAL_STRING ? (lumin_str_cstr(&v) ? lumin_str_cstr(&v) : "") : "", &olen);
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_base64_decode(v.type == VAL_STRING ? (lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "") : "", &olen);
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_REGEX_MATCH: {
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
-                        stack[sp++] = lumin_make_bool(lumin_regex_match(
-                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
-                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : ""));
+                        stack[sp++] = lumyr_make_bool(lumyr_regex_match(
+                            str.type == VAL_STRING ? (lumyr_str_cstr(&str) ? lumyr_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumyr_str_cstr(&pat) ? lumyr_str_cstr(&pat) : "") : ""));
                         break;
                     }
                     case BUILTIN_REGEX_SEARCH: {
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
-                        stack[sp++] = lumin_regex_search(
-                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
-                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : "");
+                        stack[sp++] = lumyr_regex_search(
+                            str.type == VAL_STRING ? (lumyr_str_cstr(&str) ? lumyr_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumyr_str_cstr(&pat) ? lumyr_str_cstr(&pat) : "") : "");
                         break;
                     }
                     case BUILTIN_REGEX_REPLACE: {
                         Value repl = stack[--sp];
                         Value pat = stack[--sp];
                         Value str = stack[--sp];
-                        char* r = lumin_regex_replace(
-                            str.type == VAL_STRING ? (lumin_str_cstr(&str) ? lumin_str_cstr(&str) : "") : "",
-                            pat.type == VAL_STRING ? (lumin_str_cstr(&pat) ? lumin_str_cstr(&pat) : "") : "",
-                            repl.type == VAL_STRING ? (lumin_str_cstr(&repl) ? lumin_str_cstr(&repl) : "") : "");
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_regex_replace(
+                            str.type == VAL_STRING ? (lumyr_str_cstr(&str) ? lumyr_str_cstr(&str) : "") : "",
+                            pat.type == VAL_STRING ? (lumyr_str_cstr(&pat) ? lumyr_str_cstr(&pat) : "") : "",
+                            repl.type == VAL_STRING ? (lumyr_str_cstr(&repl) ? lumyr_str_cstr(&repl) : "") : "");
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_NOW: {
-                        stack[sp++] = lumin_now();
+                        stack[sp++] = lumyr_now();
                         break;
                     }
                     case BUILTIN_TIMESTAMP: {
-                        stack[sp++] = lumin_make_double(lumin_timestamp());
+                        stack[sp++] = lumyr_make_double(lumyr_timestamp());
                         break;
                     }
                     case BUILTIN_TIMESTAMP_MS: {
-                        stack[sp++] = lumin_make_int(lumin_timestamp_ms());
+                        stack[sp++] = lumyr_make_int(lumyr_timestamp_ms());
                         break;
                     }
                     case BUILTIN_SLEEP: {
                         Value v = stack[--sp];
-                        lumin_sleep_ms((long long)lumin_extract_int(v));
+                        lumyr_sleep_ms((long long)lumyr_extract_int(v));
                         stack[sp++] = val_none();
                         break;
                     }
                     case BUILTIN_DATE: {
-                        char* r = lumin_date_str();
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_date_str();
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_TIME: {
-                        char* r = lumin_time_str();
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_time_str();
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
                     case BUILTIN_DATETIME: {
-                        char* r = lumin_datetime_str();
-                        stack[sp++] = lumin_make_string(r);
+                        char* r = lumyr_datetime_str();
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
@@ -1101,9 +1101,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value fmt;
                         if(in.b >= 2) { ts = stack[--sp]; fmt = stack[--sp]; }
                         else { fmt = stack[--sp]; }
-                        double tsv = (ts.type == VAL_NONE) ? -1.0 : (ts.type == VAL_DOUBLE ? ts.v.d : (double)lumin_extract_int(ts));
-                        char* r = lumin_format_time(fmt.type == VAL_STRING ? (lumin_str_cstr(&fmt) ? lumin_str_cstr(&fmt) : "") : "", tsv);
-                        stack[sp++] = lumin_make_string(r);
+                        double tsv = (ts.type == VAL_NONE) ? -1.0 : (ts.type == VAL_DOUBLE ? ts.v.d : (double)lumyr_extract_int(ts));
+                        char* r = lumyr_format_time(fmt.type == VAL_STRING ? (lumyr_str_cstr(&fmt) ? lumyr_str_cstr(&fmt) : "") : "", tsv);
+                        stack[sp++] = lumyr_make_string(r);
                         free(r);
                         break;
                     }
@@ -1117,7 +1117,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(in.b >= 2) { msg = stack[--sp]; stack[--sp]; }  // 方法链：先弹消息，再丢弃 receiver
                         else { msg = stack[--sp]; }
                         char* ms = value_to_str(msg);
-                        lumin_log(lvl, ms);
+                        lumyr_log(lvl, ms);
                         free(ms);
                         stack[sp++] = val_none();
                         break;
@@ -1130,7 +1130,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         Value url    = stack[sp - n];
                         Value params = (n >= 2) ? stack[sp - n + 1] : val_none();
                         Value config = (n >= 3) ? stack[sp - n + 2] : val_none();
-                        Value r = lumin_http_request(m, url, params, config);
+                        Value r = lumyr_http_request(m, url, params, config);
                         sp = sp - n + 1;
                         sp--; stack[sp++] = r;
                         break;
@@ -1154,7 +1154,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                                 a2[0] = mv;
                                 a2[1] = mk;
                                 Value r = vm_call_rf(mrf, a2, 2, frame, ctx);
-                                lumin_map_set(&mout, mk, r);
+                                lumyr_map_set(&mout, mk, r);
                             }
                             stack[sp++] = mout;
                             break;
@@ -1177,7 +1177,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                             for(int i = 0; i < n; i++) {
                                 Value a1[1] = { arr.v.array->items[i] };
                                 Value r = vm_call_rf(rf, a1, 1, frame, ctx);
-                                if(lumin_to_bool(r)) out.v.array->items[cnt++] = arr.v.array->items[i];
+                                if(lumyr_to_bool(r)) out.v.array->items[cnt++] = arr.v.array->items[i];
                             }
                             out.v.array->len = cnt;
                             stack[sp++] = out;
@@ -1199,10 +1199,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 break;
             }
             case OPC_PRINT:
-                lumin_print(stack[sp - 1]);
+                lumyr_print(stack[sp - 1]);
                 break;
             case OPC_TO_BOOL:
-                stack[sp - 1] = lumin_make_bool(lumin_to_bool(stack[sp - 1]));
+                stack[sp - 1] = lumyr_make_bool(lumyr_to_bool(stack[sp - 1]));
                 break;
             case OPC_DUP:
                 stack[sp] = stack[sp - 1];
@@ -1241,8 +1241,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 break;
             case OPC_GET_ERR: {
                 /* 错误对象化：type/message + 调用栈回溯；然后截断残留到 TRY 层 */
-                char* st = lumin_build_stack_trace();
-                stack[sp++] = lumin_make_error(g_err_type, g_err_msg, st);
+                char* st = lumyr_build_stack_trace();
+                stack[sp++] = lumyr_make_error(g_err_type, g_err_msg, st);
                 free(st);
                 /* OPC_TRY else 已将 vm_depth 设为 d（TRY 前深度），直接用 vm_depth 索引 */
                 g_trace_n = vm_tn[vm_depth];
@@ -1258,13 +1258,13 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     type = v.v.err.type ? v.v.err.type : "Error";
                     msg = strdup(v.v.err.message ? v.v.err.message : "");
                 } else if(v.type == VAL_MAP) {
-                    if(lumin_map_has(v, lumin_make_string("type"))) {
-                        Value tv = lumin_map_get(v, lumin_make_string("type"));
-                        if(tv.type == VAL_STRING) type = lumin_str_cstr(&tv);
+                    if(lumyr_map_has(v, lumyr_make_string("type"))) {
+                        Value tv = lumyr_map_get(v, lumyr_make_string("type"));
+                        if(tv.type == VAL_STRING) type = lumyr_str_cstr(&tv);
                     }
-                    if(lumin_map_has(v, lumin_make_string("message"))) {
-                        Value mv = lumin_map_get(v, lumin_make_string("message"));
-                        if(mv.type == VAL_STRING) msg = strdup(lumin_str_cstr(&mv));
+                    if(lumyr_map_has(v, lumyr_make_string("message"))) {
+                        Value mv = lumyr_map_get(v, lumyr_make_string("message"));
+                        if(mv.type == VAL_STRING) msg = strdup(lumyr_str_cstr(&mv));
                     }
                 }
                 if(!msg) msg = value_to_str(v);
@@ -1329,10 +1329,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 pc = in.a;
                 break;
             case OPC_JMP_IF_FALSE:
-                if(!lumin_to_bool(stack[--sp])) pc = in.a;
+                if(!lumyr_to_bool(stack[--sp])) pc = in.a;
                 break;
             case OPC_JMP_IF_TRUE:
-                if(lumin_to_bool(stack[--sp])) pc = in.a;
+                if(lumyr_to_bool(stack[--sp])) pc = in.a;
                 break;
             case OPC_CALL: {
                 const char* fname = bf->syms[in.a];

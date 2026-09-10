@@ -1,11 +1,11 @@
-# lumin 模块系统（第一阶段）说明
+# lumyr 模块系统（第一阶段）说明
 
 ## 目标
 在不破坏双通道（VM 解释 / C 编译）一致性、不影响现有 46+ 测试的前提下，落地
 `import "path" as name;` / `export func` / `export const` 的最小可用版本。
 
 ## 实现方式：文本预处理 + map 导出
-lumin 的 bison/flex parser 是全局不可重入状态，无法在语法动作里递归解析被导入文件。
+lumyr 的 bison/flex parser 是全局不可重入状态，无法在语法动作里递归解析被导入文件。
 因此在 `yyparse()` 之前（`src/main.c`）做一次文本预处理（`src/parse/import.c`）：
 
 1. 读主文件全文，单遍扫描（跳过注释 / 字符串 / 字符字面量内部，避免误判其中关键字）。
@@ -22,7 +22,7 @@ lumin 的 bison/flex parser 是全局不可重入状态，无法在语法动作�
 由于两通道消费的是**同一份合并后源码**，VM 与编译通道天然一致。
 
 ## 关键语法冲突处理
-lumin 里 `a.b` 本是 map 点访问，但 `a.b(x)` 在 `yacc.y` 中是**方法链糖**
+lumyr 里 `a.b` 本是 map 点访问，但 `a.b(x)` 在 `yacc.y` 中是**方法链糖**
 （→ `b(a, x)`，把接收者当前参），并非 `a["b"](x)`。
 为此：
 - 预处理阶段把所有 `as alias` 登记进模块别名表（`lm_register_alias`）；

@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 REM ============================================================
-REM  Lumin Language Compiler - Windows Build Script
+REM  Lumyr Language Compiler - Windows Build Script
 REM  Usage: build.bat [command]
 REM ============================================================
 
@@ -13,7 +13,7 @@ set "MINGW_PATH=C:\mingw64\bin"
 set "GIT_USR_BIN=D:\apps\git\Git\usr\bin"
 set "WINFLEXBISON=third_party\windows\tools\winflexbison"
 
-set "BIN_BIN=bin\lumin.exe"
+set "BIN_BIN=bin\lumyr.exe"
 
 set "PATH=%GIT_USR_BIN%;%MINGW_PATH%;%WINFLEXBISON%;%PATH%"
 

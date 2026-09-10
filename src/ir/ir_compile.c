@@ -4,7 +4,7 @@
 // 遍历结构与 ast_typecheck.c / codegen.c 对齐（用户建议复用其递归结构）。
 #include "ir_compile.h"
 #include "ir_opt.h"
-#include "ast/lumin_types.h"
+#include "ast/lumyr_types.h"
 #include "ast/ast_types.h"
 #include "ast/func_compile.h"
 #include "lm_value.h"
@@ -362,17 +362,17 @@ static void c_map_entries(Ctx* c, AstNode* e, int* n) {
 }
 
 // ---------------- 常量折叠 ----------------
-// 纯字面量表达式在编译期求值（调用运行时 lumin_*，语义与执行期一致）。
+// 纯字面量表达式在编译期求值（调用运行时 lumyr_*，语义与执行期一致）。
 // 除零不折叠（保留运行期错误行为）。
 
 static int fold_lit(AstNode* node, Value* out)
 {
     switch(node->type) {
-        case AST_INT:    *out = lumin_make_int(node->u.inum); return 1;
-        case AST_NUM:    *out = lumin_make_double(node->u.num); return 1;
-        case AST_BOOL:   *out = lumin_make_bool(node->u.bval ? 1 : 0); return 1;
-        case AST_CHAR:   *out = lumin_make_char(node->u.ch); return 1;
-        case AST_STRING: *out = lumin_make_string(node->u.sval); return 1;
+        case AST_INT:    *out = lumyr_make_int(node->u.inum); return 1;
+        case AST_NUM:    *out = lumyr_make_double(node->u.num); return 1;
+        case AST_BOOL:   *out = lumyr_make_bool(node->u.bval ? 1 : 0); return 1;
+        case AST_CHAR:   *out = lumyr_make_char(node->u.ch); return 1;
+        case AST_STRING: *out = lumyr_make_string(node->u.sval); return 1;
         default:         return 0;
     }
 }
@@ -388,32 +388,32 @@ static int fold_const(Ctx* c, AstNode* node, Value* out)
             if(!fold_const(c, node->u.bin.left, &l)) return 0;
             if(!fold_const(c, node->u.bin.right, &r)) return 0;
             switch(node->u.bin.op) {
-                case OP_ADD: *out = lumin_add(l, r); return 1;
-                case OP_SUB: *out = lumin_sub(l, r); return 1;
-                case OP_MUL: *out = lumin_mul(l, r); return 1;
+                case OP_ADD: *out = lumyr_add(l, r); return 1;
+                case OP_SUB: *out = lumyr_sub(l, r); return 1;
+                case OP_MUL: *out = lumyr_mul(l, r); return 1;
                 case OP_DIV:
                     if((r.type == VAL_INT && r.v.i != 0) || (r.type == VAL_DOUBLE && r.v.d != 0.0)) {
-                        *out = lumin_div(l, r);
+                        *out = lumyr_div(l, r);
                         return 1;
                     }
                     return 0;
-                case OP_GT: *out = lumin_gt(l, r); return 1;
-                case OP_LT: *out = lumin_lt(l, r); return 1;
-                case OP_GE: *out = lumin_ge(l, r); return 1;
-                case OP_LE: *out = lumin_le(l, r); return 1;
-                case OP_EQ: *out = lumin_eq(l, r); return 1;
-                case OP_NE: *out = lumin_ne(l, r); return 1;
+                case OP_GT: *out = lumyr_gt(l, r); return 1;
+                case OP_LT: *out = lumyr_lt(l, r); return 1;
+                case OP_GE: *out = lumyr_ge(l, r); return 1;
+                case OP_LE: *out = lumyr_le(l, r); return 1;
+                case OP_EQ: *out = lumyr_eq(l, r); return 1;
+                case OP_NE: *out = lumyr_ne(l, r); return 1;
                 case OP_MOD:
                     if((r.type == VAL_INT && r.v.i != 0) || (r.type == VAL_DOUBLE && r.v.d != 0.0)) {
-                        *out = lumin_mod(l, r);
+                        *out = lumyr_mod(l, r);
                         return 1;
                     }
                     return 0;
                 case OP_LOGIC_AND:
-                    *out = lumin_make_bool(lumin_to_bool(l) && lumin_to_bool(r));
+                    *out = lumyr_make_bool(lumyr_to_bool(l) && lumyr_to_bool(r));
                     return 1;
                 case OP_LOGIC_OR:
-                    *out = lumin_make_bool(lumin_to_bool(l) || lumin_to_bool(r));
+                    *out = lumyr_make_bool(lumyr_to_bool(l) || lumyr_to_bool(r));
                     return 1;
                 default: return 0;
             }
@@ -422,9 +422,9 @@ static int fold_const(Ctx* c, AstNode* node, Value* out)
             Value v;
             if(!fold_const(c, node->u.uny.child, &v)) return 0;
             switch(node->u.uny.op) {
-                case OP_UNARY_PLUS:  *out = lumin_unary_plus(v); return 1;
-                case OP_UNARY_MINUS: *out = lumin_unary_minus(v); return 1;
-                case OP_LOGIC_NOT:   *out = lumin_logic_not(v); return 1;
+                case OP_UNARY_PLUS:  *out = lumyr_unary_plus(v); return 1;
+                case OP_UNARY_MINUS: *out = lumyr_unary_minus(v); return 1;
+                case OP_LOGIC_NOT:   *out = lumyr_logic_not(v); return 1;
                 default: return 0;
             }
         }
@@ -432,24 +432,24 @@ static int fold_const(Ctx* c, AstNode* node, Value* out)
             Value v;
             if(!fold_const(c, node->u.cast.child, &v)) return 0;
             switch(node->u.cast.cast_type) {
-                case CAST_INT:    *out = lumin_cast_int(v); return 1;
-                case CAST_DOUBLE: *out = lumin_cast_double(v); return 1;
-                case CAST_CHAR:   *out = lumin_cast_char(v); return 1;
-                case CAST_BOOL:   *out = lumin_cast_bool(v); return 1;
-                case CAST_STRING: *out = lumin_cast_string(v); return 1;
-                case CAST_ASCII:  *out = lumin_cast_ascii(v); return 1;
-                case CAST_BYTE:   *out = lumin_cast_byte(v); return 1;
-                case CAST_INT8:   *out = lumin_cast_int8(v); return 1;
-                case CAST_INT16:  *out = lumin_cast_int16(v); return 1;
-                case CAST_INT32:  *out = lumin_cast_int32(v); return 1;
-                case CAST_INT64:  *out = lumin_cast_int64(v); return 1;
-                case CAST_UINT8:  *out = lumin_cast_uint8(v); return 1;
-                case CAST_UINT16: *out = lumin_cast_uint16(v); return 1;
-                case CAST_UINT32: *out = lumin_cast_uint32(v); return 1;
-                case CAST_UINT64: *out = lumin_cast_uint64(v); return 1;
-                case CAST_LONG: *out = lumin_cast_long(v); return 1;
-                case CAST_LONGLONG: *out = lumin_cast_longlong(v); return 1;
-                case CAST_FLOAT: *out = lumin_cast_float(v); return 1;
+                case CAST_INT:    *out = lumyr_cast_int(v); return 1;
+                case CAST_DOUBLE: *out = lumyr_cast_double(v); return 1;
+                case CAST_CHAR:   *out = lumyr_cast_char(v); return 1;
+                case CAST_BOOL:   *out = lumyr_cast_bool(v); return 1;
+                case CAST_STRING: *out = lumyr_cast_string(v); return 1;
+                case CAST_ASCII:  *out = lumyr_cast_ascii(v); return 1;
+                case CAST_BYTE:   *out = lumyr_cast_byte(v); return 1;
+                case CAST_INT8:   *out = lumyr_cast_int8(v); return 1;
+                case CAST_INT16:  *out = lumyr_cast_int16(v); return 1;
+                case CAST_INT32:  *out = lumyr_cast_int32(v); return 1;
+                case CAST_INT64:  *out = lumyr_cast_int64(v); return 1;
+                case CAST_UINT8:  *out = lumyr_cast_uint8(v); return 1;
+                case CAST_UINT16: *out = lumyr_cast_uint16(v); return 1;
+                case CAST_UINT32: *out = lumyr_cast_uint32(v); return 1;
+                case CAST_UINT64: *out = lumyr_cast_uint64(v); return 1;
+                case CAST_LONG: *out = lumyr_cast_long(v); return 1;
+                case CAST_LONGLONG: *out = lumyr_cast_longlong(v); return 1;
+                case CAST_FLOAT: *out = lumyr_cast_float(v); return 1;
                 default: return 0;
             }
         }
@@ -463,22 +463,22 @@ static void c_expr(Ctx* c, AstNode* node)
     if(!node) { emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0); return; }
     switch(node->type) {
         case AST_INT:
-            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_int(node->u.inum)), 0);
+            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_int(node->u.inum)), 0);
             break;
         case AST_NUM:
-            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_double(node->u.num)), 0);
+            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_double(node->u.num)), 0);
             break;
         case AST_BOOL:
-            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_bool(node->u.bval ? 1 : 0)), 0);
+            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_bool(node->u.bval ? 1 : 0)), 0);
             break;
         case AST_NONE:
             emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
             break;
         case AST_CHAR:
-            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_char(node->u.ch)), 0);
+            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_char(node->u.ch)), 0);
             break;
         case AST_STRING:
-            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_string(node->u.sval)), 0);
+            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_string(node->u.sval)), 0);
             break;
         case AST_VAR:
             emit(c, OPC_LOAD_VAR, bf_sym(c->fn, node->u.varname), 0);
@@ -524,7 +524,7 @@ static void c_expr(Ctx* c, AstNode* node)
                 int jend = bf_emit_here(c->fn, OPC_JMP, -1, 0);
                 bf_patch(c->fn, jskip, c->fn->code_len);       // 短路路径：
                 emit(c, OPC_LOAD_CONST,
-                     bf_const(c->fn, lumin_make_bool(bop == OP_LOGIC_OR)), 0);
+                     bf_const(c->fn, lumyr_make_bool(bop == OP_LOGIC_OR)), 0);
                 bf_patch(c->fn, jend, c->fn->code_len);
                 break;
             }
@@ -680,7 +680,7 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_FOR:
         case AST_SWITCH:
             c_stmt(c, node);
-            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_int(0)), 0);
+            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_int(0)), 0);
             break;
         case AST_RETURN:
             if(node->u.ret.ret_val) c_expr(c, node->u.ret.ret_val);
@@ -690,7 +690,7 @@ static void c_expr(Ctx* c, AstNode* node)
             c_expr(c, node->u.destruct.rhs);
             for(int i = 0; i < node->u.destruct.count; i++) {
                 emit(c, OPC_DUP, 0, 0);
-                emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumin_make_int(i)), 0);
+                emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_int(i)), 0);
                 emit(c, OPC_INDEX_GET, 0, 0);
                 emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.destruct.names[i]), 0);
                 emit(c, OPC_POP, 0, 0);

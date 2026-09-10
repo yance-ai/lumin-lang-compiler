@@ -55,7 +55,7 @@ dkms.conf
 *.dwo
 
 # build artifact
-lumin‑lang-compiler
+lumyr‑lang-compiler
 yacc.output
 *.lm.c
 

@@ -1,9 +1,9 @@
-// lumin-lang IR 层 peephole 优化：常量折叠（constant folding）
+// lumyr-lang IR 层 peephole 优化：常量折叠（constant folding）
 //
 // 设计：线性重建式扫描。
 //   逐旧指令读出，维护输出缓冲区 out[] 与"旧 pc → 新 pc"映射 map[]。
 //   遇到二元运算时，回看输出缓冲区末尾两条：若都是 LOAD_CONST，则用运行时
-//   lumin_* 把它们折成一条 LOAD_CONST；一元/强转运算回看末尾一条。
+//   lumyr_* 把它们折成一条 LOAD_CONST；一元/强转运算回看末尾一条。
 //   因为折叠结果直接写回 out[]，后续运算立刻能看到新常量，天然级联
 //   （1 + 2*3 单遍即折成 7），无需外层多轮扫描。
 //
@@ -13,7 +13,7 @@
 //   FIN_PUSH.b / PEND_RETURN.b 的目标字段。
 //
 // 语义安全：
-//   - 折叠直接调用运行时 lumin_add/sub/.../lumin_cast_*，与执行期逐位一致；
+//   - 折叠直接调用运行时 lumyr_add/sub/.../lumyr_cast_*，与执行期逐位一致；
 //   - DIV/MOD 右操作数为 0 时不折叠，保留运行期 inf/NaN 行为；
 //   - 仅折叠纯算术/比较/一元/强转，这些运算无副作用。
 #include "ir_opt.h"
@@ -36,21 +36,21 @@ static int rhs_is_zero(Value v)
 static int fold_binop(OpCode op, Value l, Value r, Value* out)
 {
     switch(op) {
-        case OPC_ADD: *out = lumin_add(l, r); return 1;
-        case OPC_SUB: *out = lumin_sub(l, r); return 1;
-        case OPC_MUL: *out = lumin_mul(l, r); return 1;
+        case OPC_ADD: *out = lumyr_add(l, r); return 1;
+        case OPC_SUB: *out = lumyr_sub(l, r); return 1;
+        case OPC_MUL: *out = lumyr_mul(l, r); return 1;
         case OPC_DIV:
             if(rhs_is_zero(r)) return 0;          // 保留除零运行期行为
-            *out = lumin_div(l, r); return 1;
+            *out = lumyr_div(l, r); return 1;
         case OPC_MOD:
             if(rhs_is_zero(r)) return 0;
-            *out = lumin_mod(l, r); return 1;
-        case OPC_GT: *out = lumin_gt(l, r); return 1;
-        case OPC_LT: *out = lumin_lt(l, r); return 1;
-        case OPC_GE: *out = lumin_ge(l, r); return 1;
-        case OPC_LE: *out = lumin_le(l, r); return 1;
-        case OPC_EQ: *out = lumin_eq(l, r); return 1;
-        case OPC_NE: *out = lumin_ne(l, r); return 1;
+            *out = lumyr_mod(l, r); return 1;
+        case OPC_GT: *out = lumyr_gt(l, r); return 1;
+        case OPC_LT: *out = lumyr_lt(l, r); return 1;
+        case OPC_GE: *out = lumyr_ge(l, r); return 1;
+        case OPC_LE: *out = lumyr_le(l, r); return 1;
+        case OPC_EQ: *out = lumyr_eq(l, r); return 1;
+        case OPC_NE: *out = lumyr_ne(l, r); return 1;
         default: return 0;
     }
 }
@@ -70,9 +70,9 @@ static int is_binop_op(OpCode op)
 static int fold_unary(OpCode op, Value v, Value* out)
 {
     switch(op) {
-        case OPC_NEG:         *out = lumin_unary_minus(v); return 1;
-        case OPC_POS:         *out = lumin_unary_plus(v);  return 1;
-        case OPC_LOGIC_NOT:   *out = lumin_logic_not(v);   return 1;
+        case OPC_NEG:         *out = lumyr_unary_minus(v); return 1;
+        case OPC_POS:         *out = lumyr_unary_plus(v);  return 1;
+        case OPC_LOGIC_NOT:   *out = lumyr_logic_not(v);   return 1;
         default: return 0;
     }
 }
@@ -81,24 +81,24 @@ static int fold_unary(OpCode op, Value v, Value* out)
 static int fold_cast(OpCode op, Value v, Value* out)
 {
     switch(op) {
-        case OPC_CAST_INT:    *out = lumin_cast_int(v);    return 1;
-        case OPC_CAST_DOUBLE: *out = lumin_cast_double(v); return 1;
-        case OPC_CAST_BOOL:   *out = lumin_cast_bool(v);   return 1;
-        case OPC_CAST_STRING: *out = lumin_cast_string(v); return 1;
-        case OPC_CAST_CHAR:   *out = lumin_cast_char(v);   return 1;
-        case OPC_CAST_ASCII:  *out = lumin_cast_ascii(v);  return 1;
-        case OPC_CAST_BYTE:   *out = lumin_cast_byte(v);   return 1;
-        case OPC_CAST_INT8:   *out = lumin_cast_int8(v);   return 1;
-        case OPC_CAST_INT16:  *out = lumin_cast_int16(v);  return 1;
-        case OPC_CAST_INT32:  *out = lumin_cast_int32(v);  return 1;
-        case OPC_CAST_INT64:  *out = lumin_cast_int64(v);  return 1;
-        case OPC_CAST_UINT8:  *out = lumin_cast_uint8(v);  return 1;
-        case OPC_CAST_UINT16: *out = lumin_cast_uint16(v); return 1;
-        case OPC_CAST_UINT32: *out = lumin_cast_uint32(v); return 1;
-        case OPC_CAST_UINT64: *out = lumin_cast_uint64(v); return 1;
-        case OPC_CAST_LONG:   *out = lumin_cast_long(v);   return 1;
-        case OPC_CAST_LONGLONG: *out = lumin_cast_longlong(v); return 1;
-        case OPC_CAST_FLOAT:  *out = lumin_cast_float(v);  return 1;
+        case OPC_CAST_INT:    *out = lumyr_cast_int(v);    return 1;
+        case OPC_CAST_DOUBLE: *out = lumyr_cast_double(v); return 1;
+        case OPC_CAST_BOOL:   *out = lumyr_cast_bool(v);   return 1;
+        case OPC_CAST_STRING: *out = lumyr_cast_string(v); return 1;
+        case OPC_CAST_CHAR:   *out = lumyr_cast_char(v);   return 1;
+        case OPC_CAST_ASCII:  *out = lumyr_cast_ascii(v);  return 1;
+        case OPC_CAST_BYTE:   *out = lumyr_cast_byte(v);   return 1;
+        case OPC_CAST_INT8:   *out = lumyr_cast_int8(v);   return 1;
+        case OPC_CAST_INT16:  *out = lumyr_cast_int16(v);  return 1;
+        case OPC_CAST_INT32:  *out = lumyr_cast_int32(v);  return 1;
+        case OPC_CAST_INT64:  *out = lumyr_cast_int64(v);  return 1;
+        case OPC_CAST_UINT8:  *out = lumyr_cast_uint8(v);  return 1;
+        case OPC_CAST_UINT16: *out = lumyr_cast_uint16(v); return 1;
+        case OPC_CAST_UINT32: *out = lumyr_cast_uint32(v); return 1;
+        case OPC_CAST_UINT64: *out = lumyr_cast_uint64(v); return 1;
+        case OPC_CAST_LONG:   *out = lumyr_cast_long(v);   return 1;
+        case OPC_CAST_LONGLONG: *out = lumyr_cast_longlong(v); return 1;
+        case OPC_CAST_FLOAT:  *out = lumyr_cast_float(v);  return 1;
         default: return 0;
     }
 }
@@ -284,7 +284,7 @@ static int branch_fold_pass(BytecodeFunc* fn)
         if(is_target[i] || is_target[i+1]) continue;
 
         Value c = fn->consts[fn->code[i].a];
-        int cond = lumin_to_bool(c);
+        int cond = lumyr_to_bool(c);
         int taken = (br.op == OPC_JMP_IF_TRUE) ? cond : !cond;
 
         if(taken) {

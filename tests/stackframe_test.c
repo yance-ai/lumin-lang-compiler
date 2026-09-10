@@ -1,7 +1,7 @@
 // 栈帧 CRUD 单元测试：stackframe_new / destroy / get / set / bind
 // 编译：make test（见 Makefile）
 #include "ast/stackframe.h"
-#include "lumin_value.h"
+#include "lumyr_value.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -48,10 +48,10 @@ int main(void)
     // ---- 4. 字符串 set/get + 覆盖（旧字符串释放，槽位不增）----
     stackframe_set(f, "s", val_string("hello"));
     Value vs = stackframe_get(f, "s", &fnd);
-    CHECK(fnd && vs.type == VAL_STRING && strcmp(lumin_str_cstr(&vs), "hello") == 0, "set/get string");
+    CHECK(fnd && vs.type == VAL_STRING && strcmp(lumyr_str_cstr(&vs), "hello") == 0, "set/get string");
     stackframe_set(f, "s", val_string("world"));
     vs = stackframe_get(f, "s", &fnd);
-    CHECK(fnd && strcmp(lumin_str_cstr(&vs), "world") == 0, "覆盖字符串生效");
+    CHECK(fnd && strcmp(lumyr_str_cstr(&vs), "world") == 0, "覆盖字符串生效");
     CHECK(f->cnt == 5, "覆盖不新增槽位");
 
     // ---- 5. 父链：子帧可读父帧变量 ----
@@ -81,13 +81,13 @@ int main(void)
     // ---- 8. 销毁子帧不影响父帧 ----
     stackframe_destroy(child);
     vp = stackframe_get(f, "s", &fnd);
-    CHECK(fnd && strcmp(lumin_str_cstr(&vp), "world") == 0, "销毁子帧后父帧完好");
+    CHECK(fnd && strcmp(lumyr_str_cstr(&vp), "world") == 0, "销毁子帧后父帧完好");
 
     // ---- 9. 深链查找（孙帧读祖帧） ----
     StackFrame* g = stackframe_new(f);
     stackframe_set(g, "local_g", val_int(1));
     vp = stackframe_get(g, "s", &fnd);
-    CHECK(fnd && strcmp(lumin_str_cstr(&vp), "world") == 0, "孙帧找到祖帧变量");
+    CHECK(fnd && strcmp(lumyr_str_cstr(&vp), "world") == 0, "孙帧找到祖帧变量");
     vp = stackframe_get(g, "local_g", &fnd);
     CHECK(fnd && vp.v.i == 1, "孙帧本地变量");
     stackframe_destroy(g);

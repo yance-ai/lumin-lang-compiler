@@ -9,7 +9,7 @@
 //   4. multithreaded：多线程 churn
 //
 // 用法：
-//   LUMIN_GC_STATS=1 ./bin/lumin benchmarks/gc_stw_bench.lm
+//   LUMYR_GC_STATS=1 ./bin/lumyr benchmarks/gc_stw_bench.lm
 //   stderr 每行 GC 停顿（us）由 run_stw_bench.sh 解析 P50/P99/max。
 // ============================================================
 

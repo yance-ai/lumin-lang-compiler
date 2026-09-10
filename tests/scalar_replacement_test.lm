@@ -1,6 +1,6 @@
 // ============ 标量替换（Scalar Replacement）全场景测试 ============
-// 运行：./bin/lumin tests/scalar_replacement_test.lm
-// 编译：./bin/lumin -c tests/scalar_replacement_test.lm -o /tmp/srt && /tmp/srt
+// 运行：./bin/lumyr tests/scalar_replacement_test.lm
+// 编译：./bin/lumyr -c tests/scalar_replacement_test.lm -o /tmp/srt && /tmp/srt
 
 // ---- 1. 固定下标小数组：拆解为标量局部变量 ----
 func arr_scalar() {

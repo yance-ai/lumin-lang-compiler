@@ -49,7 +49,7 @@ static int const_equal(Value a, Value b)
         case VAL_DOUBLE: return a.v.d == b.v.d;
         case VAL_BOOL:   return a.v.b == b.v.b;
         case VAL_CHAR:   return a.v.c == b.v.c;
-        case VAL_STRING: return strcmp(lumin_str_cstr(&a), lumin_str_cstr(&b)) == 0;
+        case VAL_STRING: return strcmp(lumyr_str_cstr(&a), lumyr_str_cstr(&b)) == 0;
         default:         return 0;
     }
 }
@@ -328,7 +328,7 @@ static void const_to_text(Value v, char* buf, int cap)
         case VAL_DOUBLE: snprintf(buf, cap, "%.17g", v.v.d); break;
         case VAL_BOOL:   snprintf(buf, cap, "%s", v.v.b ? "true" : "false"); break;
         case VAL_CHAR:   snprintf(buf, cap, "'%c'", v.v.c); break;
-        case VAL_STRING: snprintf(buf, cap, "\"%s\"", lumin_str_cstr(&v)); break;
+        case VAL_STRING: snprintf(buf, cap, "\"%s\"", lumyr_str_cstr(&v)); break;
         default:         snprintf(buf, cap, "nil"); break;
     }
 }

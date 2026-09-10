@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-const char* lumin_charset_norm(const char* enc) {
+const char* lumyr_charset_norm(const char* enc) {
     if(!enc || !*enc) return "UTF-8";
     char buf[32]; int n = 0;
     for(const char* p = enc; *p && n < 31; p++) {
@@ -25,17 +25,17 @@ const char* lumin_charset_norm(const char* enc) {
     return NULL;
 }
 
-const char* lumin_charset_from_value(Value enc) {
-    if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumin_str_cstr(&enc) || !*lumin_str_cstr(&enc)))) return "UTF-8";
+const char* lumyr_charset_from_value(Value enc) {
+    if(enc.type == VAL_NONE || (enc.type == VAL_STRING && (!lumyr_str_cstr(&enc) || !*lumyr_str_cstr(&enc)))) return "UTF-8";
     if(enc.type == VAL_STRING) {
-        const char* r = lumin_charset_norm(lumin_str_cstr(&enc));
+        const char* r = lumyr_charset_norm(lumyr_str_cstr(&enc));
         if(r) return r;
     }
     runtime_error("不支持的字符编码（支持 utf-8/gbk/gb18030/big5/latin1/ascii/shift_jis 等）");
     return "UTF-8";
 }
 
-char* lumin_charset_convert(const char* from, const char* to,
+char* lumyr_charset_convert(const char* from, const char* to,
                             const char* in, size_t inlen, size_t* outlen) {
     iconv_t cd = iconv_open(to, from);
     if(cd == (iconv_t)-1) { *outlen = 0; return NULL; }
@@ -71,58 +71,58 @@ char* lumin_charset_convert(const char* from, const char* to,
     return out;
 }
 
-Value lumin_to_bytes(Value s, Value enc) {
-    const char* e = lumin_charset_from_value(enc);
+Value lumyr_to_bytes(Value s, Value enc) {
+    const char* e = lumyr_charset_from_value(enc);
     if(s.type != VAL_STRING) runtime_error("bytes() 第一个参数必须是字符串");
-    const char* in = lumin_str_cstr(&s) ? lumin_str_cstr(&s) : "";
+    const char* in = lumyr_str_cstr(&s) ? lumyr_str_cstr(&s) : "";
     size_t inlen = strlen(in);
     char* buf;
     size_t len;
     if(!strcmp(e, "UTF-8")) { buf = strdup(in); len = inlen; }
     else {
-        buf = lumin_charset_convert("UTF-8", e, in, inlen, &len);
+        buf = lumyr_charset_convert("UTF-8", e, in, inlen, &len);
         if(!buf) runtime_error("字符编码转换失败（iconv）");
     }
     if(len > 0x7FFFFFFF) { free(buf); runtime_error("字节数过大"); }
     Value arr = val_array((int)len);
-    for(size_t i = 0; i < len; i++) arr.v.array->items[i] = lumin_make_byte((unsigned char)buf[i]);
+    for(size_t i = 0; i < len; i++) arr.v.array->items[i] = lumyr_make_byte((unsigned char)buf[i]);
     free(buf);
     return arr;
 }
 
-Value lumin_from_bytes(Value arr, Value enc) {
-    const char* e = lumin_charset_from_value(enc);
+Value lumyr_from_bytes(Value arr, Value enc) {
+    const char* e = lumyr_charset_from_value(enc);
     if(arr.type != VAL_ARRAY) runtime_error("str() 第一个参数必须是字节数组");
     int n = arr.v.array->len;
     char* tmp = malloc((size_t)n + 1);
     if(!tmp) runtime_error("内存不足");
-    for(int i = 0; i < n; i++) tmp[i] = (char)lumin_extract_int(arr.v.array->items[i]);
+    for(int i = 0; i < n; i++) tmp[i] = (char)lumyr_extract_int(arr.v.array->items[i]);
     tmp[n] = 0;
     Value r;
     if(!strcmp(e, "UTF-8")) {
-        r = lumin_make_string(tmp);
+        r = lumyr_make_string(tmp);
         free(tmp);
         return r;
     }
     size_t olen;
-    char* out = lumin_charset_convert(e, "UTF-8", tmp, (size_t)n, &olen);
+    char* out = lumyr_charset_convert(e, "UTF-8", tmp, (size_t)n, &olen);
     free(tmp);
     if(!out) runtime_error("字符编码转换失败（iconv）");
-    r = lumin_make_string(out);
+    r = lumyr_make_string(out);
     free(out);
     return r;
 }
 
-char* lumin_text_to_utf8(const char* s, size_t len, Value enc) {
-    const char* e = lumin_charset_from_value(enc);
+char* lumyr_text_to_utf8(const char* s, size_t len, Value enc) {
+    const char* e = lumyr_charset_from_value(enc);
     if(!strcmp(e, "UTF-8")) { char* d = malloc(len + 1); memcpy(d, s, len); d[len] = 0; return d; }
     size_t olen;
-    return lumin_charset_convert(e, "UTF-8", s, len, &olen);
+    return lumyr_charset_convert(e, "UTF-8", s, len, &olen);
 }
 
-char* lumin_utf8_to_text(const char* s, Value enc) {
-    const char* e = lumin_charset_from_value(enc);
+char* lumyr_utf8_to_text(const char* s, Value enc) {
+    const char* e = lumyr_charset_from_value(enc);
     if(!strcmp(e, "UTF-8")) return strdup(s);
     size_t olen;
-    return lumin_charset_convert("UTF-8", e, s, strlen(s), &olen);
+    return lumyr_charset_convert("UTF-8", e, s, strlen(s), &olen);
 }

@@ -7,8 +7,8 @@
 #include "ast_typecheck.h"
 #include "ast_interp.h"
 #include "ast_symtab.h"
-#include "lumin_types.h"
-#include "lumin_value_type.h"
-#include "lumin_value.h"
+#include "lumyr_types.h"
+#include "lumyr_value_type.h"
+#include "lumyr_value.h"
 
 #endif

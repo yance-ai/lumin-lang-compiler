@@ -1,9 +1,9 @@
-#ifndef LUMIN_VALUE_H
-#define LUMIN_VALUE_H
+#ifndef LUMYR_VALUE_H
+#define LUMYR_VALUE_H
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "lumin_value_type.h"
+#include "lumyr_value_type.h"
 
 // runtime错误抛出
 void runtime_error(const char* msg);
@@ -66,9 +66,9 @@ const char* val_typename(ValueType t);
 void val_print(const Value* v);
 
 // ---------------- 自增自减运算 ----------------
-Value lumin_post_inc(Value* v);
-Value lumin_pre_inc(Value* v);
-Value lumin_post_dec(Value* v);
-Value lumin_pre_dec(Value* v);
+Value lumyr_post_inc(Value* v);
+Value lumyr_pre_inc(Value* v);
+Value lumyr_post_dec(Value* v);
+Value lumyr_pre_dec(Value* v);
 
 #endif

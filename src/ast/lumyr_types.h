@@ -1,9 +1,9 @@
-#ifndef LUMIN_TYPES_H
-#define LUMIN_TYPES_H
+#ifndef LUMYR_TYPES_H
+#define LUMYR_TYPES_H
 
 #include <stdbool.h>
 #include <stddef.h>
-#include "lumin_value.h"
+#include "lumyr_value.h"
 
 // AST节点类型
 typedef enum {

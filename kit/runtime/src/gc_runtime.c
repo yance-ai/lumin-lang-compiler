@@ -36,7 +36,7 @@
 /* 闭包实例扫描（定义于 ast/func_compile.c）：遍历 InterpFuncPayload.captured_cells，
  * 对每个堆 Value* 单元调用 mark(*cell)。GC 标记 VAL_FUNC 时调用，避免捕获的字符串/数组被误回收。 */
 /* 弱定义桩：解释器通道会覆盖此实现；编译通道不调用，空桩避免链接缺失。 */
-__attribute__((weak)) void lumin_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value)) {
+__attribute__((weak)) void lumyr_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value)) {
     (void)rf; (void)mark;
 }
 #if defined(__has_feature)
@@ -73,7 +73,7 @@ static _Atomic int g_in_gc = 0;  /* 原子：防止多线程并发触发 GC（CA
 static int g_gc_disable = 0;  /* GC 暂停计数器（构造复合对象时使用） */
 
 /* ---- 分代 GC：全局状态 ----
- * g_gc_generational=1 启用分代 GC（默认），可通过 LUMIN_GC_GENERATIONAL=0 关闭。
+ * g_gc_generational=1 启用分代 GC（默认），可通过 LUMYR_GC_GENERATIONAL=0 关闭。
  * 新生代：age < PROMOTE_AGE，Minor GC 只 sweep 新生代，存活对象 age++。
  * 老年代：age >= PROMOTE_AGE，仅 Major GC  sweep，大对象（>TLA_MAX_SIZE）直接进入老年代。
  * Remembered Set（老年代→新生代引用追踪）：第一版未实现，Minor GC 采用全量标记简化方案。
@@ -100,7 +100,7 @@ static pthread_mutex_t g_rs_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* ---- 增量标记：运行时开关 ----
  * 1=启用增量标记（初始STW + 并发标记 + 最终STW），0=全量 STW 标记（fallback）
- * 可通过环境变量 LUMIN_GC_INCREMENTAL=0 关闭 */
+ * 可通过环境变量 LUMYR_GC_INCREMENTAL=0 关闭 */
 static int g_gc_incremental = 1;
 static int g_gc_incremental_checked = 0;  /* 是否已读取环境变量 */
 
@@ -455,7 +455,7 @@ void* gc_alloc(size_t size, int vtype)
  * 改用 malloc + memcpy，旧对象保留在链表中不释放。
  *
  * 为什么不用 realloc：realloc 可能移动内存并释放旧块，但调用方
- * （如 lumin_array_add）在锁外更新 items 指针。在 gc_realloc 返回
+ * （如 lumyr_array_add）在锁外更新 items 指针。在 gc_realloc 返回
  * 和调用方更新指针之间，另一个线程的 GC 可能扫描到已释放的旧指针，
  * 导致 gc_mark_ptr 读取已释放内存 → segfault。
  *
@@ -758,7 +758,7 @@ void gc_mark(Value v)
         } else if (f && GC_VALID_PTR(f) && f->capture_count == -1) {
             /* VM 解释器闭包实例：capture_count==-1，captures 指向 InterpFuncPayload，
              * 其中 captured_cells[i] 为堆 Value* 单元，需递归标记其内容 */
-            lumin_interp_scan_captures(f, gc_mark);
+            lumyr_interp_scan_captures(f, gc_mark);
         } else if (f && GC_VALID_PTR(f) && f->capture_count == -2 &&
                    f->captures && GC_VALID_PTR(f->captures)) {
             /* 编译通道闭包：capture_count==-2，captures 是 Value** cell 指针数组，
@@ -956,7 +956,7 @@ void gc_mark_value_to_stack(Value v)
                 gc_mark_value_to_stack(f->captures[i]);
             }
         } else if (f && GC_VALID_PTR(f) && f->capture_count == -1) {
-            lumin_interp_scan_captures(f, gc_mark_value_to_stack);
+            lumyr_interp_scan_captures(f, gc_mark_value_to_stack);
         } else if (f && GC_VALID_PTR(f) && f->capture_count == -2 &&
                    f->captures && GC_VALID_PTR(f->captures)) {
             Value** caps = (Value**)f->captures;
@@ -1178,7 +1178,7 @@ static void gc_mark_value_to_stack_minor(Value v)
                 gc_mark_value_to_stack_minor(f->captures[i]);
             }
         } else if (f && GC_VALID_PTR(f) && f->capture_count == -1) {
-            lumin_interp_scan_captures(f, gc_mark_value_to_stack_minor);
+            lumyr_interp_scan_captures(f, gc_mark_value_to_stack_minor);
         } else if (f && GC_VALID_PTR(f) && f->capture_count == -2 &&
                    f->captures && GC_VALID_PTR(f->captures)) {
             Value** caps = (Value**)f->captures;
@@ -1712,7 +1712,7 @@ static int gc_incremental_enabled(void)
 {
     if (!g_gc_incremental_checked) {
         g_gc_incremental_checked = 1;
-        const char* env = getenv("LUMIN_GC_INCREMENTAL");
+        const char* env = getenv("LUMYR_GC_INCREMENTAL");
         if (env && strcmp(env, "0") == 0) {
             g_gc_incremental = 0;
         }
@@ -1725,7 +1725,7 @@ static int gc_generational_enabled(void)
 {
     if (!g_gc_generational_checked) {
         g_gc_generational_checked = 1;
-        const char* env = getenv("LUMIN_GC_GENERATIONAL");
+        const char* env = getenv("LUMYR_GC_GENERATIONAL");
         if (env && strcmp(env, "0") == 0) {
             g_gc_generational = 0;
         }
@@ -1846,8 +1846,8 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
         unsigned long long t_fb_stw = gc_now_ns() - t_fb_start;
         g_stw_total_ns += t_fb_stw;
 
-        /* LUMIN_GC_STATS=1 时输出统计（与增量路径格式对齐：initial=final=总停顿） */
-        const char* stats_env = getenv("LUMIN_GC_STATS");
+        /* LUMYR_GC_STATS=1 时输出统计（与增量路径格式对齐：initial=final=总停顿） */
+        const char* stats_env = getenv("LUMYR_GC_STATS");
         if (stats_env && strcmp(stats_env, "1") == 0) {
             fprintf(stderr, "[GC major] initial STW=%lluus final STW=0us total STW=%llums minor=%llu major=%llu young=%zuKB old=%zuKB\n",
                     t_fb_stw / 1000, g_stw_total_ns / 1000000,
@@ -1946,8 +1946,8 @@ void gc_collect_major(Value* stack, int sp, StackFrame* frame)
     /* 累计 STW 停顿 */
     g_stw_total_ns += t_initial_stw + t_final_stw;
 
-    /* LUMIN_GC_STATS=1 时输出统计 */
-    const char* stats_env = getenv("LUMIN_GC_STATS");
+    /* LUMYR_GC_STATS=1 时输出统计 */
+    const char* stats_env = getenv("LUMYR_GC_STATS");
     if (stats_env && strcmp(stats_env, "1") == 0) {
         fprintf(stderr, "[GC major] initial STW=%lluus final STW=%lluus total STW=%llums minor=%llu major=%llu young=%zuKB old=%zuKB\n",
                 t_initial_stw / 1000, t_final_stw / 1000, g_stw_total_ns / 1000000,
@@ -2030,8 +2030,8 @@ void gc_collect_minor(Value* stack, int sp, StackFrame* frame)
     unsigned long long t_stw = gc_now_ns() - t_stw_start;
     g_stw_total_ns += t_stw;
 
-    /* LUMIN_GC_STATS=1 时输出统计 */
-    const char* stats_env = getenv("LUMIN_GC_STATS");
+    /* LUMYR_GC_STATS=1 时输出统计 */
+    const char* stats_env = getenv("LUMYR_GC_STATS");
     if (stats_env && strcmp(stats_env, "1") == 0) {
         fprintf(stderr, "[GC minor] STW=%lluus total STW=%llums marked=%zu rs=%zu minor=%llu major=%llu young=%zuKB old=%zuKB\n",
                 t_stw / 1000, g_stw_total_ns / 1000000, marked_count, g_rs_size,

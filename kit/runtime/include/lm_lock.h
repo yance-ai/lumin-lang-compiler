@@ -16,25 +16,25 @@
 #ifndef LM_LOCK_H
 #define LM_LOCK_H
 
-int lumin_mutex_create(void);    // mutex()：互斥锁
-int lumin_rmutex_create(void);   // rmutex()：递归互斥锁（同线程可重复加锁）
-int lumin_rwlock_create(void);   // rwlock()：读写锁
-int lumin_spinlock_create(void); // spinlock()：自旋锁
-void lumin_lock(int id);         // lock(id)：阻塞加锁
-void lumin_unlock(int id);       // unlock(id)：解锁
-int  lumin_trylock(int id);      // trylock(id)：非阻塞尝试，返回 1/0
-void lumin_rdlock(int id);       // rdlock(id)：读锁（共享）
-void lumin_wrlock(int id);       // wrlock(id)：写锁（独占）
-int  lumin_tryrdlock(int id);    // tryrdlock(id)：读锁非阻塞尝试，返回 1/0（仅读写锁）
-int  lumin_trywrlock(int id);    // trywrlock(id)：写锁非阻塞尝试，返回 1/0（仅读写锁）
+int lumyr_mutex_create(void);    // mutex()：互斥锁
+int lumyr_rmutex_create(void);   // rmutex()：递归互斥锁（同线程可重复加锁）
+int lumyr_rwlock_create(void);   // rwlock()：读写锁
+int lumyr_spinlock_create(void); // spinlock()：自旋锁
+void lumyr_lock(int id);         // lock(id)：阻塞加锁
+void lumyr_unlock(int id);       // unlock(id)：解锁
+int  lumyr_trylock(int id);      // trylock(id)：非阻塞尝试，返回 1/0
+void lumyr_rdlock(int id);       // rdlock(id)：读锁（共享）
+void lumyr_wrlock(int id);       // wrlock(id)：写锁（独占）
+int  lumyr_tryrdlock(int id);    // tryrdlock(id)：读锁非阻塞尝试，返回 1/0（仅读写锁）
+int  lumyr_trywrlock(int id);    // trywrlock(id)：写锁非阻塞尝试，返回 1/0（仅读写锁）
 
 // ===== 条件变量（与互斥/递归互斥锁配合） =====
-int  lumin_condvar_create(void);            // condvar()：创建条件变量
-void lumin_cond_wait(int cond, int lock);   // cond_wait(cond, lock)：原子释放 lock 并等待
-int  lumin_cond_timedwait(int cond, int lock, long long ms);
+int  lumyr_condvar_create(void);            // condvar()：创建条件变量
+void lumyr_cond_wait(int cond, int lock);   // cond_wait(cond, lock)：原子释放 lock 并等待
+int  lumyr_cond_timedwait(int cond, int lock, long long ms);
                                             // cond_wait_timeout(cond, lock, ms)：限时等待，
                                             // 被唤醒返回 1，超时返回 0（超时后仍持有锁）
-void lumin_cond_signal(int cond);           // cond_signal(cond)：唤醒一个等待者
-void lumin_cond_broadcast(int cond);        // cond_broadcast(cond)：唤醒全部等待者
+void lumyr_cond_signal(int cond);           // cond_signal(cond)：唤醒一个等待者
+void lumyr_cond_broadcast(int cond);        // cond_broadcast(cond)：唤醒全部等待者
 
 #endif // LM_LOCK_H

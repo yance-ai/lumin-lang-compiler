@@ -8,12 +8,12 @@
 #include <math.h>
 #include <limits.h>
 
-// sort_cmp 排序方向（lumin_sort 设置后调用 qsort）
+// sort_cmp 排序方向（lumyr_sort 设置后调用 qsort）
 static _Thread_local int g_sort_numeric = 0;   /* TLS：多线程 sort 互不干扰 */
 
 
 
-Value lumin_range_n(Value* args, int n) {
+Value lumyr_range_n(Value* args, int n) {
     if(n < 1 || n > 3) runtime_error("range() 需要 1 到 3 个参数");
     long long a = 0, b, step = 1;
     if(n == 1) { b = range_to_ll(args[0]); if(b < 0) runtime_error("range() 上界不能为负数"); }
@@ -29,16 +29,16 @@ Value lumin_range_n(Value* args, int n) {
     if(len > INT_MAX) runtime_error("range() 元素数超出数组长度上限（INT_MAX）");
     Value arr = val_array((int)len);
     for(long long i = 0; i < len; i++) {
-        arr.v.array->items[i] = lumin_make_int(a + i * step);
+        arr.v.array->items[i] = lumyr_make_int(a + i * step);
     }
     return arr;
 }
 
-Value lumin_del(Value* arr, Value idx)
+Value lumyr_del(Value* arr, Value idx)
 {
     if(arr->type == VAL_MAP) {
-        lumin_check_classname_ro(*arr, idx, "删除");
-        lumin_map_del(arr, idx);
+        lumyr_check_classname_ro(*arr, idx, "删除");
+        lumyr_map_del(arr, idx);
         return *arr;
     }
     if(arr->type != VAL_ARRAY) runtime_error("del() 第一个参数必须是数组或字典");
@@ -52,7 +52,7 @@ Value lumin_del(Value* arr, Value idx)
 }
 
 // add(arr, val)：原地追加（2x 扩容），返回数组本身支持链式
-Value lumin_array_add(Value* arr, Value val)
+Value lumyr_array_add(Value* arr, Value val)
 {
     if(arr->type != VAL_ARRAY) runtime_error("add() 第一个参数必须是数组");
     int n = arr->v.array->len;
@@ -69,7 +69,7 @@ Value lumin_array_add(Value* arr, Value val)
 }
 
 // insert(arr, idx, val)：原地插入（idx 允许 0..n），返回数组本身
-Value lumin_insert(Value* arr, Value idx, Value val)
+Value lumyr_insert(Value* arr, Value idx, Value val)
 {
     if(arr->type != VAL_ARRAY) runtime_error("insert() 第一个参数必须是数组");
     if(idx.type != VAL_INT) runtime_error("insert() 下标必须是整数");
@@ -92,21 +92,21 @@ Value lumin_insert(Value* arr, Value idx, Value val)
 }
 
 // indexOf(arr, x)：首个相等元素下标，-1 未找到（== 类型敏感语义）
-Value lumin_index_of(Value arr, Value x)
+Value lumyr_index_of(Value arr, Value x)
 {
     if(arr.type != VAL_ARRAY) runtime_error("indexOf() 第一个参数必须是数组");
     for(int i = 0; i < arr.v.array->len; i++) {
-        Value eq = lumin_eq(arr.v.array->items[i], x);
-        if(lumin_to_bool(eq)) return lumin_make_int(i);
+        Value eq = lumyr_eq(arr.v.array->items[i], x);
+        if(lumyr_to_bool(eq)) return lumyr_make_int(i);
     }
-    return lumin_make_int(-1);
+    return lumyr_make_int(-1);
 }
 
 // arr_get(arr, i)：安全取（越界/非数组 → null，不抛错）
-Value lumin_array_get_safe(Value arr, Value idx)
+Value lumyr_array_get_safe(Value arr, Value idx)
 {
     if(arr.type == VAL_MAP) {
-        return lumin_map_get(arr, idx);
+        return lumyr_map_get(arr, idx);
     }
     if(arr.type != VAL_ARRAY) return val_none();
     if(idx.type != VAL_INT) return val_none();
@@ -116,11 +116,11 @@ Value lumin_array_get_safe(Value arr, Value idx)
 }
 
 // set(arr, i, v)：原地改（与 a[i]=v 一致），返回数组本身支持链式
-Value lumin_array_set_method(Value arr, Value idx, Value val)
+Value lumyr_array_set_method(Value arr, Value idx, Value val)
 {
     if(arr.type == VAL_MAP) {
-        lumin_check_classname_ro(arr, idx, "赋值");
-        lumin_map_set(&arr, idx, val);
+        lumyr_check_classname_ro(arr, idx, "赋值");
+        lumyr_map_set(&arr, idx, val);
         return arr;
     }
     if(arr.type != VAL_ARRAY) runtime_error("set() 第一个参数必须是数组或字典");
@@ -138,7 +138,7 @@ Value lumin_array_set_method(Value arr, Value idx, Value val)
 }
 
 // first(arr) / last(arr)：首/尾元素（空数组 → null）
-Value lumin_array_first(Value arr)
+Value lumyr_array_first(Value arr)
 {
     if(arr.type == VAL_MAP) {
         if(arr.v.map->len == 0) return val_none();
@@ -149,7 +149,7 @@ Value lumin_array_first(Value arr)
     if(arr.type != VAL_ARRAY || arr.v.array->len == 0) return val_none();
     return arr.v.array->items[0];
 }
-Value lumin_array_last(Value arr)
+Value lumyr_array_last(Value arr)
 {
     if(arr.type == VAL_MAP) {
         if(arr.v.map->len == 0) return val_none();
@@ -163,30 +163,30 @@ Value lumin_array_last(Value arr)
 }
 
 // add 的 map 路径：m.add(k, v) 设键值，返回 m（链式）
-Value lumin_map_add(Value m, Value k, Value v)
+Value lumyr_map_add(Value m, Value k, Value v)
 {
     if(m.type != VAL_MAP) runtime_error("add() 第一个参数必须是数组或字典");
-    lumin_check_classname_ro(m, k, "赋值");
-    lumin_map_set(&m, k, v);
+    lumyr_check_classname_ro(m, k, "赋值");
+    lumyr_map_set(&m, k, v);
     return m;
 }
 
 // clear 容器：原地清空（保留 capacity），返回自身支持链式
 // 只读 __classname__ 不被清理：type 构造对象 clear 后类名属性保留
-Value lumin_array_clear(Value* v)
+Value lumyr_array_clear(Value* v)
 {
     if(v->type == VAL_MAP) {
         ValueMap* m = v->v.map;
         Value cnv = val_none();
-        if(lumin_map_has(*v, lumin_make_string("__classname__")))
-            cnv = lumin_map_get(*v, lumin_make_string("__classname__"));
+        if(lumyr_map_has(*v, lumyr_make_string("__classname__")))
+            cnv = lumyr_map_get(*v, lumyr_make_string("__classname__"));
         // 清空所有桶（entry 由 GC 回收，此处仅从数据结构摘除）
         for(int bi = 0; bi < m->cap; bi++) {
             m->buckets[bi] = NULL;
             m->tree[bi] = 0;
         }
         m->len = 0;
-        if(cnv.type != VAL_NONE) { lumin_map_set(v, lumin_make_string("__classname__"), cnv); }
+        if(cnv.type != VAL_NONE) { lumyr_map_set(v, lumyr_make_string("__classname__"), cnv); }
         return *v;
     }
     if(v->type == VAL_ARRAY) {
@@ -214,22 +214,22 @@ static double array_sum_d(Value arr, long long* isum, int* all_int)
     return dsum;
 }
 
-Value lumin_sum(Value arr)
+Value lumyr_sum(Value arr)
 {
     if(arr.type != VAL_ARRAY) runtime_error("sum() 参数必须是数组");
     long long isum; int all_int;
     double dsum = array_sum_d(arr, &isum, &all_int);
-    if(all_int) return lumin_make_int(isum);
-    return lumin_make_double(dsum);
+    if(all_int) return lumyr_make_int(isum);
+    return lumyr_make_double(dsum);
 }
 
-Value lumin_avg(Value arr)
+Value lumyr_avg(Value arr)
 {
     if(arr.type != VAL_ARRAY) runtime_error("avg() 参数必须是数组");
     if(arr.v.array->len == 0) runtime_error("avg() 不能对空数组求平均");
     long long isum; int all_int;
     double dsum = array_sum_d(arr, &isum, &all_int);
-    return lumin_make_double(dsum / arr.v.array->len);
+    return lumyr_make_double(dsum / arr.v.array->len);
 }
 
 // format(fmt, args...)：{} 占位依次替换（{{ 和 }} 转义字面花括号）
@@ -242,10 +242,10 @@ static int sort_cmp(const void* pa, const void* pb)
         double x = value_as_number(*a), y = value_as_number(*b);
         return (x > y) - (x < y);
     }
-    return strcmp(lumin_str_cstr(a), lumin_str_cstr(b));
+    return strcmp(lumyr_str_cstr(a), lumyr_str_cstr(b));
 }
 
-Value lumin_sort(Value arr) {
+Value lumyr_sort(Value arr) {
     if(arr.type != VAL_ARRAY) runtime_error("sort() 参数必须是数组");
     int n = arr.v.array->len;
     int all_num = 1, all_str = 1;
@@ -270,7 +270,7 @@ Value lumin_sort(Value arr) {
 
 // reverse：反转（任意类型）
 
-Value lumin_reverse(Value arr) {
+Value lumyr_reverse(Value arr) {
     if(arr.type != VAL_ARRAY) runtime_error("reverse() 参数必须是数组");
     int n = arr.v.array->len;
     Value r = val_array(n);
@@ -301,13 +301,13 @@ static void flat_rec(Value v, int depth, FlatBuf* b) {
         }
     } else if(v.type == VAL_MAP && depth > 0) {
         /* 字典：按值展开（flat 的字典语义 = 值数组的扁平化） */
-        Value vals = lumin_map_values(v);
+        Value vals = lumyr_map_values(v);
         for(int i = 0; i < vals.v.array->len; i++) flat_rec(vals.v.array->items[i], depth - 1, b);
     } else {
         flat_push(b, v);
     }
 }
-Value lumin_array_flat(Value v, int depth) {
+Value lumyr_array_flat(Value v, int depth) {
     if(depth < 0) depth = 2147483647;  /* 负数 → 无限展开 */
     FlatBuf b = {0};
     if(v.type == VAL_ARRAY && depth == 0) {
@@ -315,7 +315,7 @@ Value lumin_array_flat(Value v, int depth) {
         for(int i = 0; i < v.v.array->len; i++) flat_push(&b, v.v.array->items[i]);
     } else if(v.type == VAL_MAP && depth == 0) {
         /* 深度 0：字典 → 值数组（不递归） */
-        Value vals = lumin_map_values(v);
+        Value vals = lumyr_map_values(v);
         for(int i = 0; i < vals.v.array->len; i++) flat_push(&b, vals.v.array->items[i]);
     } else {
         flat_rec(v, depth, &b);
@@ -329,7 +329,7 @@ Value lumin_array_flat(Value v, int depth) {
 }
 
 // ===== addAll：数组原地追加 / 字典原地合并 =====
-Value lumin_array_addall(Value* a, Value b) {
+Value lumyr_array_addall(Value* a, Value b) {
     if(a->type == VAL_ARRAY && b.type == VAL_ARRAY) {
         int na = a->v.array->len, nb = b.v.array->len;
         // 确保容量
@@ -350,7 +350,7 @@ Value lumin_array_addall(Value* a, Value b) {
         MapIter it; map_iter_init(&it, b.v.map);
         Value k, vv;
         while(map_iter_next(&it, &k, &vv))
-            lumin_map_set(a, k, vv);
+            lumyr_map_set(a, k, vv);
         return *a;
     }
     runtime_error("addAll() 参数类型不匹配：数组+数组 或 字典+字典");

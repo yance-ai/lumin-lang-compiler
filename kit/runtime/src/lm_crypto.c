@@ -6,7 +6,7 @@
 #include <ctype.h>
 
 // ===== URL 编码/解码 =====
-char* lumin_url_encode(const char* s) {
+char* lumyr_url_encode(const char* s) {
     if(!s) return strdup("");
     size_t cap = strlen(s) * 3 + 1;
     char* out = malloc(cap);
@@ -23,7 +23,7 @@ char* lumin_url_encode(const char* s) {
     return out;
 }
 
-char* lumin_url_decode(const char* s) {
+char* lumyr_url_decode(const char* s) {
     if(!s) return strdup("");
     char* out = malloc(strlen(s) + 1);
     if(!out) return NULL;
@@ -43,7 +43,7 @@ char* lumin_url_decode(const char* s) {
 // ===== Base64 =====
 static const char b64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-char* lumin_base64_encode(const char* s, int len) {
+char* lumyr_base64_encode(const char* s, int len) {
     if(len < 0) len = (int)strlen(s ? s : "");
     int outlen = ((len + 2) / 3) * 4;
     char* out = malloc(outlen + 1);
@@ -77,7 +77,7 @@ static int b64_val(char c) {
     return -1;
 }
 
-char* lumin_base64_decode(const char* s, int* outlen) {
+char* lumyr_base64_decode(const char* s, int* outlen) {
     if(!s) { if(outlen) *outlen = 0; return strdup(""); }
     int slen = (int)strlen(s);
     char* out = malloc(slen + 1);
@@ -177,7 +177,7 @@ static void md5_final(MD5_CTX* c, unsigned char digest[16]) {
     }
 }
 
-char* lumin_md5_hex(const char* s, int len) {
+char* lumyr_md5_hex(const char* s, int len) {
     if(len < 0) len = (int)strlen(s ? s : "");
     MD5_CTX ctx;
     unsigned char digest[16];

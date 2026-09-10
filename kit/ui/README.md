@@ -1,4 +1,4 @@
-﻿# Lumin UI Framework
+# Lumyr UI Framework
 
 UI 框架子项目（开发中）。
 

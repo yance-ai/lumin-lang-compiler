@@ -1,10 +1,10 @@
-// lumin-lang 字节码 IR 定义
+// lumyr-lang 字节码 IR 定义
 // 基于栈的 VM：表达式求值压栈，跳转指令用绝对 pc 目标。
-#ifndef LUMIN_IR_BYTECODE_H
-#define LUMIN_IR_BYTECODE_H
+#ifndef LUMYR_IR_BYTECODE_H
+#define LUMYR_IR_BYTECODE_H
 
-#include "lumin_value_type.h"
-#include "lumin_value.h"
+#include "lumyr_value_type.h"
+#include "lumyr_value.h"
 
 typedef enum {
     OPC_NOP,
@@ -195,4 +195,4 @@ int bc_analyze_stack(BytecodeFunc* fn, int* depth_out, int depth_cap);
 // 反汇编：输出指令文本（-S 模式）
 void bc_disasm(FILE* out, BytecodeFunc* fn);
 
-#endif // LUMIN_IR_BYTECODE_H
+#endif // LUMYR_IR_BYTECODE_H

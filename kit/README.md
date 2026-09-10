@@ -1,6 +1,6 @@
-﻿# Lumin Kit
+# Lumyr Kit
 
-Lumin 开发套件，包含可独立分发的子项目。
+Lumyr 开发套件，包含可独立分发的子项目。
 
 ## 子项目
 

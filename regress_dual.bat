@@ -15,8 +15,8 @@ set "MINGW_PATH=C:\mingw64\bin"
 set "GIT_USR_BIN=D:\apps\git\Git\usr\bin"
 set "PATH=%GIT_USR_BIN%;%MINGW_PATH%;%PATH%"
 
-set "BIN_BIN=bin\lumin.exe"
-set "TMP_DIR=%TEMP%\lumin_regress"
+set "BIN_BIN=bin\lumyr.exe"
+set "TMP_DIR=%TEMP%\lumyr_regress"
 
 if not exist "%BIN_BIN%" (
     echo [ERROR] %BIN_BIN% missing, run build.bat build first

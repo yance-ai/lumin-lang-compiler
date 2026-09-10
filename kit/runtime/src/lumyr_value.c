@@ -1,4 +1,4 @@
-#include "lumin_value.h"
+#include "lumyr_value.h"
 #include "lm_map.h"
 #include "gc_runtime.h"
 #include <string.h>
@@ -115,7 +115,7 @@ void runtime_error(const char* msg) {
 }
 
 // 错误对象构造：type/message/stack（stack 可为空，内部复制；字符串由 GC 管理）
-Value lumin_make_error(const char* type, const char* msg, const char* stack) {
+Value lumyr_make_error(const char* type, const char* msg, const char* stack) {
     Value v;
     v.type = VAL_ERROR;
     const char* t = type ? type : "Error";
@@ -132,7 +132,7 @@ Value lumin_make_error(const char* type, const char* msg, const char* stack) {
 }
 
 // 当前调用栈回溯文本（malloc，调用方 free）：at func 逐行
-char* lumin_build_stack_trace(void) {
+char* lumyr_build_stack_trace(void) {
     if(g_trace_n <= 0) { char* e = (char*)malloc(1); e[0] = '\0'; return e; }
     size_t cap = 256;
     for(int i = 0; i < g_trace_n; i++) cap += strlen(g_trace[i]) + 16;
@@ -191,7 +191,7 @@ Value val_string(const char* s) {
         return r;
     }
     size_t len = strlen(s);
-    if (len <= LUMIN_SSO_MAX) {
+    if (len <= LUMYR_SSO_MAX) {
         r.str_inline = 1;
         r.v.sso.len = (uint8_t)len;
         memcpy(r.v.sso.data, s, len);
@@ -349,7 +349,7 @@ void val_print(const Value* v) {
     case VAL_DOUBLE: printf("%g", v->v.d); break;
     case VAL_BOOL: printf("%s", v->v.b ? "true" : "false"); break;
     case VAL_CHAR: printf("'%c'", v->v.c); break;
-    case VAL_STRING: printf("\"%s\"", lumin_str_cstr(v)); break;
+    case VAL_STRING: printf("\"%s\"", lumyr_str_cstr(v)); break;
     case VAL_ERROR: printf("[error:%s] %s", v->v.err.type ? v->v.err.type : "", v->v.err.message ? v->v.err.message : ""); break;
     case VAL_FUNC: printf("<func>"); break;
     case VAL_ARRAY: {
@@ -367,7 +367,7 @@ void val_print(const Value* v) {
 }
 
 // ==================== 自增自减 ====================
-Value lumin_post_inc(Value* v) {
+Value lumyr_post_inc(Value* v) {
     Value old = *v;
     switch(v->type) {
         case VAL_INT:    v->v.i += 1; break;
@@ -378,7 +378,7 @@ Value lumin_post_inc(Value* v) {
     return old;
 }
 
-Value lumin_pre_inc(Value* v) {
+Value lumyr_pre_inc(Value* v) {
     switch(v->type) {
         case VAL_INT:    v->v.i += 1; break;
         case VAL_DOUBLE: v->v.d += 1.0; break;
@@ -388,7 +388,7 @@ Value lumin_pre_inc(Value* v) {
     return *v;
 }
 
-Value lumin_post_dec(Value* v) {
+Value lumyr_post_dec(Value* v) {
     Value old = *v;
     switch(v->type) {
         case VAL_INT:    v->v.i -= 1; break;
@@ -399,7 +399,7 @@ Value lumin_post_dec(Value* v) {
     return old;
 }
 
-Value lumin_pre_dec(Value* v) {
+Value lumyr_pre_dec(Value* v) {
     switch(v->type) {
         case VAL_INT:    v->v.i -= 1; break;
         case VAL_DOUBLE: v->v.d -= 1.0; break;

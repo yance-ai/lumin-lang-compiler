@@ -4,8 +4,8 @@
 
 #ifndef AST_NODE_TYPE_H
 #define AST_NODE_TYPE_H
-#include "lumin_types.h"
-#include "lumin_value_type.h"
+#include "lumyr_types.h"
+#include "lumyr_value_type.h"
 
 typedef struct AstNode AstNode;
 

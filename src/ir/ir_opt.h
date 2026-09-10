@@ -1,4 +1,4 @@
-// lumin-lang IR 层 peephole 优化 pass
+// lumyr-lang IR 层 peephole 优化 pass
 // 第一个优化 pass：常量折叠（constant folding）。
 //
 // 在 IR 生成完成后、执行/代码生成前，对每个 BytecodeFunc 的指令序列做一遍
@@ -10,10 +10,10 @@
 //   `LOAD_CONST c; UNARY/CAST` 模式一视同仁，是优化管道的中段基础设施，
 //   对后续 IR 变换引入的新常量模式自动受益。
 //
-// 语义安全：折叠直接调用运行时 lumin_* 函数，结果与执行期逐位一致；
+// 语义安全：折叠直接调用运行时 lumyr_* 函数，结果与执行期逐位一致；
 // DIV/MOD 右操作数为 0 时不折叠（保留运行期 inf/NaN 行为）。
-#ifndef LUMIN_IR_OPT_H
-#define LUMIN_IR_OPT_H
+#ifndef LUMYR_IR_OPT_H
+#define LUMYR_IR_OPT_H
 
 #include "bytecode.h"
 
@@ -28,4 +28,4 @@ int ir_opt_constant_fold(BytecodeFunc* fn);
 // （分支折叠 / DCE / 常量传播 为并行开发中的后续 pass，暂未启用，详见 .c 注释。）
 void ir_optimize(BytecodeFunc* fn);
 
-#endif // LUMIN_IR_OPT_H
+#endif // LUMYR_IR_OPT_H

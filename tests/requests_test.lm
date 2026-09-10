@@ -14,7 +14,7 @@ if (srv == "up") {
     r = requests.get("http://127.0.0.1:8123/echo");
     print(r["status"]);                // 200
     print(r["body"]);                  // json
-    print(r["headers"]["X-Test"]);     // lumin-http
+    print(r["headers"]["X-Test"]);     // lumyr-http
     print(type(r["headers"]));         // map
 
     print("== 查询参数 ==");

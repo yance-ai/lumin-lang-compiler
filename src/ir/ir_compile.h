@@ -1,5 +1,5 @@
-#ifndef LUMIN_IR_COMPILE_H
-#define LUMIN_IR_COMPILE_H
+#ifndef LUMYR_IR_COMPILE_H
+#define LUMYR_IR_COMPILE_H
 
 #include "bytecode.h"
 #include "ast/ast_node.h"
@@ -18,4 +18,4 @@ int ir_func_table_count(void);
 BytecodeFunc* ir_func_table_get(int i);
 BytecodeFunc* ir_func_table_lookup(const char* name);
 
-#endif // LUMIN_IR_COMPILE_H
+#endif // LUMYR_IR_COMPILE_H

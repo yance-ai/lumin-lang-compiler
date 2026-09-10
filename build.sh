@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "${SCRIPT_DIR}" || exit 1
 
-BIN_BIN="./bin/lumin"
+BIN_BIN="./bin/lumyr"
 SDK_SYSROOT=$(xcrun --sdk macosx --show-sdk-path)
 
 usage() {
@@ -13,7 +13,7 @@ Usage: ./build.sh [command]
 
 Commands:
     check        Check toolchain env (bison>=3.x, flex)
-    build        Build compiler binary (default, native host → bin/lumin)
+    build        Build compiler binary (default, native host → bin/lumyr)
     universal    Build macOS universal fat‑binary (arm64 + x86_64)
     cross        Build all multi‑arch binaries (darwin‑arm64/x86_64/universal)
     compiler     Run compiled binary: compile tests/sample.lm
@@ -60,19 +60,19 @@ case "${1:-build}" in
         make clean
         make distclean
         rm -rf bin
-        build_arch arm64-apple-darwin ./bin/lumin-darwin-arm64
-        build_arch x86_64-apple-darwin ./bin/lumin-darwin-x86_64
-        lipo -create ./bin/lumin-darwin-arm64 ./bin/lumin-darwin-x86_64 -output ./bin/lumin-darwin-universal
-        echo "==> universal binary: ./bin/lumin-darwin-universal"
+        build_arch arm64-apple-darwin ./bin/lumyr-darwin-arm64
+        build_arch x86_64-apple-darwin ./bin/lumyr-darwin-x86_64
+        lipo -create ./bin/lumyr-darwin-arm64 ./bin/lumyr-darwin-x86_64 -output ./bin/lumyr-darwin-universal
+        echo "==> universal binary: ./bin/lumyr-darwin-universal"
         ;;
     cross)
         echo "==> Build multi‑arch binaries under bin/"
         make clean
         make distclean
         rm -rf bin
-        build_arch arm64-apple-darwin ./bin/lumin-darwin-arm64
-        build_arch x86_64-apple-darwin ./bin/lumin-darwin-x86_64
-        lipo -create ./bin/lumin-darwin-arm64 ./bin/lumin-darwin-x86_64 -output ./bin/lumin-darwin-universal
+        build_arch arm64-apple-darwin ./bin/lumyr-darwin-arm64
+        build_arch x86_64-apple-darwin ./bin/lumyr-darwin-x86_64
+        lipo -create ./bin/lumyr-darwin-arm64 ./bin/lumyr-darwin-x86_64 -output ./bin/lumyr-darwin-universal
         echo "note: linux‑amd64 requires zig‑cc, skip on native clang"
         ls -lh bin/
         ;;

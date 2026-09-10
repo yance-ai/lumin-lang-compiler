@@ -65,7 +65,7 @@ static int tls_find(TLSMap* m, const char* name)
     return -1;
 }
 
-void lumin_tls_set(const char* name, Value v)
+void lumyr_tls_set(const char* name, Value v)
 {
     if(!name) runtime_error("threadlocal_set(): 名字参数不能为空");
     TLSMap* m = tls_map_cur();
@@ -88,7 +88,7 @@ void lumin_tls_set(const char* name, Value v)
     m->cnt++;
 }
 
-Value lumin_tls_get(const char* name)
+Value lumyr_tls_get(const char* name)
 {
     if(!name) runtime_error("threadlocal_get(): 名字参数不能为空");
     TLSMap* m = tls_map_cur();

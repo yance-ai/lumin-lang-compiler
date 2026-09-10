@@ -9,10 +9,10 @@ for f in tests/*.lm; do
       SKIP=$((SKIP+1)); echo "SKIP  $base"; continue;;
   esac
   vmo=$(mktemp); cmo=$(mktemp)
-  ./bin/lumin "$f" 2>/dev/null > "$vmo"
+  ./bin/lumyr "$f" 2>/dev/null > "$vmo"
   vrc=$?
   if [ $vrc -ne 0 ]; then echo "VM-FAIL $base (rc=$vrc)"; FAIL=$((FAIL+1)); rm -f "$vmo" "$cmo"; continue; fi
-  ./bin/lumin -c "$f" -o /tmp/reg_bin_$$ 2>/dev/null
+  ./bin/lumyr -c "$f" -o /tmp/reg_bin_$$ 2>/dev/null
   if [ $? -ne 0 ]; then echo "CC-GEN-FAIL $base"; FAIL=$((FAIL+1)); rm -f "$vmo" "$cmo"; continue; fi
   /tmp/reg_bin_$$ 2>/dev/null > "$cmo"
   crc=$?

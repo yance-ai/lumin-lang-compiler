@@ -1,4 +1,4 @@
-# Lumin-Lang 编译器性能基准测试报告
+# Lumyr-Lang 编译器性能基准测试报告
 
 ## 1. 测试环境
 
@@ -10,7 +10,7 @@
 | C 编译器 | Apple clang 14.0.0 (clang-1400.0.29.202) |
 | 优化版 commit | `3ad1eff` (dev 分支 HEAD，含 SSO+栈分配+标量替换) |
 | 基线版 commit | `ed15d49` (SSO 之前版本，优化链起点) |
-| 测量通道 | 编译通道（`./bin/lumin -c file.lm -o out && ./out`） |
+| 测量通道 | 编译通道（`./bin/lumyr -c file.lm -o out && ./out`） |
 | 运行次数 | 每个基准每个版本跑 3 次，取中位数 |
 | 时间测量 | `/usr/bin/time -l` real time |
 | 内存测量 | `/usr/bin/time -l` maximum resident set size |
@@ -212,12 +212,12 @@ cd $(cd "$(dirname "$0")/.." && pwd)
 ./concat_manifest.sh >/dev/null 2>&1 && make all
 
 # 构建基线版（git worktree）
-git worktree add /tmp/lumin-baseline ed15d49
-cd /tmp/lumin-baseline && ./concat_manifest.sh >/dev/null 2>&1 && make all
+git worktree add /tmp/lumyr-baseline ed15d49
+cd /tmp/lumyr-baseline && ./concat_manifest.sh >/dev/null 2>&1 && make all
 
 # 复制基准文件到基线工作目录
-mkdir -p /tmp/lumin-baseline/benchmarks
-cp benchmarks/*.lm /tmp/lumin-baseline/benchmarks/
+mkdir -p /tmp/lumyr-baseline/benchmarks
+cp benchmarks/*.lm /tmp/lumyr-baseline/benchmarks/
 
 # 运行完整测量
 cd $(cd "$(dirname "$0")/.." && pwd)
@@ -226,5 +226,5 @@ bash benchmarks/run_benchmarks.sh
 
 单个基准手动运行：
 ```bash
-./bin/lumin -c benchmarks/bench_mixed.lm -o /tmp/out && /usr/bin/time -l /tmp/out
+./bin/lumyr -c benchmarks/bench_mixed.lm -o /tmp/out && /usr/bin/time -l /tmp/out
 ```

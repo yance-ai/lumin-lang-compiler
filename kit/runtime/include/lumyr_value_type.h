@@ -1,5 +1,5 @@
-#ifndef LUMIN_VALUE_TYPE_H
-#define LUMIN_VALUE_TYPE_H
+#ifndef LUMYR_VALUE_TYPE_H
+#define LUMYR_VALUE_TYPE_H
 
 #include <pthread.h>
 #include <stdint.h>
@@ -89,7 +89,7 @@ typedef struct {
 } ValueFunc;
 
 // SSO 最大内联字符数（按字节算，不含 \0）
-#define LUMIN_SSO_MAX 22
+#define LUMYR_SSO_MAX 22
 
 // 运行时带标签的值（支持多类型，字符串支持 SSO 内联优化）
 struct Value {
@@ -168,15 +168,15 @@ typedef struct StackFrame {
 #include <string.h>
 
 // 获取字符串的C指针（内联返回sso.data，堆返回v.s），非字符串返回NULL
-static inline const char* lumin_str_cstr(const Value* v) {
+static inline const char* lumyr_str_cstr(const Value* v) {
     if (v->type != VAL_STRING) return NULL;
     return v->str_inline ? v->v.sso.data : v->v.s;
 }
 
 // 获取字符串长度（内联用sso.len，堆用strlen）
-static inline int lumin_str_len(const Value* v) {
+static inline int lumyr_str_len(const Value* v) {
     if (v->type != VAL_STRING) return 0;
     return v->str_inline ? (int)v->v.sso.len : (int)(v->v.s ? strlen(v->v.s) : 0);
 }
 
-#endif //LUMIN_VALUE_TYPE_H
+#endif //LUMYR_VALUE_TYPE_H

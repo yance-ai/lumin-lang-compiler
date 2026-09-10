@@ -16,7 +16,7 @@ print("== 4. 空数组 ==");
 print(stringify([]));
 
 print("== 5. string 键 map 序列化 ==");
-m1 = {"name": "lumin", "version": 1, "active": true};
+m1 = {"name": "lumyr", "version": 1, "active": true};
 print(stringify(m1));
 print(m1.stringify());
 
@@ -67,7 +67,7 @@ m10 = {"simple": "hello world", "empty": "", "unicode": "中文测试"};
 print(stringify(m10));
 
 print("== 17. JSON 反序列化：基本对象 ==");
-src1 = {"name": "lumin", "version": 1, "active": true};
+src1 = {"name": "lumyr", "version": 1, "active": true};
 j1 = json(stringify(src1));
 print(j1["name"]);
 print(j1["version"]);
