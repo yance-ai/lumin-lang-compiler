@@ -26,6 +26,7 @@ typedef enum {
     AST_ELIF,
     AST_WHILE,
     AST_DO_WHILE,
+    AST_ANNOTATION,
     AST_FOR,
     AST_CAST,
     AST_TERNARY,

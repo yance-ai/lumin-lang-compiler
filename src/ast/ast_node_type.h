@@ -65,6 +65,10 @@ struct AstNode {
             AstNode* body;
         } while_node;
         struct {
+            char* name;
+            AstNode* args;
+        } annotation;
+        struct {
             AstNode* init;
             AstNode* cond;
             AstNode* update;
@@ -97,6 +101,7 @@ struct AstNode {
             char* name;
             AstNode* params;   // AST_PARAM链表
             AstNode* body;     // 函数体 block
+            AstNode* annotations;  // 注解列表（AST_SEQ 链，每个节点是 AST_ANNOTATION）
         } func_def;
 
         struct {

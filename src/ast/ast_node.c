@@ -234,6 +234,14 @@ AstNode* ast_do_while(AstNode* cond, AstNode* body)
     return n;
 }
 
+AstNode* ast_annotation(char* name, AstNode* args)
+{
+    AstNode* n = ast_new(AST_ANNOTATION);
+    n->u.annotation.name = strdup(name);
+    n->u.annotation.args = args;
+    return n;
+}
+
 AstNode* ast_for(AstNode* init, AstNode* cond, AstNode* update, AstNode* body)
 {
     AstNode* n = ast_new(AST_FOR);
@@ -359,6 +367,7 @@ AstNode* ast_func_def(char* name, AstNode* params, AstNode* body) {
     n->u.func_def.name = strdup(name);
     n->u.func_def.params = params;
     n->u.func_def.body = body;
+    n->u.func_def.annotations = NULL;
     return n;
 }
 
@@ -539,6 +548,10 @@ void ast_free(AstNode* node) {
             ast_free(node->u.while_node.cond);
             ast_free(node->u.while_node.body);
             break;
+        case AST_ANNOTATION:
+            free(node->u.annotation.name);
+            ast_free(node->u.annotation.args);
+            break;
         case AST_FOR:
             ast_free(node->u.for_node.init);
             ast_free(node->u.for_node.cond);
@@ -587,6 +600,7 @@ void ast_free(AstNode* node) {
                 free(pp);
                 pp = nx;
             }
+            ast_free(node->u.func_def.annotations);
             ast_free(node->u.func_def.body);
             break;
         }

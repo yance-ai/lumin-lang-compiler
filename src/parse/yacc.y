@@ -80,7 +80,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
 %token CONTINUE
-%token FUNC ELLIPSIS
+%token FUNC ELLIPSIS TOK_AT
 %token READ WRITE
 %token COMMA
 %token AND OR NOT MOD
@@ -104,7 +104,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> elif_clause_list elif_clause else_part
 %type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
-%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member
+%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list
 %type<ll> type_name builtin_type_name
 %type <ch> char_lit
 %type<ll> INTEGER
@@ -204,12 +204,23 @@ closed_stmt
 
 func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($2, $4, $6);
+          $$->u.func_def.annotations = NULL;
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val;
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
           sym_set($2, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+        }
+        | annotation_list FUNC ID LPAREN param_list RPAREN block_stmt {
+          $$ = ast_func_def($3, $5, $7);
+          $$->u.func_def.annotations = $1;
+          /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
+          RuntimeFunc* rf = compile_func_from_ast($$);
+          Value func_val;
+          func_val.type = VAL_FUNC;
+          func_val.v.func.func_obj = rf;
+          sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
         } ;
 
 /* 参数列表：支持 a,b,...rest；可变参数只能放在最后一个 */
@@ -223,6 +234,18 @@ param
     : ID                     { $$ = ast_param($1, 0, NULL); } /*普通参数 is_ellipsis=0 */
     | ID ASSIGN expr         { $$ = ast_param($1, 0, $3); } /*带默认值的参数 */
     | ELLIPSIS ID            { $$ = ast_param($2, 1, NULL); } /* ...args 可变参数 is_ellipsis=1 */
+;
+
+/* 注解：@name 或 @name(args) */
+annotation
+    : TOK_AT ID                        { $$ = ast_annotation($2, NULL); }
+    | TOK_AT ID LPAREN arg_list RPAREN { $$ = ast_annotation($2, $4); }
+;
+
+/* 注解列表：一个或多个注解 */
+annotation_list
+    : annotation                 { $$ = $1; }
+    | annotation_list annotation { $$ = ast_seq_append($1, $2); }
 ;
 
 /* 调用实参列表 */

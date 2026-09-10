@@ -27,6 +27,7 @@ AstNode* ast_if_chain(AstNode* cond, AstNode* if_body, AstNode* elif_list, AstNo
 AstNode* ast_new(AstType type);
 AstNode* ast_while(AstNode* cond, AstNode* body);
 AstNode* ast_do_while(AstNode* cond, AstNode* body);
+AstNode* ast_annotation(char* name, AstNode* args);
 AstNode* ast_for(AstNode* init, AstNode* cond, AstNode* update, AstNode* body);
 AstNode* new_cast_node(int cast_type, AstNode* child);
 AstNode* ast_unary(BinOp op, AstNode* child);
