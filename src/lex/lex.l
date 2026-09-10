@@ -53,6 +53,7 @@ static int is_expr_end(int t)
 "in"            { LEX_RET(TOK_IN); }
 
 "switch"        {  LEX_RET(SWITCH); }
+"match"         {  LEX_RET(SWITCH); }  /* match as alias for pattern matching */
 "case"          { in_case_expr = 1;    LEX_RET(CASE); }
 "default"       { in_case_expr = 1; LEX_RET(DEFAULT); }
 "try"           {    LEX_RET(TRY); }
