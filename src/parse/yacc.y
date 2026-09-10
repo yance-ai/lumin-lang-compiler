@@ -107,7 +107,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def
-%type<ll> type_name builtin_type_name
+%type<ll> type_name builtin_type_name type_keyword
 %type <ch> char_lit
 %type<ll> INTEGER
 %type<d> NUMBER
@@ -346,9 +346,21 @@ case_item
     : CASE const_expr CASE_COLON stmt_list {
         $$ = ast_case($2, $4, 0);
     }
+    | CASE type_keyword CASE_COLON stmt_list {
+        $$ = ast_case_type($2, $4);
+    }
     | DEFAULT CASE_COLON stmt_list {
         $$ = ast_case(NULL, $3, 1);
     }
+    ;
+
+/* type keyword for pattern matching: case int: / case string: etc */
+type_keyword
+    : TOK_INT      { $$ = VAL_INT; }
+    | TOK_DOUBLE   { $$ = VAL_DOUBLE; }
+    | TOK_STRING   { $$ = VAL_STRING; }
+    | TOK_BOOL     { $$ = VAL_BOOL; }
+    | TOK_CHAR     { $$ = VAL_CHAR; }
     ;
 
 /* case后面只能是编译期常量：数字、整数、char字面量、字符串字面量 */

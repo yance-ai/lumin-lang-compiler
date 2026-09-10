@@ -1044,6 +1044,19 @@ static void c_stmt(Ctx* c, AstNode* node)
                         end_jumps = nj; jump_cap = nc;
                     }
                     end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
+                } else if(cp->u.cs.is_type_match) {
+                    // 类型匹配：type(sw_val) == "typename"
+                    emit(c, OPC_DUP, 0, 0);
+                    emit(c, OPC_BUILTIN, BUILTIN_TYPE, 1);  // type(sw_val)
+                    const char* type_names[] = {"none","int","double","bool","char","string","func","array","map","error","byte"};
+                    int tidx = cp->u.cs.match_type;
+                    if(tidx < 0 || tidx > 11) tidx = 0;
+                    int cidx = bf_const(c->fn, lumyr_make_string(type_names[tidx]));
+                    emit(c, OPC_LOAD_CONST, cidx, 0);
+                    emit(c, OPC_EQ, 0, 0);
+                    last_jf = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);
+                    emit(c, OPC_POP, 0, 0);      // 命中：丢弃 sw_val
+                    c_stmt(c, cp->u.cs.body);
                 } else {
                     emit(c, OPC_DUP, 0, 0);
                     c_expr(c, cp->u.cs.const_val);

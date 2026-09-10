@@ -37,6 +37,7 @@ AstNode* ast_unary(BinOp op, AstNode* child);
 AstNode* ast_ternary(AstNode* cond, AstNode* t, AstNode* f);
 AstNode* ast_switch(AstNode* expr, AstNode* cases);
 AstNode* ast_case(AstNode* const_expr, AstNode* body, int is_default);
+AstNode* ast_case_type(int match_type, AstNode* body);  /* type match: case int: etc */
 AstNode* ast_break(void);
 AstNode* ast_continue(void);
 AstNode* ast_return(AstNode* expr);

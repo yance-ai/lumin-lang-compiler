@@ -109,6 +109,8 @@ struct AstNode {
             AstNode* body;
             int is_default;
             AstNode* next;
+            int is_type_match;   /* type match: case int: / case string: etc */
+            int match_type;      /* matched ValueType */
         } cs;
 
         struct {

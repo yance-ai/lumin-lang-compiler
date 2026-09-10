@@ -428,6 +428,20 @@ AstNode* ast_case(AstNode* const_expr, AstNode* body, int is_default)
     n->u.cs.body = body;
     n->u.cs.is_default = is_default;
     n->u.cs.next = NULL;
+    n->u.cs.is_type_match = 0;
+    n->u.cs.match_type = 0;
+    return n;
+}
+
+AstNode* ast_case_type(int match_type, AstNode* body)
+{
+    AstNode* n = ast_new(AST_CASE);
+    n->u.cs.const_val = NULL;
+    n->u.cs.body = body;
+    n->u.cs.is_default = 0;
+    n->u.cs.next = NULL;
+    n->u.cs.is_type_match = 1;
+    n->u.cs.match_type = match_type;
     return n;
 }
 
