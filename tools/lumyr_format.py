@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Lumyr 代码格式化工具
+Lumyr 代码格式化工具（v3 - 修复版）
 用法: python lumyr_format.py <input.lm> [output.lm] [--indent N] [--check]
 """
 import re
@@ -11,30 +11,12 @@ from pathlib import Path
 class LumyrFormatter:
     def __init__(self, indent_size=4):
         self.indent_size = indent_size
-        self.keywords = {
-            'func', 'if', 'else', 'for', 'while', 'switch', 'match',
-            'case', 'default', 'break', 'continue', 'return', 'throw',
-            'try', 'catch', 'finally', 'import', 'export', 'from',
-            'class', 'struct', 'enum', 'type', 'interface', 'trait',
-            'impl', 'macro', 'const', 'let', 'var', 'static', 'public',
-            'private', 'protected', 'new', 'delete', 'this', 'super',
-            'true', 'false', 'none', 'null', 'nil', 'and', 'or', 'not',
-            'in', 'is', 'as', 'do', 'then', 'end', 'begin', 'until',
-            'loop', 'unless', 'elif', 'elsif', 'when', 'where', 'with',
-            'async', 'await', 'yield', 'defer', 'go', 'chan', 'select',
-            'package', 'module', 'use', 'namespace', 'template', 'typename'
-        }
+        self.space_before_paren_keywords = {'if', 'for', 'while', 'switch', 'match', 'catch', 'return', 'func'}
 
     def format(self, code):
-        # 预处理：统一换行符
         code = code.replace('\r\n', '\n').replace('\r', '\n')
-
-        # 分词
         tokens = self.tokenize(code)
-
-        # 格式化
         result = self.format_tokens(tokens)
-
         return result
 
     def tokenize(self, code):
@@ -42,7 +24,6 @@ class LumyrFormatter:
         i = 0
         n = len(code)
         while i < n:
-            # 跳过空白（但记录换行）
             if code[i] in ' \t':
                 i += 1
                 continue
@@ -50,16 +31,12 @@ class LumyrFormatter:
                 tokens.append(('NEWLINE', '\n'))
                 i += 1
                 continue
-
-            # 行注释
             if code[i:i+2] == '//':
                 j = code.find('\n', i)
                 if j == -1: j = n
                 tokens.append(('COMMENT', code[i:j]))
                 i = j
                 continue
-
-            # 块注释
             if code[i:i+2] == '/*':
                 j = code.find('*/', i+2)
                 if j == -1: j = n
@@ -67,8 +44,6 @@ class LumyrFormatter:
                 tokens.append(('COMMENT', code[i:j]))
                 i = j
                 continue
-
-            # 字符串
             if code[i] == '"':
                 j = i + 1
                 while j < n:
@@ -82,8 +57,6 @@ class LumyrFormatter:
                 tokens.append(('STRING', code[i:j]))
                 i = j
                 continue
-
-            # f-string
             if code[i] == 'f' and i+1 < n and code[i+1] == '"':
                 j = i + 2
                 while j < n:
@@ -97,8 +70,6 @@ class LumyrFormatter:
                 tokens.append(('STRING', code[i:j]))
                 i = j
                 continue
-
-            # 字符
             if code[i] == "'":
                 j = i + 1
                 if j < n and code[j] == '\\':
@@ -110,8 +81,6 @@ class LumyrFormatter:
                 tokens.append(('STRING', code[i:j]))
                 i = j
                 continue
-
-            # 数字
             if code[i].isdigit() or (code[i] == '.' and i+1 < n and code[i+1].isdigit()):
                 j = i
                 while j < n and (code[j].isdigit() or code[j] in '.eE+-_xXabcdefABCDEF'):
@@ -119,21 +88,13 @@ class LumyrFormatter:
                 tokens.append(('NUMBER', code[i:j]))
                 i = j
                 continue
-
-            # 标识符/关键字
             if code[i].isalpha() or code[i] == '_':
                 j = i
                 while j < n and (code[j].isalnum() or code[j] == '_'):
                     j += 1
-                word = code[i:j]
-                if word in self.keywords:
-                    tokens.append(('KEYWORD', word))
-                else:
-                    tokens.append(('IDENT', word))
+                tokens.append(('IDENT', code[i:j]))
                 i = j
                 continue
-
-            # 多字符运算符
             two_char = code[i:i+2]
             three_char = code[i:i+3]
             if three_char in ('===', '!==', '...', '<<=', '>>=', '>>>='):
@@ -146,46 +107,53 @@ class LumyrFormatter:
                 tokens.append(('OP', two_char))
                 i += 2
                 continue
-
-            # 单字符运算符/标点
             if code[i] in '+-*/%=<>!&|^~?:;,.()[]{}@#$\\':
                 tokens.append(('PUNCT', code[i]))
                 i += 1
                 continue
-
-            # 其他字符
             tokens.append(('OTHER', code[i]))
             i += 1
-
         return tokens
+
+    def is_keyword(self, word):
+        return word in {'func', 'if', 'else', 'for', 'while', 'do', 'switch', 'match',
+                    'case', 'default', 'break', 'continue', 'return', 'throw', 'try',
+                    'catch', 'finally', 'import', 'export', 'from', 'class', 'struct',
+                    'enum', 'type', 'interface', 'trait', 'impl', 'macro', 'const',
+                    'let', 'var', 'static', 'public', 'private', 'protected', 'new',
+                    'delete', 'this', 'super', 'true', 'false', 'none', 'null', 'nil',
+                    'and', 'or', 'not', 'in', 'is', 'as', 'then', 'end', 'begin', 'until',
+                    'loop', 'unless', 'elif', 'elsif', 'when', 'where', 'with', 'async',
+                    'await', 'yield', 'defer', 'go', 'chan', 'select', 'package', 'module',
+                    'use', 'namespace', 'template', 'typename', 'int', 'double', 'string',
+                    'bool', 'char', 'byte'}
 
     def format_tokens(self, tokens):
         result = []
         indent = 0
+        paren_depth = 0  # 括号深度，用于判断 for 循环中的分号
         i = 0
         n = len(tokens)
         need_newline = False
         blank_line_pending = False
+        prev_token = None
 
         while i < n:
             ttype, tval = tokens[i]
 
-            # 处理换行
             if ttype == 'NEWLINE':
-                # 统计连续换行数
                 newline_count = 1
                 while i+1 < n and tokens[i+1][0] == 'NEWLINE':
                     newline_count += 1
                     i += 1
-                # 保留最多 2 个连续换行（即最多 1 个空行）
                 if newline_count >= 2:
                     blank_line_pending = True
                 else:
                     need_newline = True
                 i += 1
+                prev_token = ('NEWLINE', '\n')
                 continue
 
-            # 处理注释
             if ttype == 'COMMENT':
                 if need_newline or blank_line_pending:
                     result.append('\n')
@@ -193,9 +161,12 @@ class LumyrFormatter:
                         result.append('\n')
                     need_newline = False
                     blank_line_pending = False
-                result.append(' ' * (indent * self.indent_size))
+                    result.append(' ' * (indent * self.indent_size))
+                elif result and result[-1] not in ('\n', ' '):
+                    result.append(' ')
                 result.append(tval)
                 need_newline = True
+                prev_token = (ttype, tval)
                 i += 1
                 continue
 
@@ -208,13 +179,15 @@ class LumyrFormatter:
                         result.append('\n')
                     need_newline = False
                     blank_line_pending = False
-                else:
-                    # 如果前面不是换行，可能是 } else { 这种情况
-                    if result and result[-1] not in ('\n', ' '):
+                    result.append(' ' * (indent * self.indent_size))
+                elif result and result[-1] not in ('\n', ' '):
+                    if prev_token and prev_token[0] == 'IDENT' and prev_token[1] == 'else':
                         result.append(' ')
-                result.append(' ' * (indent * self.indent_size))
+                    elif result and result[-1] != ' ':
+                        result.append(' ')
                 result.append('}')
                 need_newline = True
+                prev_token = (ttype, tval)
                 i += 1
                 continue
 
@@ -225,59 +198,106 @@ class LumyrFormatter:
                 result.append('{')
                 indent += 1
                 need_newline = True
+                prev_token = (ttype, tval)
                 i += 1
                 continue
 
-            # 处理分号
+            # 处理分号（只有在括号深度为 0 时才换行）
             if ttype == 'PUNCT' and tval == ';':
                 result.append(';')
-                need_newline = True
+                if paren_depth == 0:
+                    need_newline = True
+                else:
+                    # for 循环中的分号，后面加空格
+                    if i+1 < n and tokens[i+1][0] != 'NEWLINE':
+                        result.append(' ')
+                prev_token = (ttype, tval)
                 i += 1
                 continue
 
             # 处理逗号
             if ttype == 'PUNCT' and tval == ',':
                 result.append(',')
-                # 逗号后加空格（除非是换行）
                 if i+1 < n and tokens[i+1][0] != 'NEWLINE':
                     result.append(' ')
+                prev_token = (ttype, tval)
                 i += 1
                 continue
 
-            # 处理冒号（case 标签等）
+            # 处理冒号
             if ttype == 'PUNCT' and tval == ':':
                 result.append(':')
                 if i+1 < n and tokens[i+1][0] != 'NEWLINE':
                     result.append(' ')
+                prev_token = (ttype, tval)
+                i += 1
+                continue
+
+            # 处理点号
+            if ttype == 'PUNCT' and tval == '.':
+                result.append('.')
+                prev_token = (ttype, tval)
+                i += 1
+                continue
+
+            # 处理左括号/左方括号
+            if ttype == 'PUNCT' and tval in ('(', '['):
+                if prev_token and prev_token[0] == 'IDENT' and self.is_keyword(prev_token[1]):
+                    if prev_token[1] in self.space_before_paren_keywords:
+                        if result and result[-1] not in ('\n', ' '):
+                            result.append(' ')
+                result.append(tval)
+                paren_depth += 1
+                prev_token = (ttype, tval)
+                i += 1
+                continue
+
+            # 处理右括号/右方括号
+            if ttype == 'PUNCT' and tval in (')', ']'):
+                result.append(tval)
+                paren_depth = max(0, paren_depth - 1)
+                prev_token = (ttype, tval)
+                i += 1
+                continue
+
+            # 处理单字符运算符（+-*/%=<>!&|^~）
+            if ttype == 'PUNCT' and tval in '+-*/%=<>!&|^~':
+                # 负号特殊处理：前面是左括号/逗号/分号/等号时不加空格
+                is_negative = (tval == '-' and prev_token and
+                              prev_token[0] == 'PUNCT' and
+                              prev_token[1] in ('(', ',', ';', '=', '[', '{'))
+                if not is_negative:
+                    if result and result[-1] not in ('\n', ' ', '(', '[', '{', ',', ';'):
+                        result.append(' ')
+                result.append(tval)
+                # 后面加空格（除非是自增自减或右括号）
+                if i+1 < n and tokens[i+1][0] not in ('NEWLINE', 'PUNCT', ')'):
+                    if tokens[i+1][1] not in ('+', '-', '++', '--'):
+                        result.append(' ')
+                prev_token = (ttype, tval)
                 i += 1
                 continue
 
             # 处理其他标点
             if ttype == 'PUNCT':
-                if tval in '([{':
-                    result.append(tval)
-                elif tval in ')]}':
-                    # 去掉前面多余的空格
-                    if result and result[-1] == ' ':
-                        result.pop()
-                    result.append(tval)
-                else:
-                    result.append(tval)
+                result.append(tval)
+                prev_token = (ttype, tval)
                 i += 1
                 continue
 
             # 处理运算符
             if ttype == 'OP':
-                # 运算符前后加空格
-                if result and result[-1] not in ('\n', ' ', '('):
+                if result and result[-1] not in ('\n', ' ', '(', '['):
                     result.append(' ')
                 result.append(tval)
                 if i+1 < n and tokens[i+1][0] not in ('NEWLINE', 'PUNCT', ')'):
-                    result.append(' ')
+                    if tokens[i+1][1] not in ('++', '--'):
+                        result.append(' ')
+                prev_token = (ttype, tval)
                 i += 1
                 continue
 
-            # 处理普通 token
+            # 处理普通 token（IDENT/NUMBER/STRING）
             if need_newline or blank_line_pending:
                 result.append('\n')
                 if blank_line_pending:
@@ -285,21 +305,49 @@ class LumyrFormatter:
                 need_newline = False
                 blank_line_pending = False
                 result.append(' ' * (indent * self.indent_size))
-            elif result and result[-1] not in ('\n', ' ', '(', '['):
-                # 非标点后加空格
-                if ttype in ('KEYWORD', 'IDENT', 'NUMBER', 'STRING'):
-                    prev = tokens[i-1] if i > 0 else None
-                    if prev and prev[0] not in ('PUNCT', 'OP'):
-                        result.append(' ')
+            else:
+                # 判断是否需要空格
+                need_space = False
+                if prev_token:
+                    pt, pv = prev_token
+                    # 运算符后需要空格
+                    if pt == 'OP' and tval not in ('++', '--'):
+                        need_space = True
+                    # 单字符运算符后需要空格
+                    elif pt == 'PUNCT' and pv in '+-*/%=<>!&|^~':
+                        need_space = True
+                    # 关键字后需要空格（除非后面是左括号）
+                    elif pt == 'IDENT' and self.is_keyword(pv):
+                        if tval != '(' and tval != ';' and tval != '{':
+                            need_space = True
+                        elif tval == '(' and pv in self.space_before_paren_keywords:
+                            need_space = True
+                    # 标识符/数字/字符串之间需要空格
+                    elif pt in ('IDENT', 'NUMBER', 'STRING') and ttype in ('IDENT', 'NUMBER', 'STRING'):
+                        need_space = True
+                    # 右括号后需要空格
+                    elif pv in (')', ']') and tval not in (';', ',', ')', ']', '.', '}', '{'):
+                        need_space = True
+                    # 当前是运算符，前面需要空格
+                    if (ttype == 'OP' or (ttype == 'PUNCT' and tval in '+-*/%=<>!&|^~')):
+                        if pt not in ('PUNCT', 'OP', 'NEWLINE') and pv not in ('(', '[', ',', ';'):
+                            need_space = True
+                        # 负号特殊处理
+                        if tval == '-' and pv in ('(', ',', ';', '=', '['):
+                            need_space = False
+
+                if need_space and result and result[-1] not in ('\n', ' '):
+                    result.append(' ')
 
             result.append(tval)
+            prev_token = (ttype, tval)
             i += 1
 
-        # 末尾加换行
         if result and result[-1] != '\n':
             result.append('\n')
 
         return ''.join(result)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Lumyr 代码格式化工具")
