@@ -1,27 +1,54 @@
-// ============================================================
-// bench_string.lm — 字符串创建/拼接基准（SSO 收益场景）
-// 短字符串 <=22 字节走 SSO 免堆分配；>22 字节走堆分配
-// 迭代 100 万次，混合短/长字符串创建与拼接
-// ============================================================
-
-func bench_string(iter) {
-    acc = 0;
-    for (i = 0; i < iter; i = i + 1) {
-        // 短字符串（<=22 字节，SSO 内联）
-        s1 = "hello_" + i;
-        // 稍长字符串（>22 字节，堆分配）
-        s2 = "this_is_a_longer_string_" + i + "_tail";
-        // 拼接产生新字符串
-        s3 = s1 + ":" + s2;
-        // 用 len() 累加，防止编译器消除死代码
-        acc = acc + len(s1) + len(s2) + len(s3);
-    }
-    return acc;
+// 字符串处理基准测试
+func bench_concat(n) {
+    s = "";
+    for (i = 0; i < n; i = i + 1) {
+        s = s + "x";
 }
+    return len(s);
+}
+func bench_template(n) {
+    total = 0;
+    for (i = 0; i < n; i = i + 1) {
+        s = f"item-{i}-value";
+        total += len(s)
+}
+    return total;
+}
+func bench_split(n) {
+    s = "a,b,c,d,e,f,g,h,i,j";
+    total = 0;
+    for (i = 0; i < n; i = i + 1) {
+        parts = split(s, ",");
+        total += len(parts)
+}
+    return total;
+}
+func bench_substring(n) {
+    s = "The quick brown fox jumps over the lazy dog";
+    total = 0;
+    for (i = 0; i < n; i = i + 1) {
+        for (j = 0; j < len(s) - 5; j = j + 1) {
+            sub = substring(s, j, j + 5);
+            total += len(sub)
+}
+}
+    return total;
+}
+print("=== string benchmarks ===");
 
-before = gc_count();
-result = bench_string(1000000);
-after = gc_count();
+t0 = timestamp_ms();
+r1 = bench_concat(10000);
+t1 = timestamp_ms();
+print("concat 10000: len=" + r1 + " time: " + ((t1-t0)/1000.0) + "s");
 
-print("bench_string result=" + result);
-print("gc_delta=" + (after - before));
+t0 = timestamp_ms();
+r2 = bench_template(10000);
+t1 = timestamp_ms();
+print("template 10000: total=" + r2 + " time: " + ((t1-t0)/1000.0) + "s");
+
+t0 = timestamp_ms();
+r3 = bench_split(5000);
+t1 = timestamp_ms();
+print("split 5000: total=" + r3 + " time: " + ((t1-t0)/1000.0) + "s");
+
+print("=== string done ===");

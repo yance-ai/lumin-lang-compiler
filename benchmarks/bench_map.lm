@@ -1,32 +1,64 @@
-// ============================================================
-// bench_map.lm — 小 map 创建/访问基准（map 栈分配+标量替换收益）
-// 包含两种模式：
-//   A) 只读常量 map → 标量替换完全命中（免堆分配）
-//   B) 读写变量 map → 标量替换未命中（栈分配/正常分配）
-// 键为字符串常量
-// 迭代 50 万次（map 操作较重）
-// ============================================================
-
-func bench_map(iter) {
-    acc = 0;
-    for (i = 0; i < iter; i = i + 1) {
-        // ---- 模式 A：只读常量小 map（标量替换命中）----
-        m1 = {"a": 1, "b": 2, "c": 3};
-        v = m1["a"] + m1["b"] * i + m1["c"];
-        acc = acc + v + len(m1);
-
-        // ---- 模式 B：读写变量小 map（标量替换未命中）----
-        m2 = {"x": i, "y": i + 1, "z": i + 2, "w": i + 3};
-        m2["x"] = m2["x"] + 100;
-        m2["z"] = m2["z"] * 2;
-        acc = acc + m2["x"] + m2["y"] + m2["z"] + m2["w"] + len(m2);
-    }
-    return acc;
+// 映射操作基准测试
+func bench_map_create(n) {
+    m = {}
+    for (i = 0; i < n; i = i + 1) {
+        m["key_" + i] = i
 }
+    return len(m);
+}
+func bench_map_lookup(n) {
+    m = {}
+    for (i = 0; i < n; i = i + 1) {
+        m["key_" + i] = i
+}
+    sum = 0;
+    for (i = 0; i < n; i = i + 1) {
+        sum += m["key_" + i]
+}
+    return sum;
+}
+func bench_map_iterate(n) {
+    m = {}
+    for (i = 0; i < n; i = i + 1) {
+        m["key_" + i] = i
+}
+    sum = 0;
+    keys = map_keys(m);
+    for (i = 0; i < len(keys); i = i + 1) {
+        sum += m[keys[i]]
+}
+    return sum;
+}
+func bench_map_delete(n) {
+    m = {}
+    for (i = 0; i < n; i = i + 1) {
+        m["key_" + i] = i
+}
+    for (i = 0; i < n; i += 2) {
+        delete(m, "key_" + i);
+}
+    return len(m);
+}
+print("=== map benchmarks ===");
 
-before = gc_count();
-result = bench_map(500000);
-after = gc_count();
+t0 = timestamp_ms();
+r1 = bench_map_create(20000);
+t1 = timestamp_ms();
+print("create 20000: len=" + r1 + " time: " + ((t1-t0)/1000.0) + "s");
 
-print("bench_map result=" + result);
-print("gc_delta=" + (after - before));
+t0 = timestamp_ms();
+r2 = bench_map_lookup(20000);
+t1 = timestamp_ms();
+print("lookup 20000: sum=" + r2 + " time: " + ((t1-t0)/1000.0) + "s");
+
+t0 = timestamp_ms();
+r3 = bench_map_iterate(10000);
+t1 = timestamp_ms();
+print("iterate 10000: sum=" + r3 + " time: " + ((t1-t0)/1000.0) + "s");
+
+t0 = timestamp_ms();
+r4 = bench_map_delete(10000);
+t1 = timestamp_ms();
+print("delete half 10000: remaining=" + r4 + " time: " + ((t1-t0)/1000.0) + "s");
+
+print("=== map done ===");
