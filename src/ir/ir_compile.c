@@ -630,6 +630,35 @@ static void c_expr(Ctx* c, AstNode* node)
             emit(c, OPC_CALLV, 0, argc);
             break;
         }
+        case AST_SAFE_CALL: {
+            // 安全调用：obj?.method(args) → 如果 obj 为 null，返回 null；否则调用 method(obj, args)
+            c_expr(c, node->u.safe_call.obj);
+            emit(c, OPC_DUP, 0, 0);  // 复制 obj
+            int jnull = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);  // 如果为 falsy（null），跳转
+            // obj 非 null，调用方法
+            int argc = 0;
+            c_args(c, node->u.safe_call.args, &argc);
+            emit(c, OPC_CALL, bf_sym(c->fn, node->u.safe_call.method), argc + 1);
+            int jend = emit_here(c, OPC_JMP, 0, 0);
+            // obj 为 null，返回 null（栈顶已经是复制的 obj，即 null）
+            bf_patch(c->fn, jnull, here(c));
+            bf_patch(c->fn, jend, here(c));
+            break;
+        }
+        case AST_NULL_COALESCE: {
+            // 空值合并：left ?? right → 如果 left 为 null，返回 right；否则返回 left
+            // 简单版本：用三元表达式实现 (left) ? left : right
+            c_expr(c, node->u.null_coalesce.left);
+            emit(c, OPC_DUP, 0, 0);  // 复制 left
+            int jf = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);  // 如果为 falsy，跳转
+            // left 为 truthy，返回 left（已经在栈顶）
+            int jend = emit_here(c, OPC_JMP, 0, 0);
+            bf_patch(c->fn, jf, here(c));
+            emit(c, OPC_POP, 0, 0);  // 弹出 left
+            c_expr(c, node->u.null_coalesce.right);  // 求值 right
+            bf_patch(c->fn, jend, here(c));
+            break;
+        }
         case AST_INDEX:
             c_expr(c, node->u.index.arr);
             c_expr(c, node->u.index.idx);

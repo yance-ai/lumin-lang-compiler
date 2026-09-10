@@ -69,6 +69,15 @@ struct AstNode {
             AstNode* args;
         } annotation;
         struct {
+            AstNode* obj;
+            char* method;
+            AstNode* args;
+        } safe_call;
+        struct {
+            AstNode* left;
+            AstNode* right;
+        } null_coalesce;
+        struct {
             AstNode* init;
             AstNode* cond;
             AstNode* update;

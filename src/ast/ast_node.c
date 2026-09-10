@@ -242,6 +242,23 @@ AstNode* ast_annotation(char* name, AstNode* args)
     return n;
 }
 
+AstNode* ast_safe_call(AstNode* obj, char* method, AstNode* args)
+{
+    AstNode* n = ast_new(AST_SAFE_CALL);
+    n->u.safe_call.obj = obj;
+    n->u.safe_call.method = strdup(method);
+    n->u.safe_call.args = args;
+    return n;
+}
+
+AstNode* ast_null_coalesce(AstNode* left, AstNode* right)
+{
+    AstNode* n = ast_new(AST_NULL_COALESCE);
+    n->u.null_coalesce.left = left;
+    n->u.null_coalesce.right = right;
+    return n;
+}
+
 AstNode* ast_for(AstNode* init, AstNode* cond, AstNode* update, AstNode* body)
 {
     AstNode* n = ast_new(AST_FOR);
@@ -551,6 +568,15 @@ void ast_free(AstNode* node) {
         case AST_ANNOTATION:
             free(node->u.annotation.name);
             ast_free(node->u.annotation.args);
+            break;
+        case AST_SAFE_CALL:
+            ast_free(node->u.safe_call.obj);
+            free(node->u.safe_call.method);
+            ast_free(node->u.safe_call.args);
+            break;
+        case AST_NULL_COALESCE:
+            ast_free(node->u.null_coalesce.left);
+            ast_free(node->u.null_coalesce.right);
             break;
         case AST_FOR:
             ast_free(node->u.for_node.init);

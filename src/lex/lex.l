@@ -123,6 +123,8 @@ f\"([^"\\]|\\.)*\"   {
 
 "++"        { LEX_RET(PLUSPLUS); }
 "--"        { LEX_RET(MINUSMINUS); }
+"?."        { LEX_RET(SAFE_CALL); }
+"??"        { LEX_RET(NULL_COALESCE); }
 ">="        { LEX_RET(GE); }
 "<="        { LEX_RET(LE); }
 "=="        { LEX_RET(EQ); }

@@ -27,6 +27,8 @@ typedef enum {
     AST_WHILE,
     AST_DO_WHILE,
     AST_ANNOTATION,
+    AST_SAFE_CALL,
+    AST_NULL_COALESCE,
     AST_FOR,
     AST_CAST,
     AST_TERNARY,

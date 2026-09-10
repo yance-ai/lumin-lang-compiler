@@ -80,7 +80,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
 %token CONTINUE
-%token FUNC ELLIPSIS TOK_AT
+%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE
 %token READ WRITE
 %token COMMA
 %token AND OR NOT MOD
@@ -96,6 +96,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %left GT LT GE LE EQ NE
 %left AND
 %left OR
+%left NULL_COALESCE
 %right QMARK COLON   /*三元 ?: 右结合，低于比较*/
 %right ASSIGN        /*赋值最低*/
 %precedence ELSE
@@ -503,6 +504,12 @@ postfix_expr
       }
     /* 属性访问 a.b → a["b"]（map 点属性；无参方法链语法不再保留） */
     | postfix_expr DOT ID { $$ = L(ast_index($1, ast_string($3))); }
+    /* 安全方法调用 a?.b(x,y)：a 为 null 时返回 null */
+    | postfix_expr SAFE_CALL ID LPAREN arg_list RPAREN {
+          $$ = L(ast_safe_call($1, $3, $5));
+      }
+    /* 安全属性访问 a?.b → a 为 null 时返回 null */
+    | postfix_expr SAFE_CALL ID { $$ = L(ast_safe_call($1, $3, NULL)); }
     ;
 
 /* 字典字面量 {"k": v, name: 1, ...}；键为字符串字面量（支持模板）或标识符 */
@@ -622,6 +629,7 @@ logic_and_expr
 logic_or_expr
     : logic_and_expr
     | logic_or_expr OR logic_and_expr     { $$ = ast_binop(OP_LOGIC_OR, $1, $3); }
+    | logic_or_expr NULL_COALESCE logic_and_expr { $$ = ast_null_coalesce($1, $3); }
     ;
 
 ternary_expr
