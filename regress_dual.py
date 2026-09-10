@@ -34,7 +34,6 @@ SKIP_LIST = {
     "json_type_thread_test.lm", "cond_timeout_test.lm", "lock_test.lm",
     "lock_test2.lm", "threadlocal_test.lm", "gc_return_race.lm",
     "gc_promotion_test.lm", "gc_efficiency_diag.lm", "mem_leak_test.lm",
-    "_try_n7to13.lm",
 }
 
 
