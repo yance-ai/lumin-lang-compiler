@@ -1229,7 +1229,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     int d2 = (int)(g_err_jmp - vm_jbs);
                     if(d2 < 0 || d2 >= vm_cap) d2 = vm_depth - 1;  /* fallback */
                     sp = vm_sp[d2];
-                    vm_depth = d2;
+                    vm_depth = d2 + 1;  /* catch 块与 try 块在同一层 try 保护区中 */
                     g_err_jmp = vm_prev[d2];
                     /* trace/fin 栈不在此截断：GET_ERR 用完整残留生成回溯后再截断 */
                     pc = vm_target[d2];
@@ -1244,9 +1244,12 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 char* st = lumyr_build_stack_trace();
                 stack[sp++] = lumyr_make_error(g_err_type, g_err_msg, st);
                 free(st);
-                /* OPC_TRY else 已将 vm_depth 设为 d（TRY 前深度），直接用 vm_depth 索引 */
-                g_trace_n = vm_tn[vm_depth];
-                vm_fin_n = vm_fn[vm_depth];
+                /* OPC_TRY else 已将 vm_depth 设为 d+1（catch 块与 try 块同层），
+                   TRY 层备份在索引 d 处，故用 vm_depth-1 索引 */
+                int try_idx = vm_depth - 1;
+                if(try_idx < 0) try_idx = 0;
+                g_trace_n = vm_tn[try_idx];
+                vm_fin_n = vm_fn[try_idx];
                 break;
             }
             case OPC_THROW: {

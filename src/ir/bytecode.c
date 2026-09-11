@@ -373,6 +373,9 @@ void bc_disasm(FILE* out, BytecodeFunc* fn)
             case OPC_ENDTRY:
                 snprintf(txt, sizeof(txt), "%s L%d", opc_name(in.op), in.a);
                 break;
+            case OPC_FIN_PUSH:
+                snprintf(txt, sizeof(txt), "FIN_PUSH act=%d tgt=L%d", in.a, in.b);
+                break;
             case OPC_CALL:
                 snprintf(txt, sizeof(txt), "CALL %s argc=%d",
                          (in.a >= 0 && in.a < fn->sym_cnt) ? fn->syms[in.a] : "?", in.b);
