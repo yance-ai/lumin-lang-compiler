@@ -69,90 +69,12 @@ Value ast_eval(AstNode* node)
 }
 
 // ===================== 核心解释器：全部递归走 ast_eval_ctx，透传ctx与frame =====================
-Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
+
+/*
+ * 求值：二元运算
+ */
+static Value ast_eval_binop(AstNode* node, EvalCtx* ctx, StackFrame* frame)
 {
-    if(!node) return make_nil();
-
-    switch(node->type) {
-        case AST_INT:
-            return make_int(node->u.inum);
-        case AST_NUM:
-            return make_double(node->u.num);
-        case AST_BOOL:
-            return make_bool(node->u.bval);
-        case AST_STRING:
-            return make_string(node->u.sval);
-        case AST_CHAR:
-            return make_char(node->u.ch);
-
-        // ---- 变量读：栈帧链查找 ----
-        case AST_VAR: {
-            _Bool fnd = 0;
-            Value vv = stackframe_get(frame, node->u.varname, &fnd);
-            if(!fnd) runtime_undefined("变量", node->u.varname);
-            return vv;
-        }
-
-        case AST_BREAK:
-            ctx->hit_break = 1;
-            return make_nil();
-
-        case AST_CONTINUE:
-            ctx->hit_continue = 1;
-            return make_nil();
-
-        // ---- return：先求值再置标志；ret_val 克隆一份脱离栈帧生命周期 ----
-        case AST_RETURN: {
-            Value rv = node->u.ret.ret_val
-                ? ast_eval_ctx(node->u.ret.ret_val, ctx, frame)
-                : make_nil();
-            ctx->hit_return = 1;
-            ctx->ret_val = val_clone(&rv);   // 字符串/数组深拷贝；函数引用浅拷贝
-            return rv;                       // 语句上下文，返回值不参与资源管理
-        }
-
-        case AST_UNARY:
-        {
-            AstNode* kid = node->u.uny.child;
-            BinOp op = node->u.uny.op;
-            switch(op)
-            {
-                case OP_POST_INC:
-                case OP_PRE_INC:
-                case OP_POST_DEC:
-                case OP_PRE_DEC:
-                {
-                    const char* vname = kid->u.varname;
-                    _Bool fnd = 0;
-                    Value __old = stackframe_get(frame, vname, &fnd);
-                    if(!fnd) runtime_undefined("变量", vname);
-                    switch(op)
-                    {
-                        case OP_POST_INC: { Value __v = lumyr_post_inc(&__old); stackframe_bind(frame, vname, __old); return __v; }
-                        case OP_PRE_INC:  { Value __v = lumyr_pre_inc(&__old);  stackframe_bind(frame, vname, __old); return __v; }
-                        case OP_POST_DEC: { Value __v = lumyr_post_dec(&__old); stackframe_bind(frame, vname, __old); return __v; }
-                        case OP_PRE_DEC:  { Value __v = lumyr_pre_dec(&__old);  stackframe_bind(frame, vname, __old); return __v; }
-                        default: return make_int(0);
-                    }
-                }
-                case OP_UNARY_PLUS:
-                {
-                    Value sub = ast_eval_ctx(kid, ctx, frame);
-                    return sub;
-                }
-                case OP_UNARY_MINUS:
-                {
-                    Value sub = ast_eval_ctx(kid, ctx, frame);
-                    double num = val_to_num(sub);
-                    return make_double(-num);
-                }
-                default:
-                    fprintf(stderr,"ast_eval_ctx:未知一元运算符\n");
-                    return make_int(0);
-            }
-        }
-
-        case AST_BINOP:{
             Value lv = ast_eval_ctx(node->u.bin.left, ctx, frame);
             Value rv = ast_eval_ctx(node->u.bin.right, ctx, frame);
             /* OP_IMPLEMENTS: obj implements Interface — 鸭子类型检查 */
@@ -240,7 +162,93 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
                 case OP_NE:  return make_bool(!value_equal(lv, rv));
                 default:     return make_int(0);
             }
+}
+
+Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
+{
+    if(!node) return make_nil();
+
+    switch(node->type) {
+        case AST_INT:
+            return make_int(node->u.inum);
+        case AST_NUM:
+            return make_double(node->u.num);
+        case AST_BOOL:
+            return make_bool(node->u.bval);
+        case AST_STRING:
+            return make_string(node->u.sval);
+        case AST_CHAR:
+            return make_char(node->u.ch);
+
+        // ---- 变量读：栈帧链查找 ----
+        case AST_VAR: {
+            _Bool fnd = 0;
+            Value vv = stackframe_get(frame, node->u.varname, &fnd);
+            if(!fnd) runtime_undefined("变量", node->u.varname);
+            return vv;
         }
+
+        case AST_BREAK:
+            ctx->hit_break = 1;
+            return make_nil();
+
+        case AST_CONTINUE:
+            ctx->hit_continue = 1;
+            return make_nil();
+
+        // ---- return：先求值再置标志；ret_val 克隆一份脱离栈帧生命周期 ----
+        case AST_RETURN: {
+            Value rv = node->u.ret.ret_val
+                ? ast_eval_ctx(node->u.ret.ret_val, ctx, frame)
+                : make_nil();
+            ctx->hit_return = 1;
+            ctx->ret_val = val_clone(&rv);   // 字符串/数组深拷贝；函数引用浅拷贝
+            return rv;                       // 语句上下文，返回值不参与资源管理
+        }
+
+        case AST_UNARY:
+        {
+            AstNode* kid = node->u.uny.child;
+            BinOp op = node->u.uny.op;
+            switch(op)
+            {
+                case OP_POST_INC:
+                case OP_PRE_INC:
+                case OP_POST_DEC:
+                case OP_PRE_DEC:
+                {
+                    const char* vname = kid->u.varname;
+                    _Bool fnd = 0;
+                    Value __old = stackframe_get(frame, vname, &fnd);
+                    if(!fnd) runtime_undefined("变量", vname);
+                    switch(op)
+                    {
+                        case OP_POST_INC: { Value __v = lumyr_post_inc(&__old); stackframe_bind(frame, vname, __old); return __v; }
+                        case OP_PRE_INC:  { Value __v = lumyr_pre_inc(&__old);  stackframe_bind(frame, vname, __old); return __v; }
+                        case OP_POST_DEC: { Value __v = lumyr_post_dec(&__old); stackframe_bind(frame, vname, __old); return __v; }
+                        case OP_PRE_DEC:  { Value __v = lumyr_pre_dec(&__old);  stackframe_bind(frame, vname, __old); return __v; }
+                        default: return make_int(0);
+                    }
+                }
+                case OP_UNARY_PLUS:
+                {
+                    Value sub = ast_eval_ctx(kid, ctx, frame);
+                    return sub;
+                }
+                case OP_UNARY_MINUS:
+                {
+                    Value sub = ast_eval_ctx(kid, ctx, frame);
+                    double num = val_to_num(sub);
+                    return make_double(-num);
+                }
+                default:
+                    fprintf(stderr,"ast_eval_ctx:未知一元运算符\n");
+                    return make_int(0);
+            }
+        }
+
+        case AST_BINOP:
+            return ast_eval_binop(node, ctx, frame);
 
         // ---- 变量写：赋值语义（链上找到更新，找不到当前帧新建）----
         case AST_ASSIGN:{
