@@ -134,7 +134,7 @@ static InterfaceDef* g_interfaces = NULL;
 static int g_ninterfaces = 0;
 static int g_interfaces_cap = 0;
 
-int interface_register(const char* name, void* methods) {
+int interface_register(const char* name, void* methods, const char* parent) {
     /* 检查是否已存在 */
     for(int i = 0; i < g_ninterfaces; i++) {
         if(strcmp(g_interfaces[i].name, name) == 0) {
@@ -152,22 +152,47 @@ int interface_register(const char* name, void* methods) {
     idef->name = strdup(name);
     idef->methods = NULL;
     idef->nmethods = 0;
+    idef->parent = parent ? strdup(parent) : NULL;
 
-    /* 遍历方法列表（AstNode* param 链表） */
-    AstNode* m = (AstNode*)methods;
-    int count = 0;
-    AstNode* cur = m;
-    while(cur) { count++; cur = cur->u.param.next; }
-
-    if(count > 0) {
-        idef->methods = (InterfaceMethod*)malloc((size_t)count * sizeof(InterfaceMethod));
-        cur = m;
-        for(int i = 0; i < count; i++) {
-            idef->methods[i].name = strdup(cur->u.param.name);
-            idef->methods[i].return_type = cur->u.param.constraint ? strdup(cur->u.param.constraint) : NULL;
-            cur = cur->u.param.next;
+    /* 先收集父接口的方法（如果有父接口且已注册） */
+    int parent_methods_count = 0;
+    InterfaceMethod* parent_methods = NULL;
+    if(parent) {
+        int pidx = interface_lookup(parent);
+        if(pidx >= 0) {
+            InterfaceDef* pdef = interface_get(pidx);
+            if(pdef && pdef->nmethods > 0) {
+                parent_methods_count = pdef->nmethods;
+                parent_methods = pdef->methods;
+            }
         }
-        idef->nmethods = count;
+    }
+
+    /* 遍历当前接口的方法列表（AstNode* param 链表） */
+    AstNode* m = (AstNode*)methods;
+    int own_count = 0;
+    AstNode* cur = m;
+    while(cur) { own_count++; cur = cur->u.param.next; }
+
+    int total_count = parent_methods_count + own_count;
+    if(total_count > 0) {
+        idef->methods = (InterfaceMethod*)malloc((size_t)total_count * sizeof(InterfaceMethod));
+        int idx = 0;
+        /* 先复制父接口的方法 */
+        for(int i = 0; i < parent_methods_count; i++) {
+            idef->methods[idx].name = strdup(parent_methods[i].name);
+            idef->methods[idx].return_type = parent_methods[i].return_type ? strdup(parent_methods[i].return_type) : NULL;
+            idx++;
+        }
+        /* 再复制当前接口的方法 */
+        cur = m;
+        for(int i = 0; i < own_count; i++) {
+            idef->methods[idx].name = strdup(cur->u.param.name);
+            idef->methods[idx].return_type = cur->u.param.constraint ? strdup(cur->u.param.constraint) : NULL;
+            cur = cur->u.param.next;
+            idx++;
+        }
+        idef->nmethods = total_count;
     }
 
     return g_ninterfaces++;

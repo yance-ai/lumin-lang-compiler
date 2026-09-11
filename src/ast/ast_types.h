@@ -42,12 +42,13 @@ typedef struct {
 
 typedef struct {
     char* name;              // 接口名
-    InterfaceMethod* methods; // 方法签名列表
+    InterfaceMethod* methods; // 方法签名列表（包含继承的方法）
     int nmethods;
+    char* parent;            // 父接口名（NULL=无父接口）
 } InterfaceDef;
 
 // 注册 / 查找（返回下标，-1 未找到）
-int interface_register(const char* name, void* methods);
+int interface_register(const char* name, void* methods, const char* parent);
 int interface_lookup(const char* name);
 InterfaceDef* interface_get(int idx);
 

@@ -163,7 +163,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT
-%token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS
+%token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
@@ -344,8 +344,15 @@ closed_stmt
       }
     | TOK_INTERFACE ID LBRACE interface_methods RBRACE {
           /* interface Printable { func to_string(): string }：注册接口到符号表 */
-          interface_register($2, $4);
+          interface_register($2, $4, NULL);
           free($2);
+          $$ = L(ast_none());
+      }
+    | TOK_INTERFACE ID TOK_EXTENDS ID LBRACE interface_methods RBRACE {
+          /* interface Colored extends Printable { ... }：注册接口到符号表（带父接口） */
+          interface_register($2, $6, $4);
+          free($2);
+          free($4);
           $$ = L(ast_none());
       }
     ;
