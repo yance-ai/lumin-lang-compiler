@@ -275,9 +275,8 @@ RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast)
     }
     // 编译函数体为字节码 IR（VM 执行；不再直接求值 AST）
     payload->body = func_def_ast->u.func_def.body;
-    payload->bytecode = ir_compile_function(func_def_ast->u.func_def.name,
-                                            func_def_ast->u.func_def.params,
-                                            func_def_ast->u.func_def.body);
+    payload->bytecode = ir_compile_function(func_def_ast->u.func_def.name, func_def_ast->u.func_def.params, func_def_ast->u.func_def.body,
+                                            func_def_ast->u.func_def.is_generator);
 
     // 构造RuntimeFunc，原有字段一个不动
     RuntimeFunc* rf = malloc(sizeof(RuntimeFunc));

@@ -1302,9 +1302,10 @@ static void compile_params(BytecodeFunc* fn, AstNode* params)
     fn->param_cnt = idx - (fn->has_variadic ? 1 : 0);
 }
 
-BytecodeFunc* ir_compile_function(const char* name, AstNode* params, AstNode* body)
+BytecodeFunc* ir_compile_function(const char* name, AstNode* params, AstNode* body, int is_generator)
 {
     BytecodeFunc* fn = bytecode_func_new(name, 0);
+    fn->is_generator = is_generator;
     compile_params(fn, params);
 
     Ctx c = { .fn = fn, .layer_depth = 0 };
@@ -1320,7 +1321,7 @@ BytecodeFunc* ir_compile_function(const char* name, AstNode* params, AstNode* bo
 // 保持函数表顺序与 CALL 指令的 index 绑定不变）。
 BytecodeFunc* ir_func_table_recompile(const char* name, AstNode* params, AstNode* body)
 {
-    BytecodeFunc* nb = ir_compile_function(name, params, body); // 内部 add 到表尾
+    BytecodeFunc* nb = ir_compile_function(name, params, body, 0); // 内部 add 到表尾
     int old = -1;
     for(int i = 0; i < ir_func_count - 1; i++) {
         if(ir_func_table[i]->name && strcmp(ir_func_table[i]->name, name) == 0) { old = i; break; }

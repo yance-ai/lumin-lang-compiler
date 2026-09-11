@@ -183,6 +183,7 @@ typedef struct {
     char** params;             // 参数名（普通参数在前，可变参数最后）
     int param_cnt;             // 普通参数个数
     int has_variadic;
+    int is_generator;          // 是否为生成器函数（gen func）
 } BytecodeFunc;
 
 BytecodeFunc* bytecode_func_new(const char* name, int is_main);
