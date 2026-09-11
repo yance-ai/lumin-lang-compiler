@@ -45,6 +45,93 @@ static AstNode* wrap_type_list(const char* tname, AstNode* chain)
     }
     return ast_call(strdup(tname), chain);
 }
+/* catch 子句辅助：创建单个 catch 子句节点（用 AST_SEQ 包装，first=type_string, second=var_body_seq） */
+static AstNode* make_catch_clause(char* type_name, char* var_name, AstNode* body)
+{
+    /* 用一个特殊节点存储 catch 子句：AST_SEQ(first=type_string, second=AST_SEQ(first=var_name_string, second=body))
+       无类型时用空字符串占位，避免 first=NULL 导致其他遍历逻辑崩溃 */
+    AstNode* type_node = ast_string(type_name ? type_name : "");
+    AstNode* var_node = ast_string(var_name);
+    AstNode* var_body = ast_seq(var_node, body);
+    return ast_seq(type_node, var_body);
+}
+
+/* 递归展平左结合的 AST_SEQ 链，收集所有叶子节点（catch_clause） */
+static void flatten_catch_seq(AstNode* node, AstNode*** arr, int* count, int* cap)
+{
+    if(!node) return;
+    /* catch_clause 本身也是 AST_SEQ，但它的 first 是 AST_STRING（type 或 var），
+       而 catch_clause_list 的 AST_SEQ 的 first 不是 AST_STRING，以此区分 */
+    if(node->type == AST_SEQ && node->u.seq.first && node->u.seq.first->type != AST_STRING) {
+        flatten_catch_seq(node->u.seq.first, arr, count, cap);
+        flatten_catch_seq(node->u.seq.second, arr, count, cap);
+    } else {
+        if(*count >= *cap) {
+            *cap = *cap > 0 ? *cap * 2 : 8;
+            *arr = (AstNode**)realloc(*arr, sizeof(AstNode*) * (*cap));
+        }
+        (*arr)[(*count)++] = node;
+    }
+}
+
+/* 判断是否是单个无类型 catch（用于回退到旧的 ast_try） */
+static int is_single_untagged_catch(AstNode* catch_chain)
+{
+    if(!catch_chain || catch_chain->type != AST_SEQ) return 0;
+    /* catch_clause 结构：AST_SEQ(first=type_string, second=AST_SEQ(first=var_string, second=body))
+       如果 first 是 AST_STRING 且为空字符串，说明是无类型 catch */
+    if(catch_chain->u.seq.first && catch_chain->u.seq.first->type == AST_STRING) {
+        const char* s = catch_chain->u.seq.first->u.sval;
+        if(s && s[0] == '\0') return 1;
+    }
+    return 0;
+}
+
+/* 从单个无类型 catch_clause 中提取 var_name 和 body */
+static void extract_single_catch(AstNode* clause, char** var_name, AstNode** body)
+{
+    if(clause && clause->type == AST_SEQ) {
+        AstNode* var_body = clause->u.seq.second;
+        if(var_body && var_body->type == AST_SEQ) {
+            AstNode* var_node = var_body->u.seq.first;
+            *var_name = var_node ? strdup(var_node->u.sval) : NULL;
+            *body = var_body->u.seq.second;
+        }
+    }
+}
+
+/* 从 AST_SEQ 链中收集 catch 子句，构建 ast_try_multi */
+static AstNode* build_try_multi(AstNode* body, AstNode* catch_chain, AstNode* finally_body)
+{
+    AstNode** clauses = NULL;
+    int count = 0, cap = 0;
+    flatten_catch_seq(catch_chain, &clauses, &count, &cap);
+
+    CatchClause* catches = (CatchClause*)calloc((size_t)count, sizeof(CatchClause));
+    for(int i = 0; i < count; i++) {
+        AstNode* clause = clauses[i];
+        /* clause = AST_SEQ(first=type_string, second=AST_SEQ(first=var_string, second=body)) */
+        if(clause && clause->type == AST_SEQ) {
+            AstNode* type_node = clause->u.seq.first;
+            AstNode* var_body = clause->u.seq.second;
+            /* 空字符串表示无类型（捕获所有异常），NULL 表示有类型 */
+            if(type_node && type_node->u.sval && type_node->u.sval[0] != '\0') {
+                catches[i].type = strdup(type_node->u.sval);
+            } else {
+                catches[i].type = NULL;
+            }
+            if(var_body && var_body->type == AST_SEQ) {
+                AstNode* var_node = var_body->u.seq.first;
+                catches[i].var = var_node ? strdup(var_node->u.sval) : NULL;
+                catches[i].body = var_body->u.seq.second;
+            }
+        }
+    }
+
+    free(clauses);
+    return ast_try_multi(body, catches, count, finally_body);
+}
+
 extern int yylineno;
 AstNode* new_cast_node(int cast_type, AstNode* child);
 AstNode* maybe_template(const char* s);      // 字符串模板拆解（parse/tmpl.c）
@@ -106,6 +193,8 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> elif_clause_list elif_clause else_part
 %type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
+%type<node> catch_clause_list catch_clause
+%type<s> opt_catch_type
 %type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def
 %type<ll> type_name builtin_type_name type_keyword
 %type <ch> char_lit
@@ -303,16 +392,59 @@ open_stmt
 
 /* try { body } catch (e) { handler } [finally { body }]；catch/finally 至少其一 */
 try_stmt
-    : TRY block_stmt CATCH LPAREN ID RPAREN block_stmt {
-          $$ = ast_try($2, strdup($5), $7, NULL);
+    : TRY block_stmt catch_clause_list {
+          if(is_single_untagged_catch($3)) {
+              char* var_name = NULL;
+              AstNode* catch_body = NULL;
+              extract_single_catch($3, &var_name, &catch_body);
+              $$ = ast_try($2, var_name, catch_body, NULL);
+          } else {
+              $$ = build_try_multi($2, $3, NULL);
+          }
       }
-    | TRY block_stmt CATCH LPAREN ID RPAREN block_stmt FINALLY block_stmt {
-          $$ = ast_try($2, strdup($5), $7, $9);
+    | TRY block_stmt catch_clause_list FINALLY block_stmt {
+          if(is_single_untagged_catch($3)) {
+              char* var_name = NULL;
+              AstNode* catch_body = NULL;
+              extract_single_catch($3, &var_name, &catch_body);
+              $$ = ast_try($2, var_name, catch_body, $5);
+          } else {
+              $$ = build_try_multi($2, $3, $5);
+          }
       }
     | TRY block_stmt FINALLY block_stmt {
           $$ = ast_try($2, NULL, NULL, $4);
       }
     ;
+
+/* 多个 catch 子句列表（用 AST_SEQ 链接） */
+catch_clause_list
+    : catch_clause {
+          $$ = $1;
+      }
+    | catch_clause_list catch_clause {
+          $$ = ast_seq($1, $2);
+      }
+    ;
+
+/* 单个 catch 子句：catch (e) 或 catch (Type e)
+   使用 opt_catch_type 避免移进/归约冲突 */
+catch_clause
+    : CATCH LPAREN ID opt_catch_type RPAREN block_stmt {
+          if($4) {
+              $$ = make_catch_clause(strdup($3), strdup($4), $6);
+          } else {
+              $$ = make_catch_clause(NULL, strdup($3), $6);
+          }
+      }
+    ;
+
+/* 可选的 catch 类型名：有类型或空 */
+opt_catch_type
+    : ID { $$ = $1; }
+    | %empty { $$ = NULL; }
+    ;
+
 
 block_stmt
     : LBRACE stmt_list RBRACE      { $$ = ast_block($2); }

@@ -882,14 +882,80 @@ static void c_stmt(Ctx* c, AstNode* node)
             break;
         }
         case AST_TRY: {
-            /* try { body } [catch (e) { handler }] [finally { fbody }]
-               布局（有 finally）：
-                 TRY cstart fstart → body → FIN_PUSH(1, end) → JMP fstart
-                 cstart: [GET_ERR STORE e handler] → FIN_PUSH(catch?1:2) → JMP fstart
-                 fstart: fbody → FINISH → end
-               （无 finally）旧布局：TRY → body → ENDTRY → JMP skip → GET_ERR... */
+            /* try { body } [catch (Type e) { handler }]... [finally { fbody }]
+               支持多个 catch 块和按类型捕获。 */
             int has_fin = (node->u.trynode.finally_body != NULL);
             int has_catch = (node->u.trynode.catch_var != NULL);
+            /* 仅在多 catch 或有类型 catch 时走新分支；无类型单个 catch 保持旧逻辑 */
+            int use_multi = 0;
+            if(node->u.trynode.catch_count > 1) use_multi = 1;
+            else if(node->u.trynode.catch_count == 1 && node->u.trynode.catches != NULL
+                    && node->u.trynode.catches[0].type != NULL) use_multi = 1;
+
+            if(use_multi && !has_fin) {
+                /* 多 catch 块，无 finally - 简化版：先 STORE_VAR，再类型检查 */
+                int ccnt = node->u.trynode.catch_count;
+                int* jmismatch = (int*)calloc((size_t)ccnt, sizeof(int));
+                int* jdone = (int*)calloc((size_t)ccnt, sizeof(int));
+                int mismatch_cnt = 0, done_cnt = 0;
+
+                int jtry = here(c);
+                emit(c, OPC_TRY, 0, 0);
+                c_stmt(c, node->u.trynode.body);
+                int jendtry = here(c);
+                emit(c, OPC_ENDTRY, 0, 0);
+                int jskip = here(c);
+                emit(c, OPC_JMP, 0, 0);
+
+                int cstart = here(c);
+                bf_patch(c->fn, jtry, cstart);
+                bf_patch(c->fn, jendtry, cstart);
+
+                for(int ci = 0; ci < ccnt; ci++) {
+                    CatchClause* cc = &node->u.trynode.catches[ci];
+                    /* 修补上一个 catch 的不匹配跳转到当前位置 */
+                    for(int k = 0; k < mismatch_cnt; k++)
+                        bf_patch(c->fn, jmismatch[k], here(c));
+                    mismatch_cnt = 0;
+
+                    /* 获取异常对象并存入变量 */
+                    emit(c, OPC_GET_ERR, 0, 0);
+                    emit(c, OPC_STORE_VAR, bf_sym(c->fn, cc->var), 0);
+                    emit(c, OPC_POP, 0, 0);
+
+                    /* 类型检查：加载变量，获取 type 字段，比较 */
+                    if(cc->type != NULL) {
+                        emit(c, OPC_LOAD_VAR, bf_sym(c->fn, cc->var), 0);
+                        emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_string("type")), 0);
+                        emit(c, OPC_INDEX_GET, 0, 0);
+                        emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_string(cc->type)), 0);
+                        emit(c, OPC_EQ, 0, 0);
+                        jmismatch[mismatch_cnt++] = here(c);
+                        emit(c, OPC_JMP_IF_FALSE, 0, 0);
+                    }
+
+                    /* catch body */
+                    c_stmt(c, cc->body);
+                    jdone[done_cnt++] = here(c);
+                    emit(c, OPC_JMP, 0, 0);
+                }
+
+                /* 所有 catch 都不匹配：重新抛出 */
+                for(int k = 0; k < mismatch_cnt; k++)
+                    bf_patch(c->fn, jmismatch[k], here(c));
+                emit(c, OPC_GET_ERR, 0, 0);
+                emit(c, OPC_THROW, 0, 0);
+
+                /* 结束位置：修补 jskip 和所有 jdone */
+                int end = here(c);
+                patch_to(c, jskip);
+                for(int k = 0; k < done_cnt; k++)
+                    bf_patch(c->fn, jdone[k], end);
+
+                free(jmismatch);
+                free(jdone);
+                break;
+            }
             int jtry = here(c);
             int jf2_patch = -1;
             emit(c, OPC_TRY, 0, 0);

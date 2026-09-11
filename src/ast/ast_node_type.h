@@ -9,6 +9,13 @@
 
 typedef struct AstNode AstNode;
 
+/* catch 子句：支持按类型捕获和多个 catch 块 */
+typedef struct {
+    char* type;       /* 异常类型名（可为 NULL：捕获所有异常） */
+    char* var;        /* 异常变量名 */
+    AstNode* body;    /* catch 块 */
+} CatchClause;
+
 struct AstNode {
     AstType type;
     ValueType val_type;  // 该节点表达式的类型，语义分析后填充
@@ -161,8 +168,10 @@ struct AstNode {
         } map_entry;
         struct {
             AstNode* body;       // try 块
-            char* catch_var;     // catch (e) 的变量名（可为 NULL：try-finally 无 catch）
-            AstNode* catch_body; // catch 块（可为 NULL）
+            char* catch_var;     // 兼容旧版：单个 catch 变量名（可为 NULL）
+            AstNode* catch_body; // 兼容旧版：单个 catch 块（可为 NULL）
+            CatchClause* catches; // 新版：多个 catch 子句（可为 NULL，此时用旧字段）
+            int catch_count;     // catch 子句数量
             AstNode* finally_body; // finally 块（可为 NULL）
         } trynode;
         struct {

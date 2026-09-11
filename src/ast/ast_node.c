@@ -564,6 +564,23 @@ AstNode* ast_try(AstNode* body, char* catch_var, AstNode* catch_body, AstNode* f
     return n;
 }
 
+AstNode* ast_try_multi(AstNode* body, CatchClause* catches, int catch_count, AstNode* finally_body) {
+    AstNode* n = ast_new(AST_TRY);
+    n->u.trynode.body = body;
+    n->u.trynode.catches = catches;
+    n->u.trynode.catch_count = catch_count;
+    n->u.trynode.finally_body = finally_body;
+    /* 兼容旧字段：如果只有一个 catch 且无类型，填充旧字段 */
+    if (catch_count == 1 && catches[0].type == NULL) {
+        n->u.trynode.catch_var = catches[0].var;
+        n->u.trynode.catch_body = catches[0].body;
+    } else {
+        n->u.trynode.catch_var = NULL;
+        n->u.trynode.catch_body = NULL;
+    }
+    return n;
+}
+
 AstNode* ast_throw(AstNode* expr) {
     AstNode* n = ast_new(AST_THROW);
     n->u.thrownode.expr = expr;
