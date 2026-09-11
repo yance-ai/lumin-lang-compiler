@@ -55,6 +55,8 @@ typedef struct GeneratorObject {
     int started;             /* 是否已开始执行 */
     jmp_buf resume_point;    /* 恢复点（longjmp 用） */
     Value yield_value;       /* yield 的值 */
+    Value send_value;        /* send() 发送的值（作为 yield 表达式的返回值） */
+    int has_send_value;      /* 是否有 send_value（第一次 next() 没有） */
     EvalCtx* ctx;            /* 求值上下文 */
     int saved_depth;         /* 保存的 try 深度 */
     jmp_buf* saved_gj;       /* 保存的错误跳转点 */
@@ -145,9 +147,17 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx);
 
 /* 生成器执行函数：恢复状态，调用 vm_run 执行到下一个 yield 或 return
  * 返回 1 = 正常 yield，结果在 *result；返回 0 = 生成器结束 */
-static int generator_resume(GeneratorObject* gen, Value* result)
+static int generator_resume(GeneratorObject* gen, Value* result, Value* send_val)
 {
     if(gen->finished) { *result = val_none(); return 0; }
+
+    /* 设置 send_value（如果有） */
+    if(send_val) {
+        gen->send_value = *send_val;
+        gen->has_send_value = 1;
+    } else {
+        gen->has_send_value = 0;
+    }
 
     /* setjmp 恢复点：vm_run 中遇到 OPC_YIELD 时 longjmp 到这里 */
     if(setjmp(gen->resume_point) == 0) {
@@ -358,6 +368,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
         stack = gen_ctx->stack;
         sp = gen_ctx->sp;
         pc = gen_ctx->pc;
+        /* 如果是从 yield 恢复（不是第一次启动），把 send_value 压入栈顶作为 yield 表达式的返回值 */
+        if(gen_ctx->started && gen_ctx->has_send_value) {
+            stack[sp++] = gen_ctx->send_value;
+        }
     } else {
         stack = (Value*)malloc(sizeof(Value) * (maxd + 2));
         if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
@@ -1081,9 +1095,37 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         }
                         GeneratorObject* gen = (GeneratorObject*)gen_val.v.generator;
                         Value result;
-                        int yielded = generator_resume(gen, &result);
+                        int yielded = generator_resume(gen, &result, NULL);
                         stack[sp++] = result;
                         (void)yielded;
+                        break;
+                    }
+                    case BUILTIN_SEND: {
+                        /* send(gen, val)：向生成器发送值，恢复执行，返回下一个 yield 值 */
+                        Value send_val = stack[--sp];
+                        Value gen_val = stack[--sp];
+                        if(gen_val.type != VAL_GENERATOR) {
+                            fprintf(stderr, "Runtime Error: send() 需要生成器对象，实际类型: %d\n", gen_val.type);
+                            exit(EXIT_FAILURE);
+                        }
+                        GeneratorObject* gen = (GeneratorObject*)gen_val.v.generator;
+                        if(!gen->started) {
+                            fprintf(stderr, "Runtime Error: send() 不能用于刚创建的生成器，请先调用 next()\n");
+                            exit(EXIT_FAILURE);
+                        }
+                        Value result;
+                        int yielded = generator_resume(gen, &result, &send_val);
+                        stack[sp++] = result;
+                        (void)yielded;
+                        break;
+                    }
+                    case BUILTIN_RECEIVE: {
+                        /* receive()：在生成器中获取 send() 发送的值；非生成器上下文返回 null */
+                        if(s_current_gen && s_current_gen->has_send_value) {
+                            stack[sp++] = s_current_gen->send_value;
+                        } else {
+                            stack[sp++] = val_none();
+                        }
                         break;
                     }
                     case BUILTIN_HTTP_DELETE:
@@ -1679,7 +1721,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 break;
             }
             case OPC_YIELD: {
-                /* 生成器 yield：保存状态，longjmp 返回到 generator_resume */
+                /* 生成器 yield：保存状态，longjmp 返回到 generator_resume
+                 * 恢复时，send_value 会被压入栈顶作为 yield 表达式的返回值 */
                 if(!is_generator) {
                     fprintf(stderr, "Runtime Error: yield 只能在生成器函数中使用\n");
                     exit(EXIT_FAILURE);

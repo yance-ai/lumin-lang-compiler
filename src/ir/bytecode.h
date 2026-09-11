@@ -164,6 +164,8 @@ typedef enum {
     BUILTIN_GC_COLLECT,     // gc_collect()：手动触发一次 GC
     BUILTIN_GC_STW_NS,      // gc_stw_ns()：累计 STW 停顿时间（纳秒）
     BUILTIN_NEXT,            // next(gen)：恢复生成器执行，返回 yield 值；结束返回 null
+    BUILTIN_SEND,            // send(gen, val)：向生成器发送值，返回下一个 yield 值
+    BUILTIN_RECEIVE,         // receive()：在生成器中获取 send() 发送的值
     BUILTIN_COUNT
 } BuiltinId;
 
