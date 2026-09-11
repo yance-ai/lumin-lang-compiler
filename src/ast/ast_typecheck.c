@@ -332,6 +332,125 @@ static int count_args(AstNode* args)
     return count_args(args->u.seq.first) + count_args(args->u.seq.second);
 }
 
+
+/*
+ * 类型检查：函数调用
+ * 返回错误标志（0=无错误，1=有错误）
+ */
+static int typecheck_call(AstNode* node)
+{
+    int err = 0;
+            // 默认参数填充：如果实参不足，用函数定义中的默认值表达式填充
+            {
+                if(sym_has(node->u.call.name)) {
+                Value fv = sym_get(node->u.call.name);
+                if(fv.type == VAL_FUNC) {
+                    RuntimeFunc* rf = (RuntimeFunc*)fv.v.func.func_obj;
+                    if(interp_func_is_payload(rf)) {
+                        int nargs = typecheck_arg_count(node->u.call.args);
+                        int pcount = interp_func_param_cnt(rf);
+                        // 从缺失的第一个参数开始，逐个填充默认值
+                        for(int pi = nargs; pi < pcount; pi++) {
+                            if(interp_func_param_has_default(rf, pi)) {
+                                AstNode* dv = interp_func_param_default(rf, pi);
+                                if(dv) {
+                                    // 深拷贝默认值表达式，避免与函数定义共享节点导致重复释放
+                                    AstNode* dv_copy = ast_clone_node(dv);
+                                    node->u.call.args = ast_arg_append(node->u.call.args, dv_copy);
+                                }
+                            }
+                        }
+                    }
+                }
+                }
+            }
+            // 实参逐个检查（含嵌套调用）
+            err |= typecheck_call_args(node->u.call.args);
+            // 函数名：已定义函数 或 赋过函数值的变量 均可（与解释器一致）；
+            // 内置函数白名单：len/type/input/range/substr（用户函数同名时用户优先）
+            ValueType t;
+            if(type_lookup(node->u.call.name) >= 0) {
+                /* type 构造调用：参数个数 == 属性数（或单 map 原样）。
+                   函数体先于 typecheck 被 ir 编译（yacc 动作 compile_func_from_ast），
+                   构造展开会摘空 args——args 为空时跳过（已展开，运行时宽松处理） */
+                int nargs = typecheck_arg_count(node->u.call.args);
+                if(nargs > 0) {
+                    int nprops = type_get(type_lookup(node->u.call.name))->nprops;
+                    if(!(nargs == nprops || nargs == 1)) {
+                        fprintf(stderr, "语义错误(第%d行)：类型构造参数个数错误：需要 %d 个（或单个 map），实际 %d 个\n",
+                                node->line, nprops, nargs);
+                    }
+                }
+            } else if(!static_sym_get(node->u.call.name, &t)) {
+                static const struct { const char* name; int min; int max; } builtins[] = {
+                    {"len", 1, 1}, {"type", 1, 1}, {"input", 0, 0}, {"range", 1, 3}, {"substr", 3, 3},
+                    {"toupper", 1, 1}, {"tolower", 1, 1}, {"split", 2, 2}, {"del", 2, 2}, {"insert", 3, 3},
+                    {"floor", 1, 1}, {"ceil", 1, 1}, {"abs", 1, 1}, {"sqrt", 1, 1},
+                    {"max", 1, -1}, {"min", 1, -1}, {"join", 2, 2}, {"contains", 2, 2},
+                    {"repeat", 2, 2}, {"replace", 3, 3}, {"sum", 1, 1}, {"avg", 1, 1},
+                    {"format", 1, -1}, {"sort", 1, 1}, {"reverse", 1, 1},
+                    {"map", 2, 2}, {"filter", 2, 2}, {"reduce", 3, 3},
+                    {"strip", 1, 1}, {"startswith", 2, 2}, {"endswith", 2, 2},
+                    {"read_file", 1, 1}, {"write_file", 2, 2}, {"file_exists", 1, 1},
+                    {"keys", 1, 1}, {"values", 1, 1},
+                    {"thread", 1, -1}, {"thread_join", 1, 1},
+                    {"mutex", 0, 0}, {"rmutex", 0, 0}, {"rwlock", 0, 0}, {"spinlock", 0, 0},
+                    {"lock", 1, 1}, {"unlock", 1, 1}, {"trylock", 1, 1},
+                    {"rdlock", 1, 1}, {"wrlock", 1, 1},
+                    {"tryrdlock", 1, 1}, {"trywrlock", 1, 1},
+                    {"condvar", 0, 0}, {"cond_wait", 2, 2}, {"cond_wait_timeout", 3, 3}, {"cond_signal", 1, 1}, {"cond_broadcast", 1, 1},
+                    {"threadlocal_get", 1, 1}, {"threadlocal_set", 2, 2},
+                    {"get", 1, 3}, {"post", 1, 3}, {"put", 1, 3}, {"delete", 1, 3}, {"head", 1, 3}, {"patch", 1, 3},
+
+                    {"add", 2, 3}, {"remove", 2, 2}, {"clear", 1, 1},
+                    {"arr_get", 2, 2}, {"indexOf", 2, 2}, {"set", 3, 3}, {"first", 1, 1}, {"last", 1, 1}, {"has", 2, 2},
+                    {"flat", 1, 2}, {"qs", 1, 2}, {"addAll", 2, 2}, {"bytes", 1, 2}, {"str", 1, 2},
+                    {"json", 1, 2}, {"stringify", 1, 2},
+                    {"encode", 1, 2}, {"decode", 1, 2},
+                    {"encodeURL", 1, 1}, {"decodeURL", 1, 1},
+                    {"md5", 1, 1}, {"encodeBase64", 1, 1}, {"decodeBase64", 1, 1},
+                    {"regex_match", 2, 2}, {"regex_search", 2, 2}, {"regex_replace", 3, 3},
+                    {"now", 0, 0}, {"timestamp", 0, 0}, {"timestamp_ms", 0, 0},
+                    {"sleep", 1, 1}, {"date", 0, 0}, {"time", 0, 0}, {"datetime", 0, 0},
+                    {"format_time", 1, 2},
+                    {"debug", 1, 2}, {"info", 1, 2}, {"warn", 1, 2}, {"error", 1, 2}, {"fatal", 1, 2},
+                    {"gc_count", 0, 0}, {"gc_bytes", 0, 0}, {"gc_collect", 0, 0}, {"gc_stw_ns", 0, 0}, {"next", 1, 1}, {"send", 2, 2}, {"receive", 0, 0}, {"close", 1, 1}, {"next", 1, 1},
+                };
+                int found = 0;
+                int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));
+                for(int k = 0; k < nbuiltins; k++) {
+                    if(strcmp(node->u.call.name, builtins[k].name) == 0) {
+                        found = 1;
+                        int nargs = count_args(node->u.call.args);
+                        int bad = (nargs < builtins[k].min) ||
+                                  (builtins[k].max >= 0 && nargs > builtins[k].max);
+                        if(bad) {
+                            if(builtins[k].max >= 0 && builtins[k].min == builtins[k].max)
+                                fprintf(stderr,"语义错误(第%d行)：%s() 需要 %d 个实参（给了 %d 个）\n", node->line,
+                                        builtins[k].name, builtins[k].min, nargs);
+                            else if(builtins[k].max < 0)
+                                fprintf(stderr,"语义错误(第%d行)：%s() 需要至少 %d 个实参（给了 %d 个）\n", node->line,
+                                        builtins[k].name, builtins[k].min, nargs);
+                            else
+                                fprintf(stderr,"语义错误(第%d行)：%s() 需要 %d 到 %d 个实参（给了 %d 个）\n", node->line,
+                                        builtins[k].name, builtins[k].min, builtins[k].max, nargs);
+                            err = 1;
+                        }
+                        break;
+                    }
+                }
+                if(!found) {
+                    fprintf(stderr,"语义错误(第%d行)：调用未定义函数 %s\n", node->line, node->u.call.name);
+                    err = 1;
+                }
+            } else if(t != VAL_NONE && t != VAL_FUNC) {
+                fprintf(stderr,"语义错误(第%d行)：%s 不是函数\n", node->line, node->u.call.name);
+                err = 1;
+            }
+            node->val_type = VAL_NONE;
+    return err;
+}
+
 int typecheck_expr(AstNode* node)
 {
     if(!node) return 0;
@@ -677,114 +796,7 @@ int typecheck_expr(AstNode* node)
             break;
         }
         case AST_CALL: {
-            // 默认参数填充：如果实参不足，用函数定义中的默认值表达式填充
-            {
-                if(sym_has(node->u.call.name)) {
-                Value fv = sym_get(node->u.call.name);
-                if(fv.type == VAL_FUNC) {
-                    RuntimeFunc* rf = (RuntimeFunc*)fv.v.func.func_obj;
-                    if(interp_func_is_payload(rf)) {
-                        int nargs = typecheck_arg_count(node->u.call.args);
-                        int pcount = interp_func_param_cnt(rf);
-                        // 从缺失的第一个参数开始，逐个填充默认值
-                        for(int pi = nargs; pi < pcount; pi++) {
-                            if(interp_func_param_has_default(rf, pi)) {
-                                AstNode* dv = interp_func_param_default(rf, pi);
-                                if(dv) {
-                                    // 深拷贝默认值表达式，避免与函数定义共享节点导致重复释放
-                                    AstNode* dv_copy = ast_clone_node(dv);
-                                    node->u.call.args = ast_arg_append(node->u.call.args, dv_copy);
-                                }
-                            }
-                        }
-                    }
-                }
-                }
-            }
-            // 实参逐个检查（含嵌套调用）
-            err |= typecheck_call_args(node->u.call.args);
-            // 函数名：已定义函数 或 赋过函数值的变量 均可（与解释器一致）；
-            // 内置函数白名单：len/type/input/range/substr（用户函数同名时用户优先）
-            ValueType t;
-            if(type_lookup(node->u.call.name) >= 0) {
-                /* type 构造调用：参数个数 == 属性数（或单 map 原样）。
-                   函数体先于 typecheck 被 ir 编译（yacc 动作 compile_func_from_ast），
-                   构造展开会摘空 args——args 为空时跳过（已展开，运行时宽松处理） */
-                int nargs = typecheck_arg_count(node->u.call.args);
-                if(nargs > 0) {
-                    int nprops = type_get(type_lookup(node->u.call.name))->nprops;
-                    if(!(nargs == nprops || nargs == 1)) {
-                        fprintf(stderr, "语义错误(第%d行)：类型构造参数个数错误：需要 %d 个（或单个 map），实际 %d 个\n",
-                                node->line, nprops, nargs);
-                    }
-                }
-            } else if(!static_sym_get(node->u.call.name, &t)) {
-                static const struct { const char* name; int min; int max; } builtins[] = {
-                    {"len", 1, 1}, {"type", 1, 1}, {"input", 0, 0}, {"range", 1, 3}, {"substr", 3, 3},
-                    {"toupper", 1, 1}, {"tolower", 1, 1}, {"split", 2, 2}, {"del", 2, 2}, {"insert", 3, 3},
-                    {"floor", 1, 1}, {"ceil", 1, 1}, {"abs", 1, 1}, {"sqrt", 1, 1},
-                    {"max", 1, -1}, {"min", 1, -1}, {"join", 2, 2}, {"contains", 2, 2},
-                    {"repeat", 2, 2}, {"replace", 3, 3}, {"sum", 1, 1}, {"avg", 1, 1},
-                    {"format", 1, -1}, {"sort", 1, 1}, {"reverse", 1, 1},
-                    {"map", 2, 2}, {"filter", 2, 2}, {"reduce", 3, 3},
-                    {"strip", 1, 1}, {"startswith", 2, 2}, {"endswith", 2, 2},
-                    {"read_file", 1, 1}, {"write_file", 2, 2}, {"file_exists", 1, 1},
-                    {"keys", 1, 1}, {"values", 1, 1},
-                    {"thread", 1, -1}, {"thread_join", 1, 1},
-                    {"mutex", 0, 0}, {"rmutex", 0, 0}, {"rwlock", 0, 0}, {"spinlock", 0, 0},
-                    {"lock", 1, 1}, {"unlock", 1, 1}, {"trylock", 1, 1},
-                    {"rdlock", 1, 1}, {"wrlock", 1, 1},
-                    {"tryrdlock", 1, 1}, {"trywrlock", 1, 1},
-                    {"condvar", 0, 0}, {"cond_wait", 2, 2}, {"cond_wait_timeout", 3, 3}, {"cond_signal", 1, 1}, {"cond_broadcast", 1, 1},
-                    {"threadlocal_get", 1, 1}, {"threadlocal_set", 2, 2},
-                    {"get", 1, 3}, {"post", 1, 3}, {"put", 1, 3}, {"delete", 1, 3}, {"head", 1, 3}, {"patch", 1, 3},
-
-                    {"add", 2, 3}, {"remove", 2, 2}, {"clear", 1, 1},
-                    {"arr_get", 2, 2}, {"indexOf", 2, 2}, {"set", 3, 3}, {"first", 1, 1}, {"last", 1, 1}, {"has", 2, 2},
-                    {"flat", 1, 2}, {"qs", 1, 2}, {"addAll", 2, 2}, {"bytes", 1, 2}, {"str", 1, 2},
-                    {"json", 1, 2}, {"stringify", 1, 2},
-                    {"encode", 1, 2}, {"decode", 1, 2},
-                    {"encodeURL", 1, 1}, {"decodeURL", 1, 1},
-                    {"md5", 1, 1}, {"encodeBase64", 1, 1}, {"decodeBase64", 1, 1},
-                    {"regex_match", 2, 2}, {"regex_search", 2, 2}, {"regex_replace", 3, 3},
-                    {"now", 0, 0}, {"timestamp", 0, 0}, {"timestamp_ms", 0, 0},
-                    {"sleep", 1, 1}, {"date", 0, 0}, {"time", 0, 0}, {"datetime", 0, 0},
-                    {"format_time", 1, 2},
-                    {"debug", 1, 2}, {"info", 1, 2}, {"warn", 1, 2}, {"error", 1, 2}, {"fatal", 1, 2},
-                    {"gc_count", 0, 0}, {"gc_bytes", 0, 0}, {"gc_collect", 0, 0}, {"gc_stw_ns", 0, 0}, {"next", 1, 1}, {"send", 2, 2}, {"receive", 0, 0}, {"close", 1, 1}, {"next", 1, 1},
-                };
-                int found = 0;
-                int nbuiltins = (int)(sizeof(builtins) / sizeof(builtins[0]));
-                for(int k = 0; k < nbuiltins; k++) {
-                    if(strcmp(node->u.call.name, builtins[k].name) == 0) {
-                        found = 1;
-                        int nargs = count_args(node->u.call.args);
-                        int bad = (nargs < builtins[k].min) ||
-                                  (builtins[k].max >= 0 && nargs > builtins[k].max);
-                        if(bad) {
-                            if(builtins[k].max >= 0 && builtins[k].min == builtins[k].max)
-                                fprintf(stderr,"语义错误(第%d行)：%s() 需要 %d 个实参（给了 %d 个）\n", node->line,
-                                        builtins[k].name, builtins[k].min, nargs);
-                            else if(builtins[k].max < 0)
-                                fprintf(stderr,"语义错误(第%d行)：%s() 需要至少 %d 个实参（给了 %d 个）\n", node->line,
-                                        builtins[k].name, builtins[k].min, nargs);
-                            else
-                                fprintf(stderr,"语义错误(第%d行)：%s() 需要 %d 到 %d 个实参（给了 %d 个）\n", node->line,
-                                        builtins[k].name, builtins[k].min, builtins[k].max, nargs);
-                            err = 1;
-                        }
-                        break;
-                    }
-                }
-                if(!found) {
-                    fprintf(stderr,"语义错误(第%d行)：调用未定义函数 %s\n", node->line, node->u.call.name);
-                    err = 1;
-                }
-            } else if(t != VAL_NONE && t != VAL_FUNC) {
-                fprintf(stderr,"语义错误(第%d行)：%s 不是函数\n", node->line, node->u.call.name);
-                err = 1;
-            }
-            node->val_type = VAL_NONE;
+            err |= typecheck_call(node);
             break;
         }
         case AST_DYN_CALL: {
