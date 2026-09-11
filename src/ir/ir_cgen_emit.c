@@ -339,6 +339,10 @@ void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __g = __stk[--__sp]; if(__g.type == VAL_GENERATOR) { struct { int __state; } *__gen = (void*)__g.v.generator; __gen->__state = -1; } __stk[__sp++] = val_none(); }\n");
                         break;
                     }
+                    case BUILTIN_RECEIVE: {
+                        fprintf(out, "    { __stk[__sp++] = __g_gen_in_generator ? __g_gen_send_val : val_none(); }\n");
+                        break;
+                    }
                     case BUILTIN_LEN:
                         fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumyr_len(__v); }\n");
                         break;

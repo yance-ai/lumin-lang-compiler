@@ -39,6 +39,7 @@ void emit_gen_struct(BytecodeFunc* fn) {
     fprintf(out, "/* 生成器状态机结构体：%s */\n", fn->name);
     fprintf(out, "struct lumyr_gen_%s {\n", fn->name);
     fprintf(out, "    Value (*next)(struct lumyr_gen_%s*, Value);  /* next() 函数指针 */\n", fn->name);
+    fprintf(out, "    Value __send_val;     /* send() 发送的值，receive() 返回 */\n");
     fprintf(out, "    int __state;          /* 执行状态：0=初始, 1..n=yield点, -1=结束 */\n");
     fprintf(out, "    int __sp;             /* 操作数栈指针 */\n");
     fprintf(out, "    Value __stk[%d];      /* 操作数栈 */\n", maxd + 2);
@@ -103,6 +104,10 @@ void emit_gen_next_header(BytecodeFunc* fn) {
             fn->name, fn->name);
     fprintf(out, "    if(g->__state == -1) return val_none();\n");
 
+    /* 设置生成器上下文：保存 send 值，标记在生成器内部 */
+    fprintf(out, "    __g_gen_send_val = __send_val;\n");
+    fprintf(out, "    __g_gen_in_generator = 1;\n");
+
     /* 从状态机恢复栈和栈指针 */
     fprintf(out, "    Value* __stk = g->__stk;\n");
     fprintf(out, "    int __sp = g->__sp;\n");
@@ -130,6 +135,7 @@ void emit_gen_next_header(BytecodeFunc* fn) {
  * 生成生成器 next() 函数的结尾
  */
 void emit_gen_next_footer(BytecodeFunc* fn) {
+    fprintf(out, "    __g_gen_in_generator = 0;  /* 离开生成器上下文 */\n");
     fprintf(out, "    g->__state = -1;  /* 标记为已结束 */\n");
     fprintf(out, "    return val_none();\n");
     fprintf(out, "}\n\n");
@@ -141,6 +147,7 @@ void emit_gen_next_footer(BytecodeFunc* fn) {
  */
 void emit_gen_yield(BytecodeFunc* fn, int yield_id) {
     fprintf(out, "    /* YIELD #%d：保存状态并返回 */\n", yield_id);
+    fprintf(out, "    __g_gen_in_generator = 0;  /* 暂停时离开生成器上下文 */\n");
     fprintf(out, "    g->__state = %d;\n", yield_id);
     fprintf(out, "    g->__sp = __sp;\n");
     fprintf(out, "    return __stk[__sp - 1];\n");

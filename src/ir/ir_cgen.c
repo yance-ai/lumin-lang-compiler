@@ -689,6 +689,9 @@ void ir_cgen_file(const char* out_c_path, BytecodeFunc* main_fn)
     fprintf(out, "#include \"lm_time.h\"\n");
     fprintf(out, "#include \"lm_qs.h\"\n");
     fprintf(out, "#include \"lumyr_value.h\"\n\n");
+    /* 生成器相关全局变量：当前生成器实例的 send 值（receive() 返回） */
+    fprintf(out, "static Value __g_gen_send_val = {0};\n");
+    fprintf(out, "static int __g_gen_in_generator = 0;\n\n");
     /* 编译通道使用自己的闭包实现（capture_count==-2，captures 为 Value** cell 指针数组）。
      * 提供 gc_runtime.c 引用的 lumyr_interp_scan_captures 弱定义桩，避免链接缺失符号。 */
     fprintf(out, "\n__attribute__((weak)) void lumyr_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value)) { (void)rf; (void)mark; }\n\n");
