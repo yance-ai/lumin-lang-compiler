@@ -166,6 +166,7 @@ typedef enum {
     BUILTIN_NEXT,            // next(gen)：恢复生成器执行，返回 yield 值；结束返回 null
     BUILTIN_SEND,            // send(gen, val)：向生成器发送值，返回下一个 yield 值
     BUILTIN_RECEIVE,         // receive()：在生成器中获取 send() 发送的值
+    BUILTIN_CLOSE,           // close(gen)：关闭生成器
     BUILTIN_COUNT
 } BuiltinId;
 

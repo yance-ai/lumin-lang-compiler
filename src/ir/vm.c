@@ -1128,6 +1128,18 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         }
                         break;
                     }
+                    case BUILTIN_CLOSE: {
+                        /* close(gen)：关闭生成器，标记为已结束 */
+                        Value gen_val = stack[--sp];
+                        if(gen_val.type != VAL_GENERATOR) {
+                            fprintf(stderr, "Runtime Error: close() 需要生成器对象，实际类型: %d\n", gen_val.type);
+                            exit(EXIT_FAILURE);
+                        }
+                        GeneratorObject* gen = (GeneratorObject*)gen_val.v.generator;
+                        gen->finished = 1;
+                        stack[sp++] = val_none();
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
