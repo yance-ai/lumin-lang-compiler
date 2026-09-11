@@ -805,6 +805,10 @@ int typecheck_expr(AstNode* node)
             AstNode* cp = node->u.sw.cases;
             while(cp) {
                 if(cp->u.cs.const_val) err |= typecheck_expr(cp->u.cs.const_val);
+                if(cp->u.cs.bind_var) {
+                    static_sym_put(cp->u.cs.bind_var, VAL_NONE);
+                }
+                if(cp->u.cs.guard) err |= typecheck_expr(cp->u.cs.guard);
                 err |= typecheck_expr(cp->u.cs.body);
                 cp = cp->u.cs.next;
             }

@@ -481,6 +481,12 @@ case_item
     | CASE type_keyword CASE_COLON stmt_list {
         $$ = ast_case_type($2, $4);
     }
+    | CASE ID CASE_COLON stmt_list {
+        $$ = ast_case_guard($2, NULL, $4);
+    }
+    | CASE ID IF expr CASE_COLON stmt_list {
+        $$ = ast_case_guard($2, $4, $6);
+    }
     | DEFAULT CASE_COLON stmt_list {
         $$ = ast_case(NULL, $3, 1);
     }

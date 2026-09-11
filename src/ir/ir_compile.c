@@ -1169,6 +1169,28 @@ static void c_stmt(Ctx* c, AstNode* node)
                     last_jf = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);
                     emit(c, OPC_POP, 0, 0);      // 命中：丢弃 sw_val
                     c_stmt(c, cp->u.cs.body);
+                } else if(cp->u.cs.bind_var != NULL) {
+                    /* 模式绑定：case x [if cond]: */
+                    /* STORE_VAR 弹值写变量后原值压回，栈顶仍为 sw_val */
+                    emit(c, OPC_STORE_VAR, bf_sym(c->fn, cp->u.cs.bind_var), 0);
+                    if(cp->u.cs.guard != NULL) {
+                        /* 有守卫：保留 sw_val 在栈底，guard 结果在栈顶 */
+                        c_expr(c, cp->u.cs.guard);
+                        last_jf = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);
+                        /* 命中：丢弃 sw_val */
+                        emit(c, OPC_POP, 0, 0);
+                    } else {
+                        /* 无守卫：丢弃 sw_val */
+                        emit(c, OPC_POP, 0, 0);
+                    }
+                    c_stmt(c, cp->u.cs.body);
+                    if(jump_cnt >= jump_cap) {
+                        int nc = jump_cap > 0 ? jump_cap * 2 : 8;
+                        int* nj = (int*)realloc(end_jumps, (size_t)nc * sizeof(int));
+                        if(!nj) { fprintf(stderr, "IR: switch branch table oom\n"); exit(EXIT_FAILURE); }
+                        end_jumps = nj; jump_cap = nc;
+                    }
+                    end_jumps[jump_cnt++] = emit_here(c, OPC_JMP, 0, 0);
                 } else {
                     emit(c, OPC_DUP, 0, 0);
                     c_expr(c, cp->u.cs.const_val);

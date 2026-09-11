@@ -118,6 +118,8 @@ struct AstNode {
             AstNode* next;
             int is_type_match;   /* type match: case int: / case string: etc */
             int match_type;      /* matched ValueType */
+            char* bind_var;      /* pattern binding: case x: (NULL = no binding) */
+            AstNode* guard;      /* pattern guard: case x if cond: (NULL = no guard) */
         } cs;
 
         struct {

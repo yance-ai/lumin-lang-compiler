@@ -442,6 +442,22 @@ AstNode* ast_case_type(int match_type, AstNode* body)
     n->u.cs.next = NULL;
     n->u.cs.is_type_match = 1;
     n->u.cs.match_type = match_type;
+    n->u.cs.bind_var = NULL;
+    n->u.cs.guard = NULL;
+    return n;
+}
+
+AstNode* ast_case_guard(const char* bind_var, AstNode* guard, AstNode* body)
+{
+    AstNode* n = ast_new(AST_CASE);
+    n->u.cs.const_val = NULL;
+    n->u.cs.body = body;
+    n->u.cs.is_default = 0;
+    n->u.cs.next = NULL;
+    n->u.cs.is_type_match = 0;
+    n->u.cs.match_type = 0;
+    n->u.cs.bind_var = bind_var ? strdup(bind_var) : NULL;
+    n->u.cs.guard = guard;
     return n;
 }
 
