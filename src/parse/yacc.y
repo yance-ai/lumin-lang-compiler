@@ -357,7 +357,8 @@ closed_stmt
       }
     | TOK_EXTEND ID LBRACE func_def_list RBRACE {
           /* extend String { func a() { ... } func b() { ... } }：扩展方法 */
-          $$ = L(ast_none());
+          /* 返回函数定义列表，让语义检查阶段能收集这些函数 */
+          $$ = $4;
       }
     | TOK_EXTEND ID LBRACE RBRACE {
           /* extend String { }：扩展方法语法占位 */
@@ -455,8 +456,8 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
 
 /* 函数定义列表：用于扩展方法块 */
 func_def_list
-    : func_def
-    | func_def_list func_def
+    : func_def                     { $$ = $1; }
+    | func_def_list func_def      { $$ = ast_seq($1, $2); }
     ;
 
 /* 泛型参数列表：<T> / <T, U>（用 param.next 链接，与函数参数一致） */

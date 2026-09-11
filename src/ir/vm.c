@@ -455,7 +455,18 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_INDEX_GET: {
                 Value idx = stack[--sp];
                 Value c = stack[--sp];
-                stack[sp++] = lumyr_index_get(c, idx);
+                Value result = lumyr_index_get(c, idx);
+                /* 扩展方法：如果对象没有该属性，且属性名是字符串，查找全局符号表中的扩展方法 */
+                if(result.type == VAL_NONE && idx.type == VAL_STRING) {
+                    const char* method_name = lumyr_str_cstr(&idx);
+                    if(method_name != NULL && sym_has(method_name)) {
+                        Value fv = sym_get(method_name);
+                        if(fv.type == VAL_FUNC) {
+                            result = fv;
+                        }
+                    }
+                }
+                stack[sp++] = result;
                 break;
             }
             case OPC_INDEX_SET: {
