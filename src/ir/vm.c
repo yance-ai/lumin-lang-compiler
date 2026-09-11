@@ -43,6 +43,20 @@ static _Thread_local int vm_cap = 0;          /* 错误处理器栈容量 */
 static _Thread_local Value vm_pend_val;   /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
 
 /* ========== 生成器支持 ========== */
+/* 包装生成器类型枚举 */
+typedef enum {
+    WRAP_NONE = 0,       /* 非包装生成器（默认值） */
+    WRAP_MAP = 1,       /* map：转换每个元素 */
+    WRAP_FILTER = 2,    /* filter：过滤元素 */
+    WRAP_SKIP = 3,      /* skip：跳过前 n 个元素 */
+    WRAP_TAKE = 4,      /* take：取前 n 个元素 */
+    WRAP_ENUMERATE = 5, /* enumerate：枚举 [index, value] */
+    WRAP_CHAIN = 6,     /* chain：连接两个生成器 */
+    WRAP_ZIP = 7        /* zip：压缩两个生成器 */
+} WrapType;
+
+/* 生成器对象前向声明 */
+typedef struct GeneratorObject GeneratorObject;
 /* 生成器对象：保存冻结的执行状态 */
 typedef struct GeneratorObject {
     BytecodeFunc* bf;        /* 函数字节码 */
@@ -79,6 +93,14 @@ typedef struct GeneratorObject {
     jmp_buf* saved_g_err_jmp; /* 保存的当前错误跳转点 */
     Value pending_exception;  /* 待抛出的异常（GenThrow() 设置，恢复时抛出） */
     int has_pending_exception; /* 是否有待抛出的异常 */
+    /* 包装生成器：map/filter/skip/take/enumerate/chain/zip */
+    int is_wrapped;           /* 是否是包装生成器 */
+    int wrap_type;            /* 包装类型：1=map 2=filter 3=skip 4=take 5=enumerate 6=chain 7=zip */
+    GeneratorObject* wrapped_gen; /* 被包装的原始生成器 */
+    RuntimeFunc* wrap_fn;     /* 转换/过滤函数 */
+    int wrap_arg;             /* 额外参数（skip/take 的 n） */
+    GeneratorObject* wrapped_gen2; /* 第二个生成器（chain/zip） */
+    int wrap_index;           /* enumerate 的索引 */
 } GeneratorObject;
 
 /* 当前正在执行的生成器（NULL = 普通执行） */
@@ -86,6 +108,93 @@ static _Thread_local GeneratorObject* s_current_gen = NULL;
 /* 生成器 yield 时的返回值传递 */
 static _Thread_local Value s_gen_yield_result;
 static _Thread_local int s_gen_yielded = 0;
+
+/* ========== 暂停生成器 GC 根注册 ==========
+ * 生成器 yield 暂停后，其 stack/frame 不再是 VM 当前 GC 根，
+ * 但内部仍持有 GC 对象引用（字符串/数组/map）。若不注册为 GC 根，
+ * GC 会错误回收这些对象，内存复用后覆盖生成器字段导致堆破坏。
+ */
+static GeneratorObject** s_paused_gens = NULL;
+static int s_paused_gen_cnt = 0;
+static int s_paused_gen_cap = 0;
+
+static void paused_gen_add(GeneratorObject* gen) {
+    if(s_paused_gen_cnt >= s_paused_gen_cap) {
+        int nc = s_paused_gen_cap > 0 ? s_paused_gen_cap * 2 : 16;
+        GeneratorObject** ns = (GeneratorObject**)realloc(s_paused_gens, (size_t)nc * sizeof(GeneratorObject*));
+        if(!ns) { fprintf(stderr, "vm: paused_gens 扩容内存不足\n"); exit(EXIT_FAILURE); }
+        s_paused_gens = ns;
+        s_paused_gen_cap = nc;
+    }
+    s_paused_gens[s_paused_gen_cnt++] = gen;
+}
+
+static void paused_gen_remove(GeneratorObject* gen) {
+    for(int i = 0; i < s_paused_gen_cnt; i++) {
+        if(s_paused_gens[i] == gen) {
+            s_paused_gens[i] = s_paused_gens[--s_paused_gen_cnt];
+            return;
+        }
+    }
+}
+
+/* 递归标记单个生成器持有的所有 GC 对象引用（包括被包装的子生成器） */
+static void mark_generator_refs(GeneratorObject* gen, int depth) {
+    if(!gen || depth > 16) return;  /* 防止循环引用导致无限递归 */
+    /* 标记执行栈中的 Value */
+    if(gen->stack && gen->sp > 0) {
+        for(int j = 0; j < gen->sp; j++) {
+            gc_mark(gen->stack[j]);
+        }
+    }
+    /* 标记栈帧及父帧链中的局部变量 */
+    StackFrame* f = gen->frame;
+    while(f) {
+        if(f->vals) {
+            for(int j = 0; j < f->cnt; j++) {
+                gc_mark(f->vals[j]);
+            }
+        }
+        f = f->parent;
+    }
+    /* 标记包装生成器持有的函数对象 */
+    if(gen->is_wrapped && gen->wrap_fn) {
+        RuntimeFunc* rf = gen->wrap_fn;
+        if(rf->captures) {
+            for(int j = 0; j < rf->capture_count; j++) {
+                gc_mark(rf->captures[j]);
+            }
+        }
+    }
+    /* 标记 send_value / yield_value / pending_exception */
+    gc_mark(gen->yield_value);
+    gc_mark(gen->send_value);
+    gc_mark(gen->pending_exception);
+    /* 递归标记被包装的子生成器（关键：子生成器可能不在暂停列表中，
+     * 因为 generator_resume 返回时会从列表移除，但它仍持有 GC 对象引用） */
+    if(gen->is_wrapped) {
+        mark_generator_refs(gen->wrapped_gen, depth + 1);
+        mark_generator_refs(gen->wrapped_gen2, depth + 1);
+    }
+}
+
+/* GC 标记回调：遍历所有暂停生成器，标记其 stack 和 frame 中的 Value */
+void lumyr_gc_mark_paused_generators(void) {
+    for(int i = 0; i < s_paused_gen_cnt; i++) {
+        GeneratorObject* gen = s_paused_gens[i];
+        mark_generator_refs(gen, 0);
+    }
+}
+
+/* GC 标记回调：标记单个生成器 Value 持有的所有引用。
+ * gc_mark 遇到 VAL_GENERATOR 时调用此函数，确保生成器无论在栈上、数组中、
+ * map 中还是暂停列表中，其持有的引用（wrapped_gen/wrap_fn/stack/frame 等）
+ * 都能被正确标记，避免 GC 错误回收导致堆破坏。 */
+void lumyr_gc_mark_generator(Value v) {
+    if(v.type != VAL_GENERATOR || !v.v.generator) return;
+    GeneratorObject* gen = (GeneratorObject*)v.v.generator;
+    mark_generator_refs(gen, 0);
+}
 
 static void vm_ensure(int need)
 {
@@ -133,7 +242,7 @@ static GeneratorObject* generator_new(BytecodeFunc* bf, StackFrame* parent_frame
     gen->frame = stackframe_new(parent_frame);
     gen->max_stack = bc_analyze_stack(bf, NULL, 0);
     if(gen->max_stack < 0) gen->max_stack = 64;
-    gen->stack = (Value*)malloc(sizeof(Value) * (gen->max_stack + 2));
+    gen->stack = (Value*)malloc(sizeof(Value) * (gen->max_stack + 64));
     gen->sp = 0;
     gen->pc = 0;
     gen->finished = 0;
@@ -146,10 +255,15 @@ static GeneratorObject* generator_new(BytecodeFunc* bf, StackFrame* parent_frame
     return gen;
 }
 
+/* 前向声明 */
+static void generator_free_try_context(GeneratorObject* gen);
+
 /* 销毁生成器对象 */
 static void generator_free(GeneratorObject* gen)
 {
     if(!gen) return;
+    paused_gen_remove(gen);
+    generator_free_try_context(gen);
     if(gen->stack) free(gen->stack);
     if(gen->frame) stackframe_destroy(gen->frame);
     free(gen);
@@ -170,6 +284,9 @@ static void generator_save_try_context(GeneratorObject* gen)
     gen->saved_vm_depth = depth;
     gen->saved_vm_fin_n = fin_n;
     gen->saved_g_err_jmp = g_err_jmp;
+
+    /* 先释放旧数组，避免多次 yield 导致内存泄漏 */
+    generator_free_try_context(gen);
 
     /* 分配内存保存数组 */
     if(depth > 0) {
@@ -260,9 +377,111 @@ static void generator_free_try_context(GeneratorObject* gen)
     gen->saved_vm_fin_dep = NULL;
 }
 
-static int generator_resume(GeneratorObject* gen, Value* result, Value* send_val)
+/* 前向声明 */
+static int generator_resume(GeneratorObject* gen, Value* result, Value* send_val, StackFrame* frame, EvalCtx* ctx);
+static Value vm_call_rf(RuntimeFunc* rf, Value* args, int argc, StackFrame* parent, EvalCtx* ctx);
+
+/* 包装生成器的 next() 处理 */
+static int wrapped_gen_next(GeneratorObject* gen, Value* result, StackFrame* frame, EvalCtx* ctx)
 {
     if(gen->finished) { *result = val_none(); return 0; }
+
+    switch(gen->wrap_type) {
+        case WRAP_MAP: {
+            Value v;
+            int has = generator_resume(gen->wrapped_gen, &v, NULL, frame, ctx);
+            if(!has) { gen->finished = 1; *result = val_none(); return 0; }
+            Value a1[1] = { v };
+            Value r = vm_call_rf(gen->wrap_fn, a1, 1, frame, ctx);
+            *result = r;
+            return 1;
+        }
+        case WRAP_FILTER: {
+            while(1) {
+                Value v;
+                int has = generator_resume(gen->wrapped_gen, &v, NULL, frame, ctx);
+                if(!has) { gen->finished = 1; *result = val_none(); return 0; }
+                Value a1[1] = { v };
+                Value r = vm_call_rf(gen->wrap_fn, a1, 1, frame, ctx);
+                if(lumyr_to_bool(r)) { *result = v; return 1; }
+            }
+        }
+        case WRAP_SKIP: {
+            while(gen->wrap_index < gen->wrap_arg) {
+                Value v;
+                int has = generator_resume(gen->wrapped_gen, &v, NULL, frame, ctx);
+                if(!has) { gen->finished = 1; *result = val_none(); return 0; }
+                gen->wrap_index++;
+            }
+            Value v;
+            int has = generator_resume(gen->wrapped_gen, &v, NULL, frame, ctx);
+            if(!has) { gen->finished = 1; *result = val_none(); return 0; }
+            *result = v;
+            return 1;
+        }
+        case WRAP_TAKE: {
+            if(gen->wrap_index >= gen->wrap_arg) { gen->finished = 1; *result = val_none(); return 0; }
+            Value v;
+            int has = generator_resume(gen->wrapped_gen, &v, NULL, frame, ctx);
+            if(!has) { gen->finished = 1; *result = val_none(); return 0; }
+            gen->wrap_index++;
+            *result = v;
+            return 1;
+        }
+        case WRAP_ENUMERATE: {
+            Value v;
+            int has = generator_resume(gen->wrapped_gen, &v, NULL, frame, ctx);
+            if(!has) { gen->finished = 1; *result = val_none(); return 0; }
+            Value arr = val_array(2);
+            arr.v.array->items[0] = val_int(gen->wrap_index);
+            arr.v.array->items[1] = v;
+            gen->wrap_index++;
+            *result = arr;
+            return 1;
+        }
+        case WRAP_CHAIN: {
+            Value v;
+            int has = generator_resume(gen->wrapped_gen, &v, NULL, frame, ctx);
+            if(has) { *result = v; return 1; }
+            has = generator_resume(gen->wrapped_gen2, &v, NULL, frame, ctx);
+            if(!has) { gen->finished = 1; *result = val_none(); return 0; }
+            *result = v;
+            return 1;
+        }
+        case WRAP_ZIP: {
+            Value v1, v2;
+            int has1 = generator_resume(gen->wrapped_gen, &v1, NULL, frame, ctx);
+            int has2 = generator_resume(gen->wrapped_gen2, &v2, NULL, frame, ctx);
+            if(!has1 || !has2) { gen->finished = 1; *result = val_none(); return 0; }
+            Value arr = val_array(2);
+            arr.v.array->items[0] = v1;
+            arr.v.array->items[1] = v2;
+            *result = arr;
+            return 1;
+        }
+        default: {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "未知包装生成器类型: wrap_type=%d is_wrapped=%d gen=%p",
+                     gen->wrap_type, gen->is_wrapped, (void*)gen);
+            runtime_error(buf);
+        }
+    }
+    return 0;
+}
+
+static int generator_resume(GeneratorObject* gen, Value* result, Value* send_val, StackFrame* frame, EvalCtx* ctx)
+{
+    if(gen->finished) { *result = val_none(); return 0; }
+    /* 包装生成器：直接调用包装逻辑，不执行字节码 */
+    if(gen->is_wrapped) {
+        /* 包装生成器恢复时从暂停 GC 根列表移除，返回值（暂停）时重新添加。
+         * 包装生成器不是通过 OPC_YIELD 暂停，而是 wrapped_gen_next 返回值暂停，
+         * 因此需要在这里单独管理 GC 根注册，否则内部持有的 GC 对象会被错误回收。 */
+        paused_gen_remove(gen);
+        int has = wrapped_gen_next(gen, result, frame, ctx);
+        if(has) paused_gen_add(gen);
+        return has;
+    }
 
     /* 设置 send_value（如果有） */
     if(send_val) {
@@ -276,17 +495,22 @@ static int generator_resume(GeneratorObject* gen, Value* result, Value* send_val
     if(setjmp(gen->resume_point) == 0) {
         /* 第一次进入或从 next 恢复：调用 vm_run 执行字节码 */
         s_current_gen = gen;
+        paused_gen_remove(gen);  /* 恢复执行前从暂停 GC 根列表移除（执行期间 stack/frame 是当前 VM 根） */
         EvalCtx ctx;
         memset(&ctx, 0, sizeof(ctx));
         gen->ctx = &ctx;
         Value ret = vm_run(gen->bf, gen->frame, &ctx);
-        /* vm_run 正常返回：生成器结束 */
+        /* vm_run 正常返回：生成器结束，释放 try-catch 上下文 */
         s_current_gen = NULL;
         gen->finished = 1;
+        generator_free_try_context(gen);
+        paused_gen_remove(gen);  /* 生成器结束时从暂停 GC 根列表移除 */
         *result = ret;
         return 0;
     } else {
-        /* 从 yield longjmp 回来：返回 yield 的值 */
+        /* 从 yield longjmp 回来：返回 yield 的值。
+         * 注意：不调用 paused_gen_remove(gen)，生成器保持在暂停 GC 根列表中，
+         * 因为它仍然持有 GC 对象引用（stack/frame 中的 Value），直到下次恢复或被释放。 */
         s_current_gen = NULL;
         *result = s_gen_yield_result;
         return 1;
@@ -928,7 +1152,7 @@ static int vm_exec_builtin(Instruction in, Value* stack, int sp, StackFrame* fra
                     case BUILTIN_LOG_FATAL: {
                         int lvl = in.a - BUILTIN_LOG_DEBUG;
                         Value msg;
-                        if(in.b >= 2) { msg = stack[--sp]; stack[--sp]; }  // 方法链：先弹消息，再丢弃 receiver
+                        if(in.b >= 2) { msg = stack[--sp]; --sp; }  // 方法链：先弹消息，再丢弃 receiver
                         else { msg = stack[--sp]; }
                         char* ms = value_to_str(msg);
                         lumyr_log(lvl, ms);
@@ -954,23 +1178,26 @@ static int vm_exec_builtin(Instruction in, Value* stack, int sp, StackFrame* fra
                         break;
                     }
                     case BUILTIN_NEXT: {
-                        /* next(gen)：恢复生成器执行，返回 yield 值；结束返回 null */
-                        Value gen_val = stack[--sp];
+                        /* next(gen)：恢复生成器执行，返回 yield 值；结束返回 null。
+                         * 不弹出 gen_val，让它始终留在 VM 栈上作为 GC 根，
+                         * 避免 generator_resume 执行期间触发 GC 时生成器引用被错误回收。 */
+                        Value gen_val = stack[sp - 1];
                         if(gen_val.type != VAL_GENERATOR) {
                             fprintf(stderr, "Runtime Error: next() 需要生成器对象，实际类型: %d\n", gen_val.type);
                             exit(EXIT_FAILURE);
                         }
                         GeneratorObject* gen = (GeneratorObject*)gen_val.v.generator;
                         Value result;
-                        int yielded = generator_resume(gen, &result, NULL);
-                        stack[sp++] = result;
+                        int yielded = generator_resume(gen, &result, NULL, frame, ctx);
+                        stack[sp - 1] = result;  /* 用结果覆盖栈顶的生成器 Value */
                         (void)yielded;
                         break;
                     }
                     case BUILTIN_SEND: {
-                        /* send(gen, val)：向生成器发送值，恢复执行，返回下一个 yield 值 */
+                        /* send(gen, val)：向生成器发送值，恢复执行，返回下一个 yield 值。
+                         * gen_val 留在栈上作为 GC 根，send_val 复制到 C 栈。 */
                         Value send_val = stack[--sp];
-                        Value gen_val = stack[--sp];
+                        Value gen_val = stack[sp - 1];  /* 不弹出，留在栈上 */
                         if(gen_val.type != VAL_GENERATOR) {
                             fprintf(stderr, "Runtime Error: send() 需要生成器对象，实际类型: %d\n", gen_val.type);
                             exit(EXIT_FAILURE);
@@ -981,8 +1208,8 @@ static int vm_exec_builtin(Instruction in, Value* stack, int sp, StackFrame* fra
                             exit(EXIT_FAILURE);
                         }
                         Value result;
-                        int yielded = generator_resume(gen, &result, &send_val);
-                        stack[sp++] = result;
+                        int yielded = generator_resume(gen, &result, &send_val, frame, ctx);
+                        stack[sp - 1] = result;  /* 用结果覆盖栈顶 */
                         (void)yielded;
                         break;
                     }
@@ -1025,8 +1252,87 @@ static int vm_exec_builtin(Instruction in, Value* stack, int sp, StackFrame* fra
                         gen->has_pending_exception = 1;
                         /* 恢复生成器执行，异常会在恢复时抛出 */
                         Value result;
-                        generator_resume(gen, &result, NULL);
+                        generator_resume(gen, &result, NULL, frame, ctx);
                         stack[sp++] = result;
+                        break;
+                    }
+                    case BUILTIN_CHAIN: {
+                        /* chain(g1, g2)：连接两个生成器 */
+                        Value g2 = stack[--sp];
+                        Value g1 = stack[--sp];
+                        if(g1.type != VAL_GENERATOR || g2.type != VAL_GENERATOR) {
+                            runtime_error("chain() 参数必须是生成器");
+                        }
+                        GeneratorObject* wg = (GeneratorObject*)calloc(1, sizeof(GeneratorObject));
+                        wg->is_wrapped = 1;
+                        wg->wrap_type = WRAP_CHAIN;
+                        wg->wrapped_gen = (GeneratorObject*)g1.v.generator;
+                        wg->wrapped_gen2 = (GeneratorObject*)g2.v.generator;
+                                                paused_gen_add(wg);  /* 注册为 GC 根，从创建到结束始终保持 */
+Value gv; gv.type = VAL_GENERATOR; gv.v.generator = (void*)wg;
+                        stack[sp++] = gv;
+                        break;
+                    }
+                    case BUILTIN_ZIP: {
+                        /* zip(g1, g2)：压缩两个生成器 */
+                        Value g2 = stack[--sp];
+                        Value g1 = stack[--sp];
+                        if(g1.type != VAL_GENERATOR || g2.type != VAL_GENERATOR) {
+                            runtime_error("zip() 参数必须是生成器");
+                        }
+                        GeneratorObject* wg = (GeneratorObject*)calloc(1, sizeof(GeneratorObject));
+                        wg->is_wrapped = 1;
+                        wg->wrap_type = WRAP_ZIP;
+                        wg->wrapped_gen = (GeneratorObject*)g1.v.generator;
+                        wg->wrapped_gen2 = (GeneratorObject*)g2.v.generator;
+                                                paused_gen_add(wg);  /* 注册为 GC 根，从创建到结束始终保持 */
+Value gv; gv.type = VAL_GENERATOR; gv.v.generator = (void*)wg;
+                        stack[sp++] = gv;
+                        break;
+                    }
+                    case BUILTIN_SKIP: {
+                        /* skip(g, n)：跳过前 n 个元素 */
+                        Value nval = stack[--sp];
+                        Value gval = stack[--sp];
+                        if(gval.type != VAL_GENERATOR) runtime_error("skip() 第一个参数必须是生成器");
+                        int n = lumyr_extract_int(nval);
+                        GeneratorObject* wg = (GeneratorObject*)calloc(1, sizeof(GeneratorObject));
+                        wg->is_wrapped = 1;
+                        wg->wrap_type = WRAP_SKIP;
+                        wg->wrapped_gen = (GeneratorObject*)gval.v.generator;
+                        wg->wrap_arg = n;
+                                                paused_gen_add(wg);  /* 注册为 GC 根，从创建到结束始终保持 */
+Value gv; gv.type = VAL_GENERATOR; gv.v.generator = (void*)wg;
+                        stack[sp++] = gv;
+                        break;
+                    }
+                    case BUILTIN_TAKE: {
+                        /* take(g, n)：取前 n 个元素 */
+                        Value nval = stack[--sp];
+                        Value gval = stack[--sp];
+                        if(gval.type != VAL_GENERATOR) runtime_error("take() 第一个参数必须是生成器");
+                        int n = lumyr_extract_int(nval);
+                        GeneratorObject* wg = (GeneratorObject*)calloc(1, sizeof(GeneratorObject));
+                        wg->is_wrapped = 1;
+                        wg->wrap_type = WRAP_TAKE;
+                        wg->wrapped_gen = (GeneratorObject*)gval.v.generator;
+                        wg->wrap_arg = n;
+                                                paused_gen_add(wg);  /* 注册为 GC 根，从创建到结束始终保持 */
+Value gv; gv.type = VAL_GENERATOR; gv.v.generator = (void*)wg;
+                        stack[sp++] = gv;
+                        break;
+                    }
+                    case BUILTIN_ENUMERATE: {
+                        /* enumerate(g)：枚举 [index, value] */
+                        Value gval = stack[--sp];
+                        if(gval.type != VAL_GENERATOR) runtime_error("enumerate() 参数必须是生成器");
+                        GeneratorObject* wg = (GeneratorObject*)calloc(1, sizeof(GeneratorObject));
+                        wg->is_wrapped = 1;
+                        wg->wrap_type = WRAP_ENUMERATE;
+                        wg->wrapped_gen = (GeneratorObject*)gval.v.generator;
+                                                paused_gen_add(wg);  /* 注册为 GC 根，从创建到结束始终保持 */
+Value gv; gv.type = VAL_GENERATOR; gv.v.generator = (void*)wg;
+                        stack[sp++] = gv;
                         break;
                     }
                     case BUILTIN_HTTP_DELETE:
@@ -1294,7 +1600,7 @@ static int vm_exec_builtin(Instruction in, Value* stack, int sp, StackFrame* fra
                     case BUILTIN_LOG_FATAL: {
                         int lvl = in.a - BUILTIN_LOG_DEBUG;
                         Value msg;
-                        if(in.b >= 2) { msg = stack[--sp]; stack[--sp]; }  // 方法链：先弹消息，再丢弃 receiver
+                        if(in.b >= 2) { msg = stack[--sp]; --sp; }  // 方法链：先弹消息，再丢弃 receiver
                         else { msg = stack[--sp]; }
                         char* ms = value_to_str(msg);
                         lumyr_log(lvl, ms);
@@ -1337,6 +1643,19 @@ static int vm_exec_builtin(Instruction in, Value* stack, int sp, StackFrame* fra
                                 lumyr_map_set(&mout, mk, r);
                             }
                             stack[sp++] = mout;
+                            break;
+                        }
+                        /* 生成器支持：创建包装生成器 */
+                        if(arr.type == VAL_GENERATOR && (in.a == BUILTIN_MAP || in.a == BUILTIN_FILTER)) {
+                            if(fn.type != VAL_FUNC) runtime_error("map()/filter() 第二个参数必须是函数");
+                            GeneratorObject* wrapped = (GeneratorObject*)arr.v.generator;
+                            GeneratorObject* wg = (GeneratorObject*)calloc(1, sizeof(GeneratorObject));
+                            wg->is_wrapped = 1;
+                            wg->wrap_type = (in.a == BUILTIN_MAP) ? WRAP_MAP : WRAP_FILTER;
+                            wg->wrapped_gen = wrapped;
+                            wg->wrap_fn = fn.v.func.func_obj;
+                            Value gv; gv.type = VAL_GENERATOR; gv.v.generator = (void*)wg;
+                            stack[sp++] = gv;
                             break;
                         }
                         if(arr.type != VAL_ARRAY) runtime_error("map()/filter()/reduce() 第一个参数必须是数组");
@@ -1428,9 +1747,16 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             fprintf(stderr, "Runtime Error: %s\n", g_err_msg);
             exit(EXIT_FAILURE);
         }
-        /* 如果是从 yield 恢复（不是第一次启动），把 send_value 压入栈顶作为 yield 表达式的返回值 */
-        if(gen_ctx->started && gen_ctx->has_send_value) {
-            stack[sp++] = gen_ctx->send_value;
+        /* 如果是从 yield 恢复（不是第一次启动），把 send_value 压入栈顶作为 yield 表达式的返回值。
+         * 即使没有 send_value（第一次 next()），也压入 none 作为默认返回值，
+         * 否则 yield 表达式后面的 OPC_POP/赋值会弹出空栈导致栈下溢（sp 变负），
+         * 进而引发堆破坏（越界写覆盖相邻 GeneratorObject 字段）。 */
+        if(gen_ctx->started) {
+            if(gen_ctx->has_send_value) {
+                stack[sp++] = gen_ctx->send_value;
+            } else {
+                stack[sp++] = val_none();
+            }
         }
     } else {
         stack = (Value*)malloc(sizeof(Value) * (maxd + 2));
@@ -1925,6 +2251,9 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 gen_ctx->started = 1;
                 /* 保存 try-catch 上下文（yield 时的状态） */
                 generator_save_try_context(gen_ctx);
+                /* 注册为 GC 根：暂停后 stack/frame 不再是当前 VM 根，
+                 * 但内部仍持有 GC 对象引用，不注册会被错误回收导致堆破坏 */
+                paused_gen_add(gen_ctx);
                 /* 恢复外层 VM 状态 */
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;

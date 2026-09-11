@@ -168,6 +168,11 @@ typedef enum {
     BUILTIN_RECEIVE,         // receive()：在生成器中获取 send() 发送的值
     BUILTIN_CLOSE,           // close(gen)：关闭生成器
     BUILTIN_GEN_THROW,       // GenThrow(gen, err)：向生成器抛出异常，在 yield 位置抛出
+    BUILTIN_CHAIN,           // chain(g1, g2)：连接两个生成器
+    BUILTIN_ZIP,             // zip(g1, g2)：压缩两个生成器
+    BUILTIN_SKIP,            // skip(g, n)：跳过前 n 个元素
+    BUILTIN_TAKE,            // take(g, n)：取前 n 个元素
+    BUILTIN_ENUMERATE,       // enumerate(g)：枚举 [index, value]
     BUILTIN_COUNT
 } BuiltinId;
 

@@ -336,6 +336,7 @@ Value lumyr_type(Value v) {
         case VAL_ARRAY:  return lumyr_make_string("array");
         case VAL_MAP:    return lumyr_make_string("map");
         case VAL_ERROR:  return lumyr_make_string("error");
+        case VAL_GENERATOR: return lumyr_make_string("generator");
     }
     return lumyr_make_string("unknown");
 }

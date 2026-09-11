@@ -39,6 +39,19 @@
 __attribute__((weak)) void lumyr_interp_scan_captures(const RuntimeFunc* rf, void (*mark)(Value)) {
     (void)rf; (void)mark;
 }
+
+/* 暂停生成器 GC 根扫描（定义于 src/ir/vm.c）：遍历所有 yield 暂停的生成器，
+ * 标记其 stack/frame 中持有的 GC 对象引用。生成器暂停后不再是当前 VM 根，
+ * 若不扫描会导致内部引用被错误回收，内存复用后覆盖生成器字段导致堆破坏。 */
+__attribute__((weak)) void lumyr_gc_mark_paused_generators(void) {
+}
+
+/* 生成器对象 GC 标记（定义于 src/ir/vm.c）：标记 VAL_GENERATOR 持有的所有引用。
+ * gc_mark 遇到 VAL_GENERATOR 时调用此回调，避免生成器的 wrapped_gen/wrap_fn/stack
+ * 等引用被错误回收导致堆破坏。 */
+__attribute__((weak)) void lumyr_gc_mark_generator(Value v) {
+    (void)v;
+}
 #if defined(__has_feature)
 #  if __has_feature(address_sanitizer)
 #    include <sanitizer/asan_interface.h>  /* ASan：保守栈扫描前检测 poisoned 红区 */
@@ -770,6 +783,12 @@ void gc_mark(Value v)
         }
         break;
     }
+    case VAL_GENERATOR: {
+        /* 标记生成器持有的所有引用（wrapped_gen/wrap_fn/stack/frame 等），
+         * 避免 GC 错误回收导致堆破坏 */
+        lumyr_gc_mark_generator(v);
+        break;
+    }
     default:
         break;
     }
@@ -794,6 +813,8 @@ void gc_mark_roots(Value* stack, int sp, StackFrame* frame)
         }
         f = f->parent;
     }
+    /* 标记所有暂停生成器持有的 GC 对象（yield 后不再是当前 VM 根） */
+    lumyr_gc_mark_paused_generators();
 }
 
 /* ============================================================
