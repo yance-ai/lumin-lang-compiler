@@ -64,6 +64,21 @@ typedef struct GeneratorObject {
     Value* old_gc_stack;     /* 保存的 GC 栈 */
     int* old_gc_sp;          /* 保存的 GC sp */
     StackFrame* old_gc_frame; /* 保存的 GC frame */
+    /* try-catch 上下文保存（yield 时保存，恢复时恢复） */
+    int saved_vm_depth;      /* 保存的 try 深度 */
+    jmp_buf* saved_vm_jbs;   /* 保存的 jmp_buf 数组 */
+    jmp_buf** saved_vm_prev;  /* 保存的 jmp_buf* 数组 */
+    int* saved_vm_sp;        /* 保存的 sp 数组 */
+    int* saved_vm_target;    /* 保存的 target 数组 */
+    int* saved_vm_tn;        /* 保存的 tn 数组 */
+    int* saved_vm_fn;        /* 保存的 fn 数组 */
+    int saved_vm_fin_n;      /* 保存的 finally 完成栈深度 */
+    int* saved_vm_fin_act;   /* 保存的 fin_act 数组 */
+    int* saved_vm_fin_tgt;   /* 保存的 fin_tgt 数组 */
+    int* saved_vm_fin_dep;   /* 保存的 fin_dep 数组 */
+    jmp_buf* saved_g_err_jmp; /* 保存的当前错误跳转点 */
+    Value pending_exception;  /* 待抛出的异常（GenThrow() 设置，恢复时抛出） */
+    int has_pending_exception; /* 是否有待抛出的异常 */
 } GeneratorObject;
 
 /* 当前正在执行的生成器（NULL = 普通执行） */
@@ -147,6 +162,104 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx);
 
 /* 生成器执行函数：恢复状态，调用 vm_run 执行到下一个 yield 或 return
  * 返回 1 = 正常 yield，结果在 *result；返回 0 = 生成器结束 */
+/* 保存当前 try-catch 上下文到生成器对象（yield 时调用） */
+static void generator_save_try_context(GeneratorObject* gen)
+{
+    int depth = vm_depth;
+    int fin_n = vm_fin_n;
+    gen->saved_vm_depth = depth;
+    gen->saved_vm_fin_n = fin_n;
+    gen->saved_g_err_jmp = g_err_jmp;
+
+    /* 分配内存保存数组 */
+    if(depth > 0) {
+        gen->saved_vm_jbs = (jmp_buf*)malloc((size_t)depth * sizeof(jmp_buf));
+        gen->saved_vm_prev = (jmp_buf**)malloc((size_t)depth * sizeof(jmp_buf*));
+        gen->saved_vm_sp = (int*)malloc((size_t)depth * sizeof(int));
+        gen->saved_vm_target = (int*)malloc((size_t)depth * sizeof(int));
+        gen->saved_vm_tn = (int*)malloc((size_t)depth * sizeof(int));
+        gen->saved_vm_fn = (int*)malloc((size_t)depth * sizeof(int));
+        memcpy(gen->saved_vm_jbs, vm_jbs, (size_t)depth * sizeof(jmp_buf));
+        memcpy(gen->saved_vm_prev, vm_prev, (size_t)depth * sizeof(jmp_buf*));
+        memcpy(gen->saved_vm_sp, vm_sp, (size_t)depth * sizeof(int));
+        memcpy(gen->saved_vm_target, vm_target, (size_t)depth * sizeof(int));
+        memcpy(gen->saved_vm_tn, vm_tn, (size_t)depth * sizeof(int));
+        memcpy(gen->saved_vm_fn, vm_fn, (size_t)depth * sizeof(int));
+    } else {
+        gen->saved_vm_jbs = NULL;
+        gen->saved_vm_prev = NULL;
+        gen->saved_vm_sp = NULL;
+        gen->saved_vm_target = NULL;
+        gen->saved_vm_tn = NULL;
+        gen->saved_vm_fn = NULL;
+    }
+
+    if(fin_n > 0) {
+        gen->saved_vm_fin_act = (int*)malloc((size_t)fin_n * sizeof(int));
+        gen->saved_vm_fin_tgt = (int*)malloc((size_t)fin_n * sizeof(int));
+        gen->saved_vm_fin_dep = (int*)malloc((size_t)fin_n * sizeof(int));
+        memcpy(gen->saved_vm_fin_act, vm_fin_act, (size_t)fin_n * sizeof(int));
+        memcpy(gen->saved_vm_fin_tgt, vm_fin_tgt, (size_t)fin_n * sizeof(int));
+        memcpy(gen->saved_vm_fin_dep, vm_fin_dep, (size_t)fin_n * sizeof(int));
+    } else {
+        gen->saved_vm_fin_act = NULL;
+        gen->saved_vm_fin_tgt = NULL;
+        gen->saved_vm_fin_dep = NULL;
+    }
+}
+
+/* 从生成器对象恢复 try-catch 上下文（恢复执行时调用） */
+static void generator_restore_try_context(GeneratorObject* gen)
+{
+    int depth = gen->saved_vm_depth;
+    int fin_n = gen->saved_vm_fin_n;
+
+    /* 确保数组容量足够 */
+    vm_ensure(depth > fin_n ? depth : fin_n);
+
+    vm_depth = depth;
+    vm_fin_n = fin_n;
+    g_err_jmp = gen->saved_g_err_jmp;
+
+    if(depth > 0) {
+        memcpy(vm_jbs, gen->saved_vm_jbs, (size_t)depth * sizeof(jmp_buf));
+        memcpy(vm_prev, gen->saved_vm_prev, (size_t)depth * sizeof(jmp_buf*));
+        memcpy(vm_sp, gen->saved_vm_sp, (size_t)depth * sizeof(int));
+        memcpy(vm_target, gen->saved_vm_target, (size_t)depth * sizeof(int));
+        memcpy(vm_tn, gen->saved_vm_tn, (size_t)depth * sizeof(int));
+        memcpy(vm_fn, gen->saved_vm_fn, (size_t)depth * sizeof(int));
+    }
+
+    if(fin_n > 0) {
+        memcpy(vm_fin_act, gen->saved_vm_fin_act, (size_t)fin_n * sizeof(int));
+        memcpy(vm_fin_tgt, gen->saved_vm_fin_tgt, (size_t)fin_n * sizeof(int));
+        memcpy(vm_fin_dep, gen->saved_vm_fin_dep, (size_t)fin_n * sizeof(int));
+    }
+}
+
+/* 释放生成器保存的 try-catch 上下文 */
+static void generator_free_try_context(GeneratorObject* gen)
+{
+    free(gen->saved_vm_jbs);
+    free(gen->saved_vm_prev);
+    free(gen->saved_vm_sp);
+    free(gen->saved_vm_target);
+    free(gen->saved_vm_tn);
+    free(gen->saved_vm_fn);
+    free(gen->saved_vm_fin_act);
+    free(gen->saved_vm_fin_tgt);
+    free(gen->saved_vm_fin_dep);
+    gen->saved_vm_jbs = NULL;
+    gen->saved_vm_prev = NULL;
+    gen->saved_vm_sp = NULL;
+    gen->saved_vm_target = NULL;
+    gen->saved_vm_tn = NULL;
+    gen->saved_vm_fn = NULL;
+    gen->saved_vm_fin_act = NULL;
+    gen->saved_vm_fin_tgt = NULL;
+    gen->saved_vm_fin_dep = NULL;
+}
+
 static int generator_resume(GeneratorObject* gen, Value* result, Value* send_val)
 {
     if(gen->finished) { *result = val_none(); return 0; }
@@ -894,6 +1007,28 @@ static int vm_exec_builtin(Instruction in, Value* stack, int sp, StackFrame* fra
                         stack[sp++] = val_none();
                         break;
                     }
+                    case BUILTIN_GEN_THROW: {
+                        /* GenThrow(gen, err)：向生成器抛出异常，在 yield 位置抛出 */
+                        Value err_val = stack[--sp];
+                        Value gen_val = stack[--sp];
+                        if(gen_val.type != VAL_GENERATOR) {
+                            fprintf(stderr, "Runtime Error: GenThrow() 需要生成器对象，实际类型: %d\n", gen_val.type);
+                            exit(EXIT_FAILURE);
+                        }
+                        GeneratorObject* gen = (GeneratorObject*)gen_val.v.generator;
+                        if(gen->finished) {
+                            fprintf(stderr, "Runtime Error: GenThrow() 生成器已结束\n");
+                            exit(EXIT_FAILURE);
+                        }
+                        /* 设置待抛出的异常，恢复执行时会在 yield 位置抛出 */
+                        gen->pending_exception = err_val;
+                        gen->has_pending_exception = 1;
+                        /* 恢复生成器执行，异常会在恢复时抛出 */
+                        Value result;
+                        generator_resume(gen, &result, NULL);
+                        stack[sp++] = result;
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -1260,6 +1395,39 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
         stack = gen_ctx->stack;
         sp = gen_ctx->sp;
         pc = gen_ctx->pc;
+        /* 如果是从 yield 恢复（不是第一次启动），恢复 try-catch 上下文 */
+        if(gen_ctx->started) {
+            generator_restore_try_context(gen_ctx);
+        }
+        /* 如果有待抛出的异常，在恢复执行后立即抛出（在 yield 位置抛出） */
+        if(gen_ctx->started && gen_ctx->has_pending_exception) {
+            stack[sp++] = gen_ctx->pending_exception;
+            gen_ctx->has_pending_exception = 0;
+            /* 抛出异常：复用 OPC_THROW 的逻辑 */
+            Value v = stack[--sp];
+            const char* type = "Error";
+            char* msg = NULL;
+            if(v.type == VAL_ERROR) {
+                type = v.v.err.type ? v.v.err.type : "Error";
+                msg = strdup(v.v.err.message ? v.v.err.message : "");
+            } else if(v.type == VAL_MAP) {
+                if(lumyr_map_has(v, lumyr_make_string("type"))) {
+                    Value tv = lumyr_map_get(v, lumyr_make_string("type"));
+                    if(tv.type == VAL_STRING) type = lumyr_str_cstr(&tv);
+                }
+                if(lumyr_map_has(v, lumyr_make_string("message"))) {
+                    Value mv = lumyr_map_get(v, lumyr_make_string("message"));
+                    if(mv.type == VAL_STRING) msg = strdup(lumyr_str_cstr(&mv));
+                }
+            }
+            if(!msg) msg = value_to_str(v);
+            g_err_type_set(type);
+            g_err_msg_set(msg);
+            free(msg);
+            if(g_err_jmp) longjmp(*g_err_jmp, 1);
+            fprintf(stderr, "Runtime Error: %s\n", g_err_msg);
+            exit(EXIT_FAILURE);
+        }
         /* 如果是从 yield 恢复（不是第一次启动），把 send_value 压入栈顶作为 yield 表达式的返回值 */
         if(gen_ctx->started && gen_ctx->has_send_value) {
             stack[sp++] = gen_ctx->send_value;
@@ -1755,6 +1923,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 gen_ctx->pc = pc;
                 gen_ctx->sp = sp;
                 gen_ctx->started = 1;
+                /* 保存 try-catch 上下文（yield 时的状态） */
+                generator_save_try_context(gen_ctx);
                 /* 恢复外层 VM 状态 */
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;

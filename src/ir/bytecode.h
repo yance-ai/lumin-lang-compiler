@@ -167,6 +167,7 @@ typedef enum {
     BUILTIN_SEND,            // send(gen, val)：向生成器发送值，返回下一个 yield 值
     BUILTIN_RECEIVE,         // receive()：在生成器中获取 send() 发送的值
     BUILTIN_CLOSE,           // close(gen)：关闭生成器
+    BUILTIN_GEN_THROW,       // GenThrow(gen, err)：向生成器抛出异常，在 yield 位置抛出
     BUILTIN_COUNT
 } BuiltinId;
 

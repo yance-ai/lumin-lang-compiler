@@ -984,6 +984,12 @@ postfix_expr
       }
     /* 属性访问 a.b → a["b"]（map 点属性；无参方法链语法不再保留） */
     | postfix_expr DOT ID { $$ = L(ast_index($1, ast_string($3))); }
+    /* 生成器 .throw(err)：throw 是关键字，特殊处理，转换成 GenThrow(recv, err) */
+    | postfix_expr DOT THROW LPAREN arg_list RPAREN {
+          AstNode* recv = $1;
+          AstNode* margs = $5;
+          $$ = L(ast_call("GenThrow", margs ? ast_seq_front(margs, recv) : recv));
+      }
     /* 安全方法调用 a?.b(x,y)：a 为 null 时返回 null */
     | postfix_expr SAFE_CALL ID LPAREN arg_list RPAREN {
           $$ = L(ast_safe_call($1, $3, $5));
