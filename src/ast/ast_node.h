@@ -49,6 +49,7 @@ AstNode* ast_func_def(char* name, AstNode* params, AstNode* body);
 // 形参；is_ellipsis=1代表 ...args
 AstNode* ast_param(char* name, int is_ellipsis, AstNode* default_val);
 AstNode* ast_param_append(AstNode* list, AstNode* p);
+AstNode* ast_param_constraint(char* name, char* constraint);
 
 // 函数调用
 AstNode* ast_call(char* func_name, AstNode* arg_list);

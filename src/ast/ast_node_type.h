@@ -136,6 +136,7 @@ struct AstNode {
             int is_ellipsis; // 1=...args可变参数，只能最后一个
             AstNode* default_val; // 默认值表达式，NULL=无默认值
             AstNode* next;   // 参数链表
+            char* constraint; // 泛型参数类型约束（如 "Comparable"），NULL=无约束/普通函数参数
         } param;
 
         struct {

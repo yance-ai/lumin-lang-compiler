@@ -366,7 +366,9 @@ opt_generic_param_list : %empty { $$ = NULL; }
                        ;
 
 generic_param_items : ID { $$ = ast_param($1, 0, NULL); }
+                    | ID COLON ID { $$ = ast_param_constraint($1, $3); }
                     | generic_param_items COMMA ID { $$ = ast_param_append($1, ast_param($3, 0, NULL)); }
+                    | generic_param_items COMMA ID COLON ID { $$ = ast_param_append($1, ast_param_constraint($3, $5)); }
                     ;
 
 /* 宏定义：macro name(params) { body } */
