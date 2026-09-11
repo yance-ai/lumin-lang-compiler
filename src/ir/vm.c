@@ -352,259 +352,13 @@ static int try_operator_overload(const char* op_name, Value l, Value r,
     return 1;
 }
 
-static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
+
+/*
+ * 执行内置函数调用
+ * 返回新的栈指针 sp
+ */
+static int vm_exec_builtin(Instruction in, Value* stack, int sp, StackFrame* frame, EvalCtx* ctx)
 {
-    /* 生成器上下文恢复：如果 s_current_gen 不为 NULL，从生成器对象恢复状态 */
-    GeneratorObject* gen_ctx = s_current_gen;
-    int is_generator = (gen_ctx != NULL);
-    // 静态栈深度分析：精确分配执行栈（动态，无硬上限），并校验 IR 栈平衡
-    int maxd = bc_analyze_stack(bf, NULL, 0);
-    if(maxd < 0) exit(EXIT_FAILURE);   // 已打印下溢位置
-    Value* stack;
-    int sp;
-    int pc;
-    if(is_generator) {
-        /* 生成器模式：复用生成器的 stack，从保存的 pc/sp 恢复 */
-        stack = gen_ctx->stack;
-        sp = gen_ctx->sp;
-        pc = gen_ctx->pc;
-        /* 如果是从 yield 恢复（不是第一次启动），把 send_value 压入栈顶作为 yield 表达式的返回值 */
-        if(gen_ctx->started && gen_ctx->has_send_value) {
-            stack[sp++] = gen_ctx->send_value;
-        }
-    } else {
-        stack = (Value*)malloc(sizeof(Value) * (maxd + 2));
-        if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
-        sp = 0;
-        pc = 0;
-    }
-    /* 注册 GC 根：保存旧根（嵌套调用恢复用），设置当前线程的栈与帧 */
-    Value* old_gc_stack; int* old_gc_sp; StackFrame* old_gc_frame;
-    gc_get_roots(&old_gc_stack, &old_gc_sp, &old_gc_frame);
-    gc_set_roots(stack, &sp, frame);
-    /* 注册当前线程到全局 GC 线程注册表：GC 时扫描所有注册线程的栈和帧链，
-     * 防止其他线程栈上持有的对象引用被误回收（多线程 UAF 根因）。 */
-    gc_register_thread(stack, &sp, frame);
-    tls_vm_run_depth++;
-    /* 函数边界隔离 try 状态：进入保存，所有退出点恢复（try 内 return 不能泄漏） */
-    int saved_depth = vm_depth;
-    jmp_buf* saved_gj = g_err_jmp;
-    int saved_fin = vm_fin_n;
-
-    if(getenv("LUMYR_BC_DUMP")) {
-        fprintf(stderr, "== bc dump: %s (code_len=%d, max_stack=%d) ==\n",
-                bf->name ? bf->name : "<main>", bf->code_len, maxd);
-        for(int i = 0; i < bf->code_len; i++) {
-            Instruction in = bf->code[i];
-            const char* n = (in.a >= 0 && in.a < bf->sym_cnt) ? bf->syms[in.a] : "?";
-            fprintf(stderr, "  %4d: op=%d a=%d(%s) b=%d\n", i, (int)in.op, in.a, n, in.b);
-        }
-    }
-
-    for(;;) {
-        gc_stw_check_fast();  /* 协作式 STW 安全点：内联快速路径，非 GC 时无函数调用开销 */
-        Instruction in = bf->code[pc++];
-        switch(in.op) {
-            case OPC_NOP:
-                break;
-            case OPC_LOAD_CONST:
-                stack[sp++] = bf->consts[in.a];
-                break;
-            case OPC_GETFUNC: {
-                const char* fname = bf->syms[in.a];
-                Value fv = val_none();
-                if(sym_has(fname)) fv = sym_get(fname);
-                else runtime_undefined("函数", fname);
-                stack[sp++] = fv;
-                break;
-            }
-            case OPC_MKCLOSURE: {
-                // 沿当前帧链装箱该 lambda 的捕获变量，生成新闭包函数值
-                const char* fname = bf->syms[in.a];
-                if(!sym_has(fname)) runtime_undefined("函数", fname);
-                Value tpl = sym_get(fname);
-                if(tpl.type != VAL_FUNC) runtime_error("闭包模板不是函数");
-                Value clos = closure_make_instance(tpl.v.func.func_obj, frame);
-                stack[sp++] = clos;
-                break;
-            }
-            case OPC_LOAD_VAR: {
-                const char* name = bf->syms[in.a];
-                _Bool fnd = 0;
-                Value vv = stackframe_get(frame, name, &fnd);
-                if(!fnd) runtime_undefined("变量", name);
-                stack[sp++] = vv;
-                break;
-            }
-            case OPC_STORE_VAR: {
-                const char* name = bf->syms[in.a];
-                Value v = stack[--sp];
-                /* 词法遮蔽：函数内赋值 = 绑定当前帧局部（C 语义：局部变量遮蔽全局同名）；
-                   不再沿链更新父帧/全局。顶层（main 帧）赋值仍写入全局帧。 */
-                stackframe_bind(frame, name, v);
-                stack[sp++] = v;             // 原值压回（表达式值）
-                break;
-            }
-            case OPC_ADD: {
-                Value r = stack[--sp], l = stack[--sp];
-                Value result;
-                if(try_operator_overload("+", l, r, stack, &sp, frame, ctx, &result)) {
-                    stack[sp++] = result;
-                } else {
-                    stack[sp++] = lumyr_add(l, r);
-                }
-                break;
-            }
-            case OPC_SUB: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_sub(l, r); break; }
-            case OPC_MUL: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_mul(l, r); break; }
-            case OPC_DIV: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_div(l, r); break; }
-            case OPC_MOD: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_mod(l, r); break; }
-            case OPC_GT:  {
-                Value r = stack[--sp], l = stack[--sp];
-                Value result;
-                if(try_operator_overload(">", l, r, stack, &sp, frame, ctx, &result)) {
-                    stack[sp++] = result;
-                } else {
-                    stack[sp++] = lumyr_gt(l, r);
-                }
-                break;
-            }
-            case OPC_LT:  {
-                Value r = stack[--sp], l = stack[--sp];
-                Value result;
-                if(try_operator_overload("<", l, r, stack, &sp, frame, ctx, &result)) {
-                    stack[sp++] = result;
-                } else {
-                    stack[sp++] = lumyr_lt(l, r);
-                }
-                break;
-            }
-            case OPC_GE:  {
-                Value r = stack[--sp], l = stack[--sp];
-                Value result;
-                if(try_operator_overload(">=", l, r, stack, &sp, frame, ctx, &result)) {
-                    stack[sp++] = result;
-                } else {
-                    stack[sp++] = lumyr_ge(l, r);
-                }
-                break;
-            }
-            case OPC_LE:  {
-                Value r = stack[--sp], l = stack[--sp];
-                Value result;
-                if(try_operator_overload("<=", l, r, stack, &sp, frame, ctx, &result)) {
-                    stack[sp++] = result;
-                } else {
-                    stack[sp++] = lumyr_le(l, r);
-                }
-                break;
-            }
-            case OPC_EQ:  {
-                Value r = stack[--sp], l = stack[--sp];
-                Value result;
-                if(try_operator_overload("==", l, r, stack, &sp, frame, ctx, &result)) {
-                    stack[sp++] = result;
-                } else {
-                    stack[sp++] = lumyr_eq(l, r);
-                }
-                break;
-            }
-            case OPC_NE:  {
-                Value r = stack[--sp], l = stack[--sp];
-                Value result;
-                if(try_operator_overload("!=", l, r, stack, &sp, frame, ctx, &result)) {
-                    stack[sp++] = result;
-                } else {
-                    stack[sp++] = lumyr_ne(l, r);
-                }
-                break;
-            }
-            case OPC_NEG: { Value v = stack[--sp]; stack[sp++] = lumyr_unary_minus(v); break; }
-            case OPC_POS: { Value v = stack[--sp]; stack[sp++] = lumyr_unary_plus(v); break; }
-            case OPC_PRE_INC:  { const char* n = bf->syms[in.a]; _Bool fnd = 0;
-                                 Value __old = stackframe_get(frame, n, &fnd);
-                                 if(!fnd) runtime_undefined("变量", n);
-                                 Value __nv = lumyr_pre_inc(&__old);
-                                 stackframe_bind(frame, n, __nv);          // 词法遮蔽：写当前帧
-                                 stack[sp++] = __nv; break; }
-            case OPC_POST_INC: { const char* n = bf->syms[in.a]; _Bool fnd = 0;
-                                 Value __old = stackframe_get(frame, n, &fnd);
-                                 if(!fnd) runtime_undefined("变量", n);
-                                 Value __nv = lumyr_post_inc(&__old);
-                                 stackframe_bind(frame, n, __old);          // 参数已被改为新值
-                                 stack[sp++] = __nv; break; }               // 返回值 = 旧值
-            case OPC_PRE_DEC:  { const char* n = bf->syms[in.a]; _Bool fnd = 0;
-                                 Value __old = stackframe_get(frame, n, &fnd);
-                                 if(!fnd) runtime_undefined("变量", n);
-                                 Value __nv = lumyr_pre_dec(&__old);
-                                 stackframe_bind(frame, n, __nv);          // 词法遮蔽：写当前帧
-                                 stack[sp++] = __nv; break; }
-            case OPC_POST_DEC: { const char* n = bf->syms[in.a]; _Bool fnd = 0;
-                                 Value __old = stackframe_get(frame, n, &fnd);
-                                 if(!fnd) runtime_undefined("变量", n);
-                                 Value __nv = lumyr_post_dec(&__old);
-                                 stackframe_bind(frame, n, __old);          // 参数已被改为新值
-                                 stack[sp++] = __nv; break; }               // 返回值 = 旧值
-            case OPC_CAST_INT:    { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int(v); break; }
-            case OPC_CAST_DOUBLE: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_double(v); break; }
-            case OPC_CAST_CHAR:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_char(v); break; }
-            case OPC_CAST_BOOL:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_bool(v); break; }
-            case OPC_CAST_STRING: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_string(v); break; }
-            case OPC_CAST_ASCII:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_ascii(v); break; }
-            case OPC_CAST_BYTE:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_byte(v); break; }
-            case OPC_CAST_INT8:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int8(v); break; }
-            case OPC_CAST_INT16:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int16(v); break; }
-            case OPC_CAST_INT32:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int32(v); break; }
-            case OPC_CAST_INT64:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int64(v); break; }
-            case OPC_CAST_UINT8:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint8(v); break; }
-            case OPC_CAST_UINT16: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint16(v); break; }
-            case OPC_CAST_UINT32: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint32(v); break; }
-            case OPC_CAST_UINT64: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint64(v); break; }
-            case OPC_CAST_LONG: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_long(v); break; }
-            case OPC_CAST_LONGLONG: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_longlong(v); break; }
-            case OPC_CAST_FLOAT: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_float(v); break; }
-            case OPC_LOGIC_NOT:   { Value v = stack[--sp]; stack[sp++] = lumyr_logic_not(v); break; }
-            case OPC_ARRAY_LIT: {
-                int n = in.b;
-                Value arr = val_array(n);
-                for(int k = 0; k < n; k++)
-                    arr.v.array->items[k] = stack[sp - n + k];
-                sp = sp - n + 1;
-                sp--; stack[sp++] = arr;   /* 安全原地写：先 pop 使槽位对 GC 不可见，再 push */
-                break;
-            }
-            case OPC_MAP_LIT: {
-                int n = in.b;
-                Value m = lumyr_map_lit(&stack[sp - 2 * n], n);
-                sp = sp - 2 * n + 1;
-                sp--; stack[sp++] = m;     /* 安全原地写 */
-                break;
-            }
-            case OPC_INDEX_GET: {
-                Value idx = stack[--sp];
-                Value c = stack[--sp];
-                Value result = lumyr_index_get(c, idx);
-                /* 扩展方法：如果对象没有该属性，且属性名是字符串，查找全局符号表中的扩展方法 */
-                if(result.type == VAL_NONE && idx.type == VAL_STRING) {
-                    const char* method_name = lumyr_str_cstr(&idx);
-                    if(method_name != NULL && sym_has(method_name)) {
-                        Value fv = sym_get(method_name);
-                        if(fv.type == VAL_FUNC) {
-                            result = fv;
-                        }
-                    }
-                }
-                stack[sp++] = result;
-                break;
-            }
-            case OPC_INDEX_SET: {
-                Value val = stack[--sp];
-                Value idx = stack[--sp];
-                Value arr = stack[--sp];
-                stack[sp++] = lumyr_array_set(arr, idx, val);
-                break;
-            }
-            case OPC_BUILTIN: {
                 int argc = in.b;
                 switch(in.a) {
                     case BUILTIN_LEN: {
@@ -1487,6 +1241,263 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         break;
                 }
                 (void)argc;
+    return sp;
+}
+
+static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
+{
+    /* 生成器上下文恢复：如果 s_current_gen 不为 NULL，从生成器对象恢复状态 */
+    GeneratorObject* gen_ctx = s_current_gen;
+    int is_generator = (gen_ctx != NULL);
+    // 静态栈深度分析：精确分配执行栈（动态，无硬上限），并校验 IR 栈平衡
+    int maxd = bc_analyze_stack(bf, NULL, 0);
+    if(maxd < 0) exit(EXIT_FAILURE);   // 已打印下溢位置
+    Value* stack;
+    int sp;
+    int pc;
+    if(is_generator) {
+        /* 生成器模式：复用生成器的 stack，从保存的 pc/sp 恢复 */
+        stack = gen_ctx->stack;
+        sp = gen_ctx->sp;
+        pc = gen_ctx->pc;
+        /* 如果是从 yield 恢复（不是第一次启动），把 send_value 压入栈顶作为 yield 表达式的返回值 */
+        if(gen_ctx->started && gen_ctx->has_send_value) {
+            stack[sp++] = gen_ctx->send_value;
+        }
+    } else {
+        stack = (Value*)malloc(sizeof(Value) * (maxd + 2));
+        if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
+        sp = 0;
+        pc = 0;
+    }
+    /* 注册 GC 根：保存旧根（嵌套调用恢复用），设置当前线程的栈与帧 */
+    Value* old_gc_stack; int* old_gc_sp; StackFrame* old_gc_frame;
+    gc_get_roots(&old_gc_stack, &old_gc_sp, &old_gc_frame);
+    gc_set_roots(stack, &sp, frame);
+    /* 注册当前线程到全局 GC 线程注册表：GC 时扫描所有注册线程的栈和帧链，
+     * 防止其他线程栈上持有的对象引用被误回收（多线程 UAF 根因）。 */
+    gc_register_thread(stack, &sp, frame);
+    tls_vm_run_depth++;
+    /* 函数边界隔离 try 状态：进入保存，所有退出点恢复（try 内 return 不能泄漏） */
+    int saved_depth = vm_depth;
+    jmp_buf* saved_gj = g_err_jmp;
+    int saved_fin = vm_fin_n;
+
+    if(getenv("LUMYR_BC_DUMP")) {
+        fprintf(stderr, "== bc dump: %s (code_len=%d, max_stack=%d) ==\n",
+                bf->name ? bf->name : "<main>", bf->code_len, maxd);
+        for(int i = 0; i < bf->code_len; i++) {
+            Instruction in = bf->code[i];
+            const char* n = (in.a >= 0 && in.a < bf->sym_cnt) ? bf->syms[in.a] : "?";
+            fprintf(stderr, "  %4d: op=%d a=%d(%s) b=%d\n", i, (int)in.op, in.a, n, in.b);
+        }
+    }
+
+    for(;;) {
+        gc_stw_check_fast();  /* 协作式 STW 安全点：内联快速路径，非 GC 时无函数调用开销 */
+        Instruction in = bf->code[pc++];
+        switch(in.op) {
+            case OPC_NOP:
+                break;
+            case OPC_LOAD_CONST:
+                stack[sp++] = bf->consts[in.a];
+                break;
+            case OPC_GETFUNC: {
+                const char* fname = bf->syms[in.a];
+                Value fv = val_none();
+                if(sym_has(fname)) fv = sym_get(fname);
+                else runtime_undefined("函数", fname);
+                stack[sp++] = fv;
+                break;
+            }
+            case OPC_MKCLOSURE: {
+                // 沿当前帧链装箱该 lambda 的捕获变量，生成新闭包函数值
+                const char* fname = bf->syms[in.a];
+                if(!sym_has(fname)) runtime_undefined("函数", fname);
+                Value tpl = sym_get(fname);
+                if(tpl.type != VAL_FUNC) runtime_error("闭包模板不是函数");
+                Value clos = closure_make_instance(tpl.v.func.func_obj, frame);
+                stack[sp++] = clos;
+                break;
+            }
+            case OPC_LOAD_VAR: {
+                const char* name = bf->syms[in.a];
+                _Bool fnd = 0;
+                Value vv = stackframe_get(frame, name, &fnd);
+                if(!fnd) runtime_undefined("变量", name);
+                stack[sp++] = vv;
+                break;
+            }
+            case OPC_STORE_VAR: {
+                const char* name = bf->syms[in.a];
+                Value v = stack[--sp];
+                /* 词法遮蔽：函数内赋值 = 绑定当前帧局部（C 语义：局部变量遮蔽全局同名）；
+                   不再沿链更新父帧/全局。顶层（main 帧）赋值仍写入全局帧。 */
+                stackframe_bind(frame, name, v);
+                stack[sp++] = v;             // 原值压回（表达式值）
+                break;
+            }
+            case OPC_ADD: {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("+", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_add(l, r);
+                }
+                break;
+            }
+            case OPC_SUB: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_sub(l, r); break; }
+            case OPC_MUL: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_mul(l, r); break; }
+            case OPC_DIV: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_div(l, r); break; }
+            case OPC_MOD: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_mod(l, r); break; }
+            case OPC_GT:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload(">", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_gt(l, r);
+                }
+                break;
+            }
+            case OPC_LT:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("<", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_lt(l, r);
+                }
+                break;
+            }
+            case OPC_GE:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload(">=", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_ge(l, r);
+                }
+                break;
+            }
+            case OPC_LE:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("<=", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_le(l, r);
+                }
+                break;
+            }
+            case OPC_EQ:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("==", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_eq(l, r);
+                }
+                break;
+            }
+            case OPC_NE:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("!=", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_ne(l, r);
+                }
+                break;
+            }
+            case OPC_NEG: { Value v = stack[--sp]; stack[sp++] = lumyr_unary_minus(v); break; }
+            case OPC_POS: { Value v = stack[--sp]; stack[sp++] = lumyr_unary_plus(v); break; }
+            case OPC_PRE_INC:  { const char* n = bf->syms[in.a]; _Bool fnd = 0;
+                                 Value __old = stackframe_get(frame, n, &fnd);
+                                 if(!fnd) runtime_undefined("变量", n);
+                                 Value __nv = lumyr_pre_inc(&__old);
+                                 stackframe_bind(frame, n, __nv);          // 词法遮蔽：写当前帧
+                                 stack[sp++] = __nv; break; }
+            case OPC_POST_INC: { const char* n = bf->syms[in.a]; _Bool fnd = 0;
+                                 Value __old = stackframe_get(frame, n, &fnd);
+                                 if(!fnd) runtime_undefined("变量", n);
+                                 Value __nv = lumyr_post_inc(&__old);
+                                 stackframe_bind(frame, n, __old);          // 参数已被改为新值
+                                 stack[sp++] = __nv; break; }               // 返回值 = 旧值
+            case OPC_PRE_DEC:  { const char* n = bf->syms[in.a]; _Bool fnd = 0;
+                                 Value __old = stackframe_get(frame, n, &fnd);
+                                 if(!fnd) runtime_undefined("变量", n);
+                                 Value __nv = lumyr_pre_dec(&__old);
+                                 stackframe_bind(frame, n, __nv);          // 词法遮蔽：写当前帧
+                                 stack[sp++] = __nv; break; }
+            case OPC_POST_DEC: { const char* n = bf->syms[in.a]; _Bool fnd = 0;
+                                 Value __old = stackframe_get(frame, n, &fnd);
+                                 if(!fnd) runtime_undefined("变量", n);
+                                 Value __nv = lumyr_post_dec(&__old);
+                                 stackframe_bind(frame, n, __old);          // 参数已被改为新值
+                                 stack[sp++] = __nv; break; }               // 返回值 = 旧值
+            case OPC_CAST_INT:    { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int(v); break; }
+            case OPC_CAST_DOUBLE: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_double(v); break; }
+            case OPC_CAST_CHAR:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_char(v); break; }
+            case OPC_CAST_BOOL:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_bool(v); break; }
+            case OPC_CAST_STRING: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_string(v); break; }
+            case OPC_CAST_ASCII:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_ascii(v); break; }
+            case OPC_CAST_BYTE:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_byte(v); break; }
+            case OPC_CAST_INT8:   { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int8(v); break; }
+            case OPC_CAST_INT16:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int16(v); break; }
+            case OPC_CAST_INT32:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int32(v); break; }
+            case OPC_CAST_INT64:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_int64(v); break; }
+            case OPC_CAST_UINT8:  { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint8(v); break; }
+            case OPC_CAST_UINT16: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint16(v); break; }
+            case OPC_CAST_UINT32: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint32(v); break; }
+            case OPC_CAST_UINT64: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_uint64(v); break; }
+            case OPC_CAST_LONG: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_long(v); break; }
+            case OPC_CAST_LONGLONG: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_longlong(v); break; }
+            case OPC_CAST_FLOAT: { Value v = stack[--sp]; stack[sp++] = lumyr_cast_float(v); break; }
+            case OPC_LOGIC_NOT:   { Value v = stack[--sp]; stack[sp++] = lumyr_logic_not(v); break; }
+            case OPC_ARRAY_LIT: {
+                int n = in.b;
+                Value arr = val_array(n);
+                for(int k = 0; k < n; k++)
+                    arr.v.array->items[k] = stack[sp - n + k];
+                sp = sp - n + 1;
+                sp--; stack[sp++] = arr;   /* 安全原地写：先 pop 使槽位对 GC 不可见，再 push */
+                break;
+            }
+            case OPC_MAP_LIT: {
+                int n = in.b;
+                Value m = lumyr_map_lit(&stack[sp - 2 * n], n);
+                sp = sp - 2 * n + 1;
+                sp--; stack[sp++] = m;     /* 安全原地写 */
+                break;
+            }
+            case OPC_INDEX_GET: {
+                Value idx = stack[--sp];
+                Value c = stack[--sp];
+                Value result = lumyr_index_get(c, idx);
+                /* 扩展方法：如果对象没有该属性，且属性名是字符串，查找全局符号表中的扩展方法 */
+                if(result.type == VAL_NONE && idx.type == VAL_STRING) {
+                    const char* method_name = lumyr_str_cstr(&idx);
+                    if(method_name != NULL && sym_has(method_name)) {
+                        Value fv = sym_get(method_name);
+                        if(fv.type == VAL_FUNC) {
+                            result = fv;
+                        }
+                    }
+                }
+                stack[sp++] = result;
+                break;
+            }
+            case OPC_INDEX_SET: {
+                Value val = stack[--sp];
+                Value idx = stack[--sp];
+                Value arr = stack[--sp];
+                stack[sp++] = lumyr_array_set(arr, idx, val);
+                break;
+            }
+            case OPC_BUILTIN: {
+                sp = vm_exec_builtin(in, stack, sp, frame, ctx);
                 break;
             }
             case OPC_PRINT:
