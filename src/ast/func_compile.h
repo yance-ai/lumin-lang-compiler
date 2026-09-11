@@ -19,6 +19,7 @@ typedef struct InterpFuncPayload {
     char** captured_names;
     Value** captured_cells;
     int captured_cell_count;
+    int is_generator;  // 生成器函数标记（gen func）
 } InterpFuncPayload;
 
 // 将AST_FUNC_DEF节点编译生成RuntimeFunc（不持有AstNode，内部提取信息生成IR/解释器句柄）

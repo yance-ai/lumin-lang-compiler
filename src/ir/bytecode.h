@@ -46,6 +46,7 @@ typedef enum {
     OPC_MKCLOSURE,    // a=lambda 符号下标：沿当前帧装箱捕获变量，压入新闭包函数值
     OPC_RETURN,       // 弹值返回（深拷贝）
     OPC_RETURN_NIL,   // 无返回值返回
+    OPC_YIELD,        // 生成器 yield：弹值，保存执行状态，返回给调用者
     OPC_HALT
 } OpCode;
 
@@ -162,6 +163,7 @@ typedef enum {
     BUILTIN_GC_BYTES,       // gc_bytes()：当前 GC 管理字节数（近似）
     BUILTIN_GC_COLLECT,     // gc_collect()：手动触发一次 GC
     BUILTIN_GC_STW_NS,      // gc_stw_ns()：累计 STW 停顿时间（纳秒）
+    BUILTIN_NEXT,            // next(gen)：恢复生成器执行，返回 yield 值；结束返回 null
     BUILTIN_COUNT
 } BuiltinId;
 

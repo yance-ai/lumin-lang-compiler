@@ -42,6 +42,34 @@ static _Thread_local int vm_fin_n = 0;
 static _Thread_local int vm_cap = 0;          /* 错误处理器栈容量 */
 static _Thread_local Value vm_pend_val;   /* 挂起返回的值（PEND_RETURN 存，FINISH act5 恢复） */
 
+/* ========== 生成器支持 ========== */
+/* 生成器对象：保存冻结的执行状态 */
+typedef struct GeneratorObject {
+    BytecodeFunc* bf;        /* 函数字节码 */
+    StackFrame* frame;       /* 栈帧（局部变量） */
+    Value* stack;            /* 执行栈 */
+    int sp;                  /* 栈指针 */
+    int pc;                  /* 指令指针 */
+    int max_stack;           /* 最大栈深度 */
+    int finished;            /* 是否执行完毕 */
+    int started;             /* 是否已开始执行 */
+    jmp_buf resume_point;    /* 恢复点（longjmp 用） */
+    Value yield_value;       /* yield 的值 */
+    EvalCtx* ctx;            /* 求值上下文 */
+    int saved_depth;         /* 保存的 try 深度 */
+    jmp_buf* saved_gj;       /* 保存的错误跳转点 */
+    int saved_fin;           /* 保存的 finally 深度 */
+    Value* old_gc_stack;     /* 保存的 GC 栈 */
+    int* old_gc_sp;          /* 保存的 GC sp */
+    StackFrame* old_gc_frame; /* 保存的 GC frame */
+} GeneratorObject;
+
+/* 当前正在执行的生成器（NULL = 普通执行） */
+static _Thread_local GeneratorObject* s_current_gen = NULL;
+/* 生成器 yield 时的返回值传递 */
+static _Thread_local Value s_gen_yield_result;
+static _Thread_local int s_gen_yielded = 0;
+
 static void vm_ensure(int need)
 {
     if(need <= vm_cap) return;
@@ -75,6 +103,73 @@ static void vm_ensure(int need)
     vm_fin_dep = nfd;
     vm_cap = nc;
 }
+
+/* ========== 生成器实现 ========== */
+
+/* 创建生成器对象（不开始执行） */
+static GeneratorObject* generator_new(BytecodeFunc* bf, StackFrame* parent_frame,
+                                        int arg_cnt, const Value* args)
+{
+    GeneratorObject* gen = (GeneratorObject*)calloc(1, sizeof(GeneratorObject));
+    if(!gen) { fprintf(stderr, "generator_new: 内存不足\n"); exit(EXIT_FAILURE); }
+    gen->bf = bf;
+    gen->frame = stackframe_new(parent_frame);
+    gen->max_stack = bc_analyze_stack(bf, NULL, 0);
+    if(gen->max_stack < 0) gen->max_stack = 64;
+    gen->stack = (Value*)malloc(sizeof(Value) * (gen->max_stack + 2));
+    gen->sp = 0;
+    gen->pc = 0;
+    gen->finished = 0;
+    gen->started = 0;
+    gen->ctx = NULL;
+    /* 绑定参数到栈帧 */
+    for(int i = 0; i < bf->param_cnt && i < arg_cnt; i++) {
+        if(bf->params[i]) stackframe_bind(gen->frame, bf->params[i], args[i]);
+    }
+    return gen;
+}
+
+/* 销毁生成器对象 */
+static void generator_free(GeneratorObject* gen)
+{
+    if(!gen) return;
+    if(gen->stack) free(gen->stack);
+    if(gen->frame) stackframe_destroy(gen->frame);
+    free(gen);
+}
+
+/* 生成器执行函数：恢复状态，执行到下一个 yield 或 return
+ * 返回 1 = 正常 yield，结果在 *result；返回 0 = 生成器结束 */
+/* vm_run 前向声明（generator_resume 需要调用） */
+static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx);
+
+/* 生成器执行函数：恢复状态，调用 vm_run 执行到下一个 yield 或 return
+ * 返回 1 = 正常 yield，结果在 *result；返回 0 = 生成器结束 */
+static int generator_resume(GeneratorObject* gen, Value* result)
+{
+    if(gen->finished) { *result = val_none(); return 0; }
+
+    /* setjmp 恢复点：vm_run 中遇到 OPC_YIELD 时 longjmp 到这里 */
+    if(setjmp(gen->resume_point) == 0) {
+        /* 第一次进入或从 next 恢复：调用 vm_run 执行字节码 */
+        s_current_gen = gen;
+        EvalCtx ctx;
+        memset(&ctx, 0, sizeof(ctx));
+        gen->ctx = &ctx;
+        Value ret = vm_run(gen->bf, gen->frame, &ctx);
+        /* vm_run 正常返回：生成器结束 */
+        s_current_gen = NULL;
+        gen->finished = 1;
+        *result = ret;
+        return 0;
+    } else {
+        /* 从 yield longjmp 回来：返回 yield 的值 */
+        s_current_gen = NULL;
+        *result = s_gen_yield_result;
+        return 1;
+    }
+}
+
 
 // 未定义变量/函数：统一报错退出（与 ast_interp.c 输出一致）
 static void runtime_undefined(const char* what, const char* name)
@@ -194,8 +289,6 @@ Value vm_run_main(BytecodeFunc* main_fn)
 // 函数入口：帧已由调用点建好并绑定参数，这里直接执行函数体字节码
 Value vm_func_entry(int arg_cnt, const Value* args, EvalCtx* ctx, StackFrame* frame)
 {
-    (void)arg_cnt;
-    (void)args;
     RuntimeFunc* self = interp_current_rf();
     if(!self || !interp_func_is_payload(self)) {
         runtime_error("vm_func_entry: 缺少当前函数上下文");
@@ -203,6 +296,14 @@ Value vm_func_entry(int arg_cnt, const Value* args, EvalCtx* ctx, StackFrame* fr
     }
     InterpFuncPayload* pl = (InterpFuncPayload*)self->captures;
     if(!pl->bytecode) return val_none();
+    /* 如果是生成器函数，创建生成器对象并返回（不立即执行） */
+    if(pl->is_generator) {
+        GeneratorObject* gen = generator_new(pl->bytecode, frame, arg_cnt, args);
+        Value gen_val;
+        gen_val.type = VAL_GENERATOR;
+        gen_val.v.generator = gen;
+        return gen_val;
+    }
     return vm_run(pl->bytecode, frame, ctx);
 }
 
@@ -243,13 +344,26 @@ static int try_operator_overload(const char* op_name, Value l, Value r,
 
 static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
 {
+    /* 生成器上下文恢复：如果 s_current_gen 不为 NULL，从生成器对象恢复状态 */
+    GeneratorObject* gen_ctx = s_current_gen;
+    int is_generator = (gen_ctx != NULL);
     // 静态栈深度分析：精确分配执行栈（动态，无硬上限），并校验 IR 栈平衡
     int maxd = bc_analyze_stack(bf, NULL, 0);
     if(maxd < 0) exit(EXIT_FAILURE);   // 已打印下溢位置
-    Value* stack = (Value*)malloc(sizeof(Value) * (maxd + 2));
-    if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
-    int sp = 0;
-    int pc = 0;
+    Value* stack;
+    int sp;
+    int pc;
+    if(is_generator) {
+        /* 生成器模式：复用生成器的 stack，从保存的 pc/sp 恢复 */
+        stack = gen_ctx->stack;
+        sp = gen_ctx->sp;
+        pc = gen_ctx->pc;
+    } else {
+        stack = (Value*)malloc(sizeof(Value) * (maxd + 2));
+        if(!stack) { perror("vm_run"); exit(EXIT_FAILURE); }
+        sp = 0;
+        pc = 0;
+    }
     /* 注册 GC 根：保存旧根（嵌套调用恢复用），设置当前线程的栈与帧 */
     Value* old_gc_stack; int* old_gc_sp; StackFrame* old_gc_frame;
     gc_get_roots(&old_gc_stack, &old_gc_sp, &old_gc_frame);
@@ -958,6 +1072,20 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         stack[sp++] = lumyr_make_int((long long)gc_stw_time_ns());
                         break;
                     }
+                    case BUILTIN_NEXT: {
+                        /* next(gen)：恢复生成器执行，返回 yield 值；结束返回 null */
+                        Value gen_val = stack[--sp];
+                        if(gen_val.type != VAL_GENERATOR) {
+                            fprintf(stderr, "Runtime Error: next() 需要生成器对象，实际类型: %d\n", gen_val.type);
+                            exit(EXIT_FAILURE);
+                        }
+                        GeneratorObject* gen = (GeneratorObject*)gen_val.v.generator;
+                        Value result;
+                        int yielded = generator_resume(gen, &result);
+                        stack[sp++] = result;
+                        (void)yielded;
+                        break;
+                    }
                     case BUILTIN_HTTP_DELETE:
                     case BUILTIN_HTTP_HEAD:
                     case BUILTIN_HTTP_PATCH: {
@@ -1550,8 +1678,36 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp++] = ret;
                 break;
             }
+            case OPC_YIELD: {
+                /* 生成器 yield：保存状态，longjmp 返回到 generator_resume */
+                if(!is_generator) {
+                    fprintf(stderr, "Runtime Error: yield 只能在生成器函数中使用\n");
+                    exit(EXIT_FAILURE);
+                }
+                Value v = stack[--sp];
+                /* 保存生成器状态 */
+                gen_ctx->pc = pc;
+                gen_ctx->sp = sp;
+                gen_ctx->started = 1;
+                /* 恢复外层 VM 状态 */
+                vm_depth = saved_depth;
+                g_err_jmp = saved_gj;
+                vm_fin_n = saved_fin;
+                gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
+                tls_vm_run_depth--;
+                if (!tls_skip_vm_unregister) gc_unregister_thread();
+                /* 设置 yield 结果并 longjmp 返回到 generator_resume */
+                s_gen_yield_result = v;
+                longjmp(gen_ctx->resume_point, 1);
+            }
             case OPC_RETURN: {
                 Value v = stack[--sp];
+                /* 如果是生成器，标记结束 */
+                if(is_generator) {
+                    gen_ctx->finished = 1;
+                    gen_ctx->pc = pc;
+                    gen_ctx->sp = sp;
+                }
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
@@ -1569,26 +1725,36 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     gc_protect_push(v);
                     gc_protect_pop();
                 }
-                free(stack);
+                if(!is_generator) free(stack);
                 return v;
             }
             case OPC_RETURN_NIL:
+                if(is_generator) {
+                    gen_ctx->finished = 1;
+                    gen_ctx->pc = pc;
+                    gen_ctx->sp = sp;
+                }
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
                 gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
                 tls_vm_run_depth--;
                 if (tls_vm_run_depth > 0 || !tls_skip_vm_unregister) gc_unregister_thread();
-                free(stack);
+                if(!is_generator) free(stack);
                 return val_none();
             case OPC_HALT:
+                if(is_generator) {
+                    gen_ctx->finished = 1;
+                    gen_ctx->pc = pc;
+                    gen_ctx->sp = sp;
+                }
                 vm_depth = saved_depth;
                 g_err_jmp = saved_gj;
                 vm_fin_n = saved_fin;
                 gc_set_roots(old_gc_stack, old_gc_sp, old_gc_frame);
                 tls_vm_run_depth--;
                 if (tls_vm_run_depth > 0 || !tls_skip_vm_unregister) gc_unregister_thread();
-                free(stack);
+                if(!is_generator) free(stack);
                 return val_none();
             default:
                 runtime_error("vm: 未知指令");

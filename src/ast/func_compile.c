@@ -259,6 +259,7 @@ RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast)
     payload->param_names = malloc(sizeof(char*)*(normal_cnt + (has_var?1:0)));
     payload->default_vals = calloc(normal_cnt, sizeof(AstNode*));
     payload->has_default = calloc(normal_cnt, sizeof(int));
+    payload->is_generator = func_def_ast->u.func_def.is_generator;
 
     // 拷贝参数名字
     p = func_def_ast->u.func_def.params;
