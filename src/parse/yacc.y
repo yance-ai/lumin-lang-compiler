@@ -222,7 +222,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
 %token CONTINUE
-%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE CONST MACRO
+%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE CONST MACRO TOK_GEN TOK_YIELD
 %token READ WRITE
 %token COMMA
 %token AND OR NOT MOD
@@ -246,7 +246,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> program stmt_list closed_stmt open_stmt block_stmt try_stmt
 %type<node> elif_clause_list elif_clause else_part
 %type<node> expr ternary_expr logic_or_expr logic_and_expr assignment_expr unary_expr postfix_expr multiplicative_expr additive_expr comparison_expr expr_opt for_init for_incr primary map_items map_item
-%type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
+%type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt yield_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
 %type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list
@@ -353,6 +353,7 @@ closed_stmt
     | break_stmt                     { $$ = $1; }
     | continue_stmt                  { $$ = $1; }
     | return_stmt                    { $$ = $1; }
+    | yield_stmt                     { $$ = $1; }
     | func_def                       { $$ = $1; }          /* 新增函数定义语句 */
     | macro_def                      { $$ = $1; }          /* 宏定义语句 */
     | WRITE STRING_LIT expr SEMI {
@@ -523,6 +524,17 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
           sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+        }
+        /* 生成器函数：gen func name(params) { body } */
+        | TOK_GEN FUNC ID LPAREN param_list RPAREN block_stmt {
+          $$ = ast_func_def($3, $5, $7);
+          $$->u.func_def.annotations = NULL;
+          $$->u.func_def.is_generator = 1;
+          RuntimeFunc* rf = compile_func_from_ast($$);
+          Value func_val;
+          func_val.type = VAL_FUNC;
+          func_val.v.func.func_obj = rf;
+          sym_set($3, func_val);
         }
         /* 泛型函数：func<T> name(params) { body } */
         | FUNC generic_param_list ID LPAREN param_list RPAREN block_stmt {
@@ -698,6 +710,11 @@ continue_stmt
 
 return_stmt    : RETURN SEMI              { $$ = ast_return(NULL); }
                | RETURN expr SEMI         { $$ = ast_return($2); }
+;
+
+/* yield 语句：生成器函数中产生一个值并暂停 */
+yield_stmt     : TOK_YIELD SEMI           { $$ = ast_yield(NULL); }
+               | TOK_YIELD expr SEMI      { $$ = ast_yield($2); }
 ;
 
 switch_stmt

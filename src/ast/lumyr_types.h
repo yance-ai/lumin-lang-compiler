@@ -51,6 +51,7 @@ typedef enum {
     AST_THROW,         // throw expr：显式抛错
     AST_DESTRUCT,      // 解构赋值 a,b = [1,2]
     AST_SPREAD,        // 展开运算符 ...expr（数组/map 字面量内）
+    AST_YIELD,         // yield 表达式（生成器函数中）
 } AstType;
 
 // 二元运算符

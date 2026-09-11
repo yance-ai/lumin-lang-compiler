@@ -42,6 +42,7 @@ AstNode* ast_case_guard(const char* bind_var, AstNode* guard, AstNode* body);  /
 AstNode* ast_break(void);
 AstNode* ast_continue(void);
 AstNode* ast_return(AstNode* expr);
+AstNode* ast_yield(AstNode* value);
 AstNode* ast_case_append(AstNode* case_list, AstNode* one_case);
 
 // func def: func name(params) body

@@ -129,7 +129,12 @@ struct AstNode {
             AstNode* annotations;  // 注解列表（AST_SEQ 链，每个节点是 AST_ANNOTATION）
             int is_const;  // 编译期计算函数（const fn）
             AstNode* generic_params;  // 泛型参数列表（AST_PARAM链表，NULL=非泛型函数）
+            int is_generator;  // generator function (gen func)
         } func_def;
+
+        struct {
+            AstNode* value;  // yield value expression, NULL = bare yield
+        } yieldnode;
 
         struct {
             char* name;

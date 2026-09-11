@@ -501,6 +501,13 @@ AstNode* ast_func_def(char* name, AstNode* params, AstNode* body) {
     n->u.func_def.annotations = NULL;
     n->u.func_def.is_const = 0;
     n->u.func_def.generic_params = NULL;
+    n->u.func_def.is_generator = 0;
+    return n;
+}
+
+AstNode* ast_yield(AstNode* value) {
+    AstNode* n = ast_new(AST_YIELD);
+    n->u.yieldnode.value = value;
     return n;
 }
 
@@ -760,6 +767,10 @@ void ast_free(AstNode* node) {
         case AST_CONTINUE:
         case AST_RETURN:
             ast_free(node->u.ret.ret_val);
+            break;
+
+        case AST_YIELD:
+            if (node->u.yieldnode.value) ast_free(node->u.yieldnode.value);
             break;
 
         // ==========新增函数相关节点释放==========
