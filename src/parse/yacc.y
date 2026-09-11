@@ -213,7 +213,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token IF ELSEIF ELSE
 %token GE LE EQ NE GT LT
 %token LBRACE RBRACE
-%token WHILE FOR TOK_DO TOK_IN
+%token WHILE FOR TOK_DO TOK_IN TOK_ITER
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT
@@ -325,6 +325,27 @@ closed_stmt
         AstNode* body = ast_block(ast_seq(k_assign, ast_seq(v_assign, $7)));
         AstNode* for_stmt = ast_for(init, cond, update, body);
         $$ = ast_block(ast_seq(keys_init, for_stmt));
+    }
+    /* 迭代器协议：for x iter obj，调用 obj.next()，返回 null 结束 */
+    | FOR ID TOK_ITER expr closed_stmt {
+        static int iter_counter = 0;
+        char oname[64]; snprintf(oname, sizeof(oname), "__iter_obj_%d", iter_counter++);
+        /* __iter_obj_N = obj; */
+        AstNode* obj_assign = ast_assign(strdup(oname), ast_clone_node($4));
+        /* next(__iter_obj_N) */
+        AstNode* next_call = ast_call(strdup("next"), ast_seq(ast_var(strdup(oname)), NULL));
+        /* x = next(__iter_obj_N) */
+        AstNode* x_assign = ast_assign(strdup($2), next_call);
+        /* if (x == null) break; */
+        AstNode* null_cond = ast_binop(OP_EQ, ast_var(strdup($2)), ast_none());
+        AstNode* break_stmt = ast_break();
+        AstNode* if_break = ast_if(null_cond, break_stmt, NULL, NULL);
+        /* body: x = next(...); if (x == null) break; <original body> */
+        AstNode* loop_body = ast_block(ast_seq(x_assign, ast_seq(if_break, $5)));
+        /* while (1) { body } */
+        AstNode* while_stmt = ast_while(ast_int(1), loop_body);
+        /* __iter_obj_N = obj; while (1) { ... } */
+        $$ = ast_block(ast_seq(obj_assign, while_stmt));
     }
 
     | TOK_DO closed_stmt WHILE LPAREN expr RPAREN SEMI { $$ = ast_do_while($5, $2); }

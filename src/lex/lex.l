@@ -56,6 +56,7 @@ static int is_expr_end(int t)
 "for"           { LEX_RET(FOR); }
 "@"             { LEX_RET(TOK_AT); }
 "in"            { LEX_RET(TOK_IN); }
+"iter"          { LEX_RET(TOK_ITER); }
 
 "switch"        {  LEX_RET(SWITCH); }
 "match"         {  LEX_RET(SWITCH); }  /* match as alias for pattern matching */
