@@ -195,12 +195,12 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list
+%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list
 %type<ll> type_name builtin_type_name type_keyword
 %type <ch> char_lit
 %type<ll> INTEGER
 %type<d> NUMBER
-%type<s> ID STRING_LIT FSTRING_LIT
+%type<s> ID STRING_LIT FSTRING_LIT operator
 
 %%
 
@@ -355,8 +355,8 @@ closed_stmt
           free($4);
           $$ = L(ast_none());
       }
-    | TOK_EXTEND ID LBRACE func_def RBRACE {
-          /* extend String { func reverse() { ... } }：扩展方法 */
+    | TOK_EXTEND ID LBRACE func_def_list RBRACE {
+          /* extend String { func a() { ... } func b() { ... } }：扩展方法 */
           $$ = L(ast_none());
       }
     | TOK_EXTEND ID LBRACE RBRACE {
@@ -386,6 +386,20 @@ interface_method : FUNC ID LPAREN param_list RPAREN COLON type_name SEMI {
                   }
                   ;
 
+/* 运算符重载支持的运算符 */
+operator : PLUS  { $$ = strdup("+"); }
+         | MINUS { $$ = strdup("-"); }
+         | MUL   { $$ = strdup("*"); }
+         | DIV   { $$ = strdup("/"); }
+         | MOD   { $$ = strdup("%%"); }
+         | EQ    { $$ = strdup("=="); }
+         | NE    { $$ = strdup("!="); }
+         | LT    { $$ = strdup("<"); }
+         | GT    { $$ = strdup(">"); }
+         | LE    { $$ = strdup("<="); }
+         | GE    { $$ = strdup(">="); }
+         ;
+
 func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($2, $4, $6);
           $$->u.func_def.annotations = NULL;
@@ -396,15 +410,15 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.func_obj = rf;
           sym_set($2, func_val); /* 注册到运行时符号表，后续调用可以查到 */
         }
-        | FUNC PLUS LPAREN param_list RPAREN block_stmt {
+        | FUNC operator LPAREN param_list RPAREN block_stmt {
           /* 运算符重载：func +(other) { ... } */
-          $$ = ast_func_def(strdup("+"), $4, $6);
+          $$ = ast_func_def($2, $4, $6);
           $$->u.func_def.annotations = NULL;
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val;
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
-          sym_set("+", func_val); /* 注册到运行时符号表，运算符名作为键 */
+          sym_set($2, func_val); /* 注册到运行时符号表，运算符名作为键 */
         }
         | annotation_list FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);
@@ -438,6 +452,12 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.func_obj = rf;
           sym_set($3, func_val);
         } ;
+
+/* 函数定义列表：用于扩展方法块 */
+func_def_list
+    : func_def
+    | func_def_list func_def
+    ;
 
 /* 泛型参数列表：<T> / <T, U>（用 param.next 链接，与函数参数一致） */
 generic_param_list : LT generic_param_items GT { $$ = $2; }
