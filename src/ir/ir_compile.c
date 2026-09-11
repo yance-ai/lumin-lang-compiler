@@ -9,6 +9,7 @@
 #include "ast/func_compile.h"
 #include "ast/ast_interp.h"
 #include "lm_value.h"
+#include "gc_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,6 +53,51 @@ static void ir_func_table_add(BytecodeFunc* fn)
         ir_func_cap = newcap;
     }
     ir_func_table[ir_func_count++] = fn;
+}
+
+// ---------------- 字符串常量缓存 ----------------
+// 编译期全局缓存：相同字符串字面量只创建一次 Value，避免重复分配和 bf_const 临时对象泄漏。
+// 长字符串（非 SSO）调用 gc_pin 钉住，防止编译期 GC 回收；短字符串内联在 Value 中无需钉住。
+static Value* str_cache = NULL;
+static char** str_cache_keys = NULL;
+static int str_cache_cnt = 0;
+static int str_cache_cap = 0;
+
+void string_cache_reset(void)
+{
+    for(int i = 0; i < str_cache_cnt; i++) {
+        free(str_cache_keys[i]);
+    }
+    free(str_cache);
+    free(str_cache_keys);
+    str_cache = NULL;
+    str_cache_keys = NULL;
+    str_cache_cnt = 0;
+    str_cache_cap = 0;
+}
+
+static Value intern_string(const char* s)
+{
+    if(!s) s = "";
+    for(int i = 0; i < str_cache_cnt; i++) {
+        if(strcmp(str_cache_keys[i], s) == 0)
+            return str_cache[i];
+    }
+    Value v = lumyr_make_string(s);
+    if(str_cache_cnt >= str_cache_cap) {
+        int newcap = str_cache_cap > 0 ? str_cache_cap * 2 : 64;
+        Value* nv = (Value*)realloc(str_cache, (size_t)newcap * sizeof(Value));
+        char** nk = (char**)realloc(str_cache_keys, (size_t)newcap * sizeof(char*));
+        if(!nv || !nk) { fprintf(stderr, "IR: string cache oom\n"); exit(EXIT_FAILURE); }
+        str_cache = nv;
+        str_cache_keys = nk;
+        str_cache_cap = newcap;
+    }
+    str_cache_keys[str_cache_cnt] = strdup(s);
+    str_cache[str_cache_cnt] = v;
+    if(v.type == VAL_STRING && !v.str_inline && v.v.s) gc_pin(v.v.s);
+    str_cache_cnt++;
+    return v;
 }
 
 // ---------------- 编译上下文 ----------------
@@ -479,7 +525,7 @@ static void c_expr(Ctx* c, AstNode* node)
             emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_char(node->u.ch)), 0);
             break;
         case AST_STRING:
-            emit(c, OPC_LOAD_CONST, bf_const(c->fn, lumyr_make_string(node->u.sval)), 0);
+            emit(c, OPC_LOAD_CONST, bf_const(c->fn, intern_string(node->u.sval)), 0);
             break;
         case AST_VAR:
             emit(c, OPC_LOAD_VAR, bf_sym(c->fn, node->u.varname), 0);
@@ -1273,6 +1319,9 @@ BytecodeFunc* ir_compile_main(AstNode* root)
         if(ir_func_table[k]) ir_optimize(ir_func_table[k]);
     }
     ir_optimize(fn);
+
+    /* 编译完成：清理字符串常量缓存（长字符串已 gc_pin，由 GC 回收） */
+    string_cache_reset();
 
     return fn;
 }

@@ -18,4 +18,7 @@ int ir_func_table_count(void);
 BytecodeFunc* ir_func_table_get(int i);
 BytecodeFunc* ir_func_table_lookup(const char* name);
 
+// 字符串常量缓存（编译期全局去重，避免重复分配；编译完成后调用 reset 清理）
+void string_cache_reset(void);
+
 #endif // LUMYR_IR_COMPILE_H
