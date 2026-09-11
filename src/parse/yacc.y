@@ -295,18 +295,57 @@ closed_stmt
     | open_stmt                      { $$ = $1; }
     | WHILE LPAREN expr RPAREN closed_stmt     { $$ = ast_while($3, $5); }
     | FOR LPAREN for_init SEMI expr_opt SEMI for_incr RPAREN closed_stmt { $$ = ast_for($3, $5, $7, $9); }
-    /* for-each 循环：for x in arr / for k,v in map，转换为普通 for 循环 */
+    /* for-each 循环：for x in obj，同时支持数组和生成器（运行时判断类型） */
     | FOR ID TOK_IN expr closed_stmt {
         static int fe_counter = 0;
-        char iname[64]; snprintf(iname, sizeof(iname), "__fe_i_%d", fe_counter++);
-        AstNode* iter_copy = ast_clone_node($4);
-        AstNode* init = ast_assign(strdup(iname), ast_int(0));
-        AstNode* cond = ast_binop(OP_LT, ast_var(strdup(iname)),
-            ast_call(strdup("len"), ast_seq(ast_clone_node($4), NULL)));
-        AstNode* update = ast_unary(OP_POST_INC, ast_var(strdup(iname)));
-        AstNode* assign = ast_assign(strdup($2), ast_index(iter_copy, ast_var(strdup(iname))));
-        AstNode* body = ast_block(ast_seq(assign, $5));
-        $$ = ast_for(init, cond, update, body);
+        int n = fe_counter++;
+        char oname[64], isarr_name[64], idx_name[64], len_name[64];
+        snprintf(oname, sizeof(oname), "__fe_obj_%d", n);
+        snprintf(isarr_name, sizeof(isarr_name), "__fe_isarr_%d", n);
+        snprintf(idx_name, sizeof(idx_name), "__fe_idx_%d", n);
+        snprintf(len_name, sizeof(len_name), "__fe_len_%d", n);
+
+        /* __fe_obj = obj; */
+        AstNode* obj_assign = ast_assign(strdup(oname), ast_clone_node($4));
+        /* __fe_isarr = (type(__fe_obj) == "array"); */
+        AstNode* type_call = ast_call(strdup("type"), ast_seq(ast_var(strdup(oname)), NULL));
+        AstNode* isarr_cond = ast_binop(OP_EQ, type_call, ast_string(strdup("array")));
+        AstNode* isarr_assign = ast_assign(strdup(isarr_name), isarr_cond);
+        /* __fe_idx = 0; __fe_len = 0; */
+        AstNode* idx_init = ast_assign(strdup(idx_name), ast_int(0));
+        AstNode* len_init = ast_assign(strdup(len_name), ast_int(0));
+        /* if (__fe_isarr) { __fe_len = len(__fe_obj); } */
+        AstNode* len_call = ast_call(strdup("len"), ast_seq(ast_var(strdup(oname)), NULL));
+        AstNode* len_assign = ast_assign(strdup(len_name), len_call);
+        AstNode* if_len = ast_if(ast_var(strdup(isarr_name)), ast_block(len_assign), NULL, NULL);
+
+        /* while (1) { ... } */
+        /* 数组分支：if (__fe_idx >= __fe_len) break; x = __fe_obj[__fe_idx]; __fe_idx++; */
+        AstNode* arr_break_cond = ast_binop(OP_GE, ast_var(strdup(idx_name)), ast_var(strdup(len_name)));
+        AstNode* arr_break = ast_if(arr_break_cond, ast_break(), NULL, NULL);
+        AstNode* arr_x_assign = ast_assign(strdup($2), ast_index(ast_var(strdup(oname)), ast_var(strdup(idx_name))));
+        AstNode* arr_idx_inc = ast_unary(OP_POST_INC, ast_var(strdup(idx_name)));
+        AstNode* arr_branch = ast_block(ast_seq(arr_break, ast_seq(arr_x_assign, arr_idx_inc)));
+
+        /* 生成器分支：x = next(__fe_obj); if (x == null) break; */
+        AstNode* gen_next_call = ast_call(strdup("next"), ast_seq(ast_var(strdup(oname)), NULL));
+        AstNode* gen_x_assign = ast_assign(strdup($2), gen_next_call);
+        AstNode* gen_break_cond = ast_binop(OP_EQ, ast_var(strdup($2)), ast_none());
+        AstNode* gen_break = ast_if(gen_break_cond, ast_break(), NULL, NULL);
+        AstNode* gen_branch = ast_block(ast_seq(gen_x_assign, gen_break));
+
+        /* if (__fe_isarr) { arr_branch } else { gen_branch } */
+        AstNode* if_type = ast_if(ast_var(strdup(isarr_name)), arr_branch, gen_branch, NULL);
+
+        /* while 循环体：if_type + 原始循环体 */
+        AstNode* while_body = ast_block(ast_seq(if_type, $5));
+
+        /* while (1) { while_body } */
+        AstNode* while_loop = ast_while(ast_int(1), while_body);
+
+        /* 整体：obj_assign; isarr_assign; idx_init; len_init; if_len; while_loop */
+        AstNode* stmts = ast_seq(obj_assign, ast_seq(isarr_assign, ast_seq(idx_init, ast_seq(len_init, ast_seq(if_len, while_loop)))));
+        $$ = ast_block(stmts);
     }
     | FOR ID COMMA ID TOK_IN expr closed_stmt {
         static int fe_counter2 = 0;
