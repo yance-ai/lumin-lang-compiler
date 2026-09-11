@@ -195,7 +195,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def
+%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items
 %type<ll> type_name builtin_type_name type_keyword
 %type <ch> char_lit
 %type<ll> INTEGER
@@ -333,7 +333,26 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
           sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+        }
+        /* 泛型函数：func<T> name(params) { body } */
+        | FUNC generic_param_list ID LPAREN param_list RPAREN block_stmt {
+          $$ = ast_func_def($3, $5, $7);
+          $$->u.func_def.annotations = NULL;
+          $$->u.func_def.generic_params = $2;
+          RuntimeFunc* rf = compile_func_from_ast($$);
+          Value func_val;
+          func_val.type = VAL_FUNC;
+          func_val.v.func.func_obj = rf;
+          sym_set($3, func_val);
         } ;
+
+/* 泛型参数列表：<T> / <T, U> */
+generic_param_list : LT generic_param_items GT { $$ = $2; }
+                   ;
+
+generic_param_items : ID { $$ = ast_param($1, 0, NULL); }
+                    | generic_param_items COMMA ID { $$ = ast_seq($1, ast_param($3, 0, NULL)); }
+                    ;
 
 /* 宏定义：macro name(params) { body } */
 macro_def : MACRO ID LPAREN param_list RPAREN block_stmt {
