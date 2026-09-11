@@ -206,6 +206,41 @@ Value vm_func_entry(int arg_cnt, const Value* args, EvalCtx* ctx, StackFrame* fr
     return vm_run(pl->bytecode, frame, ctx);
 }
 
+/* 运算符重载辅助函数：尝试调用 op_name 对应的重载函数
+ * 成功返回 1，结果存入 *result；失败返回 0，调用方执行默认运算 */
+static int try_operator_overload(const char* op_name, Value l, Value r,
+                                  Value* stack, int* sp, StackFrame* frame,
+                                  EvalCtx* ctx, Value* result)
+{
+    if(!sym_has(op_name)) return 0;
+    Value fv = sym_get(op_name);
+    if(fv.type != VAL_FUNC) return 0;
+    RuntimeFunc* rf = fv.v.func.func_obj;
+    StackFrame* callee = stackframe_new(frame);
+    if(interp_func_is_payload(rf)) {
+        int pcnt = interp_func_param_cnt(rf);
+        Value args[2] = {l, r};
+        for(int i = 0; i < pcnt; i++) {
+            const char* pname = interp_func_param_name(rf, i);
+            Value bound = (i < 2) ? args[i] : val_none();
+            stackframe_bind(callee, pname, bound);
+        }
+    }
+    /* 把参数压到栈上 */
+    stack[(*sp)++] = l;
+    stack[(*sp)++] = r;
+    Value* eval_args = &stack[*sp - 2];
+    RuntimeFunc* prev_rf = interp_set_current_rf(rf);
+    g_trace_push(op_name);
+    Value ret = rf->entry(2, eval_args, ctx, callee);
+    if(g_trace_n > 0) g_trace_n--;
+    interp_set_current_rf(prev_rf);
+    *sp -= 2; /* 弹出参数 */
+    stackframe_destroy(callee);
+    *result = ret;
+    return 1;
+}
+
 static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
 {
     // 静态栈深度分析：精确分配执行栈（动态，无硬上限），并校验 IR 栈平衡
@@ -282,17 +317,80 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp++] = v;             // 原值压回（表达式值）
                 break;
             }
-            case OPC_ADD: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_add(l, r); break; }
+            case OPC_ADD: {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("+", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_add(l, r);
+                }
+                break;
+            }
             case OPC_SUB: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_sub(l, r); break; }
             case OPC_MUL: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_mul(l, r); break; }
             case OPC_DIV: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_div(l, r); break; }
             case OPC_MOD: { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_mod(l, r); break; }
-            case OPC_GT:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_gt(l, r); break; }
-            case OPC_LT:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_lt(l, r); break; }
-            case OPC_GE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_ge(l, r); break; }
-            case OPC_LE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_le(l, r); break; }
-            case OPC_EQ:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_eq(l, r); break; }
-            case OPC_NE:  { Value r = stack[--sp], l = stack[--sp]; stack[sp++] = lumyr_ne(l, r); break; }
+            case OPC_GT:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload(">", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_gt(l, r);
+                }
+                break;
+            }
+            case OPC_LT:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("<", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_lt(l, r);
+                }
+                break;
+            }
+            case OPC_GE:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload(">=", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_ge(l, r);
+                }
+                break;
+            }
+            case OPC_LE:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("<=", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_le(l, r);
+                }
+                break;
+            }
+            case OPC_EQ:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("==", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_eq(l, r);
+                }
+                break;
+            }
+            case OPC_NE:  {
+                Value r = stack[--sp], l = stack[--sp];
+                Value result;
+                if(try_operator_overload("!=", l, r, stack, &sp, frame, ctx, &result)) {
+                    stack[sp++] = result;
+                } else {
+                    stack[sp++] = lumyr_ne(l, r);
+                }
+                break;
+            }
             case OPC_NEG: { Value v = stack[--sp]; stack[sp++] = lumyr_unary_minus(v); break; }
             case OPC_POS: { Value v = stack[--sp]; stack[sp++] = lumyr_unary_plus(v); break; }
             case OPC_PRE_INC:  { const char* n = bf->syms[in.a]; _Bool fnd = 0;
