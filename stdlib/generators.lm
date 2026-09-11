@@ -1,0 +1,75 @@
+/*
+ * 生成器组合操作标准库
+ * 提供 chain、zip、gen_map、gen_filter 等生成器组合函数
+ * 所有函数都返回生成器，支持惰性求值
+ */
+
+/* 连接两个生成器：先迭代 g1，再迭代 g2 */
+gen func chain(g1, g2) {
+    for x in g1 {
+        yield x;
+    }
+    for x in g2 {
+        yield x;
+    }
+}
+
+/* 压缩两个生成器：每次返回 [v1, v2]，直到其中一个结束 */
+gen func zip(g1, g2) {
+    while (1) {
+        v1 = next(g1);
+        v2 = next(g2);
+        if (v1 == null || v2 == null) {
+            break;
+        }
+        yield [v1, v2];
+    }
+}
+
+/* 对生成器的每个元素应用函数，返回新的生成器 */
+gen func gen_map(g, fn) {
+    for x in g {
+        yield fn(x);
+    }
+}
+
+/* 过滤生成器的元素，只保留满足条件的元素 */
+gen func gen_filter(g, fn) {
+    for x in g {
+        if (fn(x)) {
+            yield x;
+        }
+    }
+}
+
+/* 跳过生成器的前 n 个元素 */
+gen func gen_skip(g, n) {
+    i = 0;
+    for x in g {
+        if (i >= n) {
+            yield x;
+        }
+        i = i + 1;
+    }
+}
+
+/* 只取生成器的前 n 个元素 */
+gen func gen_take(g, n) {
+    i = 0;
+    for x in g {
+        if (i >= n) {
+            break;
+        }
+        yield x;
+        i = i + 1;
+    }
+}
+
+/* 枚举生成器的元素：每次返回 [index, value] */
+gen func enumerate(g) {
+    i = 0;
+    for x in g {
+        yield [i, x];
+        i = i + 1;
+    }
+}
