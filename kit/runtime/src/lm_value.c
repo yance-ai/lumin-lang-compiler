@@ -511,6 +511,15 @@ Value lumyr_eq(Value a, Value b) {
         }
         return lumyr_make_bool(1);
     }
+    /* 类型检查：类型不同且不都是数字类型时，直接返回 false。
+     * 修复 0 == null 返回 true 的 bug：value_as_number(null) 返回 0.0，
+     * 导致 0 和 null 都被当作 0.0 比较。
+     * 数字类型：int, double, char, byte（bool 不参与数值相等比较，保持类型严格） */
+    int a_is_num = (a.type == VAL_INT || a.type == VAL_DOUBLE || a.type == VAL_CHAR || a.type == VAL_BYTE);
+    int b_is_num = (b.type == VAL_INT || b.type == VAL_DOUBLE || b.type == VAL_CHAR || b.type == VAL_BYTE);
+    if(a.type != b.type && !(a_is_num && b_is_num)) {
+        return lumyr_make_bool(0);
+    }
     double na = value_as_number(a);
     double nb = value_as_number(b);
     return lumyr_make_bool(na == nb);
