@@ -26,6 +26,30 @@ TypeDef* type_get(int idx);
 
 // 属性类型名（string/int/double/bool/char/ascii/byte）→ ValueType；未知返回 VAL_NONE
 ValueType type_name_to_valtype(const char* tname);
+char* valtype_to_name(ValueType vt);
 ValueType castkind_to_valtype(int ck);
+
+/* ===== 接口/trait 系统 ===== */
+// interface Printable { func to_string(): string }
+// 接口表为编译期全局注册表：yacc 声明时注册，typecheck 校验类型是否实现接口
+
+typedef struct {
+    char* name;           // 方法名
+    char* return_type;    // 返回类型名（NULL=无返回值/void）
+} InterfaceMethod;
+
+typedef struct {
+    char* name;              // 接口名
+    InterfaceMethod* methods; // 方法签名列表
+    int nmethods;
+} InterfaceDef;
+
+// 注册 / 查找（返回下标，-1 未找到）
+int interface_register(const char* name, void* methods);
+int interface_lookup(const char* name);
+InterfaceDef* interface_get(int idx);
+
+// 检查类型是否实现了接口（鸭子类型：检查类型是否有接口要求的所有方法）
+int type_implements_interface(const char* type_name, const char* interface_name);
 
 #endif //AST_TYPES_H

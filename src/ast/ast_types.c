@@ -1,5 +1,6 @@
 // ast_types.c —— type 声明类型表（编译期全局注册）
 #include "ast_types.h"
+#include "ast_node.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -103,4 +104,105 @@ ValueType castkind_to_valtype(int ck)
             return VAL_DOUBLE;
         default: return VAL_NONE;
     }
+}
+
+/* ValueType -> 类型名字符串（用于接口方法返回类型存储） */
+char* valtype_to_name(ValueType vt) {
+    switch(vt) {
+        case VAL_INT: return strdup("int");
+        case VAL_STRING: return strdup("string");
+        case VAL_DOUBLE: return strdup("double");
+        case VAL_BOOL: return strdup("bool");
+        case VAL_CHAR: return strdup("char");
+        case VAL_NONE: return strdup("void");
+        default: return strdup("any");
+    }
+}
+
+
+/* ===== 接口/trait 系统实现 ===== */
+
+static InterfaceDef* g_interfaces = NULL;
+static int g_ninterfaces = 0;
+static int g_interfaces_cap = 0;
+
+int interface_register(const char* name, void* methods) {
+    /* 检查是否已存在 */
+    for(int i = 0; i < g_ninterfaces; i++) {
+        if(strcmp(g_interfaces[i].name, name) == 0) {
+            return i; /* 已存在，返回原下标 */
+        }
+    }
+
+    /* 扩容 */
+    if(g_ninterfaces >= g_interfaces_cap) {
+        g_interfaces_cap = g_interfaces_cap ? g_interfaces_cap * 2 : 16;
+        g_interfaces = (InterfaceDef*)realloc(g_interfaces, (size_t)g_interfaces_cap * sizeof(InterfaceDef));
+    }
+
+    InterfaceDef* idef = &g_interfaces[g_ninterfaces];
+    idef->name = strdup(name);
+    idef->methods = NULL;
+    idef->nmethods = 0;
+
+    /* 遍历方法列表（AstNode* param 链表） */
+    AstNode* m = (AstNode*)methods;
+    int count = 0;
+    AstNode* cur = m;
+    while(cur) { count++; cur = cur->u.param.next; }
+
+    if(count > 0) {
+        idef->methods = (InterfaceMethod*)malloc((size_t)count * sizeof(InterfaceMethod));
+        cur = m;
+        for(int i = 0; i < count; i++) {
+            idef->methods[i].name = strdup(cur->u.param.name);
+            idef->methods[i].return_type = cur->u.param.constraint ? strdup(cur->u.param.constraint) : NULL;
+            cur = cur->u.param.next;
+        }
+        idef->nmethods = count;
+    }
+
+    return g_ninterfaces++;
+}
+
+int interface_lookup(const char* name) {
+    for(int i = 0; i < g_ninterfaces; i++) {
+        if(strcmp(g_interfaces[i].name, name) == 0) return i;
+    }
+    return -1;
+}
+
+InterfaceDef* interface_get(int idx) {
+    if(idx < 0 || idx >= g_ninterfaces) return NULL;
+    return &g_interfaces[idx];
+}
+
+int type_implements_interface(const char* type_name, const char* interface_name) {
+    /* 鸭子类型检查：类型是否有接口要求的所有方法 */
+    int iidx = interface_lookup(interface_name);
+    if(iidx < 0) return 0; /* 接口不存在 */
+
+    InterfaceDef* idef = interface_get(iidx);
+    if(!idef) return 0;
+
+    /* 查找类型定义 */
+    int tidx = type_lookup(type_name);
+    if(tidx < 0) return 0; /* 类型不存在 */
+
+    TypeDef* tdef = type_get(tidx);
+    if(!tdef) return 0;
+
+    /* 检查类型是否有接口要求的所有方法（属性） */
+    for(int i = 0; i < idef->nmethods; i++) {
+        int found = 0;
+        for(int j = 0; j < tdef->nprops; j++) {
+            if(strcmp(tdef->props[j], idef->methods[i].name) == 0) {
+                found = 1;
+                break;
+            }
+        }
+        if(!found) return 0; /* 缺少方法 */
+    }
+
+    return 1; /* 实现了所有方法 */
 }

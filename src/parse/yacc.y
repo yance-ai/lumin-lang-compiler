@@ -163,7 +163,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT
-%token TOK_TYPE TOK_ENUM
+%token TOK_TYPE TOK_ENUM TOK_INTERFACE
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
@@ -195,7 +195,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list
+%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method
 %type<ll> type_name builtin_type_name type_keyword
 %type <ch> char_lit
 %type<ll> INTEGER
@@ -312,7 +312,29 @@ closed_stmt
           /* enum Color { RED, GREEN } → Color = {"RED":"RED","GREEN":"GREEN"} */
           $$ = L(ast_assign($2, ast_map_lit($4)));
       }
+    | TOK_INTERFACE ID LBRACE interface_methods RBRACE {
+          /* interface Printable { func to_string(): string }：注册接口到符号表 */
+          interface_register($2, $4);
+          free($2);
+          $$ = L(ast_none());
+      }
     ;
+
+/* 接口方法签名列表 */
+interface_methods : interface_method { $$ = $1; }
+                  | interface_methods interface_method { $$ = ast_param_append($1, $2); }
+                  ;
+
+/* 接口方法签名：func name(params): return_type */
+interface_method : FUNC ID LPAREN param_list RPAREN COLON type_name SEMI {
+                      $$ = ast_param($2, 0, NULL);
+                      /* 用 constraint 字段存储返回类型，简化实现 */
+                      $$->u.param.constraint = valtype_to_name($7);
+                  }
+                  | FUNC ID LPAREN param_list RPAREN SEMI {
+                      $$ = ast_param($2, 0, NULL);
+                  }
+                  ;
 
 func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($2, $4, $6);
