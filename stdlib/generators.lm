@@ -1,11 +1,11 @@
 /*
  * 生成器组合操作标准库
- * 提供 chain、zip、gen_map、gen_filter 等生成器组合函数
+ * 提供 Chain、Zip、GenMap、GenFilter 等生成器组合函数
  * 所有函数都返回生成器，支持惰性求值
  */
 
 /* 连接两个生成器：先迭代 g1，再迭代 g2 */
-gen func chain(g1, g2) {
+gen func Chain(g1, g2) {
     for x in g1 {
         yield x;
     }
@@ -15,7 +15,7 @@ gen func chain(g1, g2) {
 }
 
 /* 压缩两个生成器：每次返回 [v1, v2]，直到其中一个结束 */
-gen func zip(g1, g2) {
+gen func Zip(g1, g2) {
     while (1) {
         v1 = next(g1);
         v2 = next(g2);
@@ -27,14 +27,14 @@ gen func zip(g1, g2) {
 }
 
 /* 对生成器的每个元素应用函数，返回新的生成器 */
-gen func gen_map(g, fn) {
+gen func GenMap(g, fn) {
     for x in g {
         yield fn(x);
     }
 }
 
 /* 过滤生成器的元素，只保留满足条件的元素 */
-gen func gen_filter(g, fn) {
+gen func GenFilter(g, fn) {
     for x in g {
         if (fn(x)) {
             yield x;
@@ -43,7 +43,7 @@ gen func gen_filter(g, fn) {
 }
 
 /* 跳过生成器的前 n 个元素 */
-gen func gen_skip(g, n) {
+gen func GenSkip(g, n) {
     i = 0;
     for x in g {
         if (i >= n) {
@@ -54,7 +54,7 @@ gen func gen_skip(g, n) {
 }
 
 /* 只取生成器的前 n 个元素 */
-gen func gen_take(g, n) {
+gen func GenTake(g, n) {
     i = 0;
     for x in g {
         if (i >= n) {
@@ -66,7 +66,7 @@ gen func gen_take(g, n) {
 }
 
 /* 枚举生成器的元素：每次返回 [index, value] */
-gen func enumerate(g) {
+gen func Enumerate(g) {
     i = 0;
     for x in g {
         yield [i, x];
