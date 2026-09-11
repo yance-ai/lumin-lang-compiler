@@ -104,4 +104,14 @@ extern void emit_func_def(BytecodeFunc* fn);
 extern void emit_func_wraps(void);
 extern void emit_main(BytecodeFunc* main_fn);
 
+/* ---------------- 生成器代码生成（ir_cgen_generator.c） ---------------- */
+extern int g_gen_yield_count;
+extern int g_is_generator;        /* 当前是否在生成器函数中（局部变量访问加 g-> 前缀） */
+extern int count_yields(const BytecodeFunc* fn);
+extern void emit_gen_struct(BytecodeFunc* fn);
+extern void emit_gen_create(BytecodeFunc* fn);
+extern void emit_gen_next_header(BytecodeFunc* fn);
+extern void emit_gen_next_footer(BytecodeFunc* fn);
+extern void emit_gen_yield(BytecodeFunc* fn, int yield_id);
+
 #endif // LUMYR_IR_CGEN_INTERNAL_H

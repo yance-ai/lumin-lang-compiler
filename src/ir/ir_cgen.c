@@ -112,9 +112,9 @@ const char* cvar_rw(const char* name)
     }
     if(g_cur_fn && (fn_has_param(g_cur_fn, name) || ns_has(&fn_locals, name))) {
         if(ns_has(&g_boxed, name))
-            snprintf(buf, sizeof(buf), "*lmloc_%s", name);
+            snprintf(buf, sizeof(buf), g_is_generator ? "*g->lmloc_%s" : "*lmloc_%s", name);
         else
-            snprintf(buf, sizeof(buf), "lmloc_%s", name);
+            snprintf(buf, sizeof(buf), g_is_generator ? "g->lmloc_%s" : "lmloc_%s", name);
     } else {
         snprintf(buf, sizeof(buf), "lmvar_%s", name);
     }
@@ -135,9 +135,9 @@ const char* cvar_ptr(const char* name)
     }
     if(g_cur_fn && (fn_has_param(g_cur_fn, name) || ns_has(&fn_locals, name))) {
         if(ns_has(&g_boxed, name))
-            snprintf(buf, sizeof(buf), "lmloc_%s", name);
+            snprintf(buf, sizeof(buf), g_is_generator ? "g->lmloc_%s" : "lmloc_%s", name);
         else
-            snprintf(buf, sizeof(buf), "&lmloc_%s", name);
+            snprintf(buf, sizeof(buf), g_is_generator ? "&g->lmloc_%s" : "&lmloc_%s", name);
     } else {
         snprintf(buf, sizeof(buf), "&lmvar_%s", name);
     }
@@ -256,6 +256,20 @@ void collect_func_locals(BytecodeFunc* fn)
 /* finally 完成跳转表：FIN_PUSH 的目标 pc → label 编号（生成函数头 static void* 数组） */
 void emit_func_proto(BytecodeFunc* fn)
 {
+    /* 生成器函数：生成状态机结构体、创建函数、next() 函数的原型 */
+    if(fn->is_generator) {
+        fprintf(out, "typedef struct lumyr_gen_%s lumyr_gen_%s;\n", fn->name, fn->name);
+        fprintf(out, "static lumyr_gen_%s* lumyr_gen_%s_create(", fn->name, fn->name);
+        int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
+        for(int i = 0; i < total; i++) {
+            if(i) fprintf(out, ", ");
+            fprintf(out, "Value");
+        }
+        fprintf(out, ");\n");
+        fprintf(out, "static Value lumyr_gen_%s_next(lumyr_gen_%s*, Value);\n", fn->name, fn->name);
+        return;
+    }
+
     int has_caps = lambda_has_captures(fn->name);
     fprintf(out, "static Value lumyr_func_%s(", fn->name);
     if(has_caps) fprintf(out, "Value** __caps");
@@ -270,6 +284,34 @@ void emit_func_proto(BytecodeFunc* fn)
 void emit_func_def(BytecodeFunc* fn)
 {
     collect_func_locals(fn);
+
+    /* 生成器函数：状态机重写（零成本抽象） */
+    if(fn->is_generator) {
+        g_cur_fn = fn;
+        g_is_generator = 1;
+        g_gen_yield_count = 0;
+
+        /* 1. 生成状态机结构体 */
+        emit_gen_struct(fn);
+
+        /* 2. 生成创建函数 */
+        emit_gen_create(fn);
+
+        /* 3. 生成 next() 函数 */
+        emit_gen_next_header(fn);
+
+        /* 4. 发射指令（局部变量访问自动加 g-> 前缀） */
+        emit_insns(fn);
+
+        /* 5. next() 函数结尾 */
+        emit_gen_next_footer(fn);
+
+        g_is_generator = 0;
+        g_cur_fn = NULL;
+        memset(&fn_locals, 0, sizeof(fn_locals));
+        return;
+    }
+
     g_cur_fn = fn;  /* 逃逸分析中用于全局/局部判定 */
     analyze_boxing(fn);  /* 闭包装箱分析：g_boxed / g_cur_caps */
     /* 逃逸分析：数组（含 items）+ map */
@@ -438,18 +480,30 @@ void emit_func_wraps(void)
             fprintf(out, "    Value __rest = val_array(n > %d ? n - %d : 0);\n", fn->param_cnt, fn->param_cnt);
             fprintf(out, "    for(int __k = 0; __k < __rest.v.array->len; __k++) { gc_write_barrier(a[%d + __k]); __rest.v.array->items[__k] = a[%d + __k]; }\n", fn->param_cnt, fn->param_cnt);
         }
-        fprintf(out, "    return lumyr_func_%s(", fn->name);
-        int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
-        if(has_caps)
-            fprintf(out, "(Value**)__ctx");
-        for(int k = 0; k < total; k++) {
-            if(has_caps || k) fprintf(out, ", ");
-            if(k < fn->param_cnt) fprintf(out, "p%d", k);
-            else {
-                fprintf(out, "__rest");
+        /* 生成器函数：创建状态机实例，包装成 VAL_GENERATOR */
+        if(fn->is_generator) {
+            fprintf(out, "    lumyr_gen_%s* __gen = lumyr_gen_%s_create(", fn->name, fn->name);
+            for(int k = 0; k < fn->param_cnt; k++) {
+                if(k) fprintf(out, ", ");
+                fprintf(out, "p%d", k);
             }
+            fprintf(out, ");\n");
+            fprintf(out, "    Value __gv; __gv.type = VAL_GENERATOR; __gv.v.generator = (void*)__gen;\n");
+            fprintf(out, "    return __gv;\n}\n\n");
+        } else {
+            fprintf(out, "    return lumyr_func_%s(", fn->name);
+            int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
+            if(has_caps)
+                fprintf(out, "(Value**)__ctx");
+            for(int k = 0; k < total; k++) {
+                if(has_caps || k) fprintf(out, ", ");
+                if(k < fn->param_cnt) fprintf(out, "p%d", k);
+                else {
+                    fprintf(out, "__rest");
+                }
+            }
+            fprintf(out, ");\n}\n\n");
         }
-        fprintf(out, ");\n}\n\n");
         /* 静态 RuntimeFunc 包装：GC 扫描 VAL_FUNC 时读取 captures/capture_count，
          * 直接把 C 函数指针当 RuntimeFunc* 会读到代码字节 → UAF。
          * 用静态 RuntimeFunc（captures=NULL, capture_count=0）确保 GC 安全跳过。 */

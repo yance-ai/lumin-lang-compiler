@@ -326,6 +326,19 @@ void emit_insns(BytecodeFunc* fn)
             case OPC_BUILTIN:
                 fprintf(out, "    gc_stw_check_fast();\n");
                 switch(in.a) {
+                    /* 生成器相关内置函数 */
+                    case BUILTIN_NEXT: {
+                        fprintf(out, "    { Value __g = __stk[--__sp]; if(__g.type == VAL_GENERATOR) { struct { Value (*next)(void*, Value); } *__gen = (void*)__g.v.generator; __stk[__sp++] = __gen->next(__g.v.generator, val_none()); } else { __stk[__sp++] = val_none(); } }\n");
+                        break;
+                    }
+                    case BUILTIN_SEND: {
+                        fprintf(out, "    { Value __v = __stk[--__sp]; Value __g = __stk[--__sp]; if(__g.type == VAL_GENERATOR) { struct { Value (*next)(void*, Value); } *__gen = (void*)__g.v.generator; __stk[__sp++] = __gen->next(__g.v.generator, __v); } else { __stk[__sp++] = val_none(); } }\n");
+                        break;
+                    }
+                    case BUILTIN_CLOSE: {
+                        fprintf(out, "    { Value __g = __stk[--__sp]; if(__g.type == VAL_GENERATOR) { struct { int __state; } *__gen = (void*)__g.v.generator; __gen->__state = -1; } __stk[__sp++] = val_none(); }\n");
+                        break;
+                    }
                     case BUILTIN_LEN:
                         fprintf(out, "    { Value __v = __stk[__sp-1]; __stk[__sp-1] = lumyr_len(__v); }\n");
                         break;
@@ -1003,6 +1016,28 @@ void emit_insns(BytecodeFunc* fn)
                     fprintf(stderr, "codegen: 未定义函数: %s\n", nm);
                     exit(EXIT_FAILURE);
                 }
+                /* 生成器函数调用：创建状态机实例，包装成 VAL_GENERATOR */
+                if(callee->is_generator) {
+                    int gargc = in.b;
+                    int gfixed = callee->param_cnt;
+                    int gnbind = (gargc < gfixed) ? gargc : gfixed;
+                    fprintf(out, "    {\n");
+                    fprintf(out, "        int __lmin_argc = %d;\n", gargc);
+                    fprintf(out, "        Value __args[%d];\n", gargc > 0 ? gargc : 1);
+                    fprintf(out, "        for (int __k = 0; __k < __lmin_argc; __k++) __args[__k] = __stk[__sp - __lmin_argc + __k];\n");
+                    fprintf(out, "        __sp -= __lmin_argc;\n");
+                    fprintf(out, "        lumyr_gen_%s* __gen = lumyr_gen_%s_create(", nm, nm);
+                    for(int k = 0; k < gfixed; k++) {
+                        if(k) fprintf(out, ", ");
+                        if(k < gnbind) fprintf(out, "__args[%d]", k);
+                        else fprintf(out, "val_none()");
+                    }
+                    fprintf(out, ");\n");
+                    fprintf(out, "        Value __gv; __gv.type = VAL_GENERATOR; __gv.v.generator = (void*)__gen;\n");
+                    fprintf(out, "        __stk[__sp++] = __gv;\n");
+                    fprintf(out, "    }\n");
+                    break;
+                }
                 int argc = in.b;
                 int fixed = callee->param_cnt;
                 int nbind = (argc < fixed) ? argc : fixed;
@@ -1056,6 +1091,14 @@ void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    }\n");
                 break;
             }
+            case OPC_YIELD:
+                if(g_is_generator) {
+                    g_gen_yield_count++;
+                    emit_gen_yield(g_cur_fn, g_gen_yield_count);
+                } else {
+                    fprintf(out, "    /* YIELD in non-generator function: ignored */\n");
+                }
+                break;
             case OPC_RETURN:
                 if(g_cur_fn) {
                     fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0;\n");
