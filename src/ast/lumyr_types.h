@@ -75,6 +75,7 @@ typedef enum {
     OP_POST_DEC,
     OP_UNARY_PLUS,
     OP_UNARY_MINUS,
+    OP_IMPLEMENTS,  // obj implements Interface
 } BinOp;
 
 // 辅助：ValueType → C源码字符串

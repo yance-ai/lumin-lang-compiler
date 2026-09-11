@@ -899,6 +899,7 @@ comparison_expr
     | comparison_expr LE additive_expr    { $$ = ast_binop(OP_LE, $1, $3); }
     | comparison_expr EQ additive_expr    { $$ = ast_binop(OP_EQ, $1, $3); }
     | comparison_expr NE additive_expr    { $$ = ast_binop(OP_NE, $1, $3); }
+    | comparison_expr TOK_IMPLEMENTS ID   { $$ = ast_binop(OP_IMPLEMENTS, $1, ast_string($3)); }
     ;
 
 logic_and_expr

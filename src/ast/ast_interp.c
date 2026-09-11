@@ -4,6 +4,8 @@
 #include "stackframe.h"
 #include "lumyr_types.h"
 #include "ast_node_type.h"
+#include "ast_types.h"
+#include "lm_map.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -153,6 +155,22 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
         case AST_BINOP:{
             Value lv = ast_eval_ctx(node->u.bin.left, ctx, frame);
             Value rv = ast_eval_ctx(node->u.bin.right, ctx, frame);
+            /* OP_IMPLEMENTS: obj implements Interface — 鸭子类型检查 */
+            if(node->u.bin.op == OP_IMPLEMENTS) {
+                if(rv.type != VAL_STRING) return make_bool(0);
+                const char* iface_name = lumyr_str_cstr(&rv);
+                int iidx = interface_lookup(iface_name);
+                if(iidx < 0) return make_bool(0);
+                InterfaceDef* idef = interface_get(iidx);
+                if(!idef) return make_bool(0);
+                /* 检查对象是否有接口要求的所有方法（属性） */
+                if(lv.type != VAL_MAP) return make_bool(0);
+                for(int i = 0; i < idef->nmethods; i++) {
+                    Value key = make_string(idef->methods[i].name);
+                    if(!lumyr_map_has(lv, key)) return make_bool(0);
+                }
+                return make_bool(1);
+            }
             double l = val_to_num(lv);
             double r = val_to_num(rv);
 

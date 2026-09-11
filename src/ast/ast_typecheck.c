@@ -454,6 +454,9 @@ int typecheck_expr(AstNode* node)
             } else if(op == OP_LOGIC_AND || op == OP_LOGIC_OR) {
                 // 逻辑运算：任意类型按 truthy 判定，结果 bool
                 node->val_type = VAL_BOOL;
+            } else if(op == OP_IMPLEMENTS) {
+                // implements 操作符：检查对象是否实现接口，结果 bool
+                node->val_type = VAL_BOOL;
             } else if(op == OP_MOD) {
                 if(!(left_unknown || right_unknown)) {
                     if(!(left_is_num && right_is_num)) {
