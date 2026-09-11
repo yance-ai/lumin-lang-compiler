@@ -15,10 +15,12 @@ typedef struct {
     char** props;        // 属性名（按声明序）
     ValueType* ptypes;   // 属性期望类型（VAL_INT/VAL_STRING/...，VAL_NONE=未标注）
     int nprops;
+    char** generic_params;  // 泛型参数名（NULL=非泛型类型）
+    int generic_param_count; // 泛型参数数量
 } TypeDef;
 
 // 注册 / 查找（返回下标，-1 未找到）
-int type_register(const char* name, char** props, ValueType* ptypes, int nprops);
+int type_register(const char* name, char** props, ValueType* ptypes, int nprops, char** generic_params, int generic_param_count);
 int type_lookup(const char* name);
 TypeDef* type_get(int idx);
 

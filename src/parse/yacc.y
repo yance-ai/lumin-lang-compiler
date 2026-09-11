@@ -195,7 +195,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items
+%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list
 %type<ll> type_name builtin_type_name type_keyword
 %type <ch> char_lit
 %type<ll> INTEGER
@@ -290,11 +290,22 @@ closed_stmt
           /* throw expr：显式抛错；值在运行时包装成错误对象 */
           $$ = L(ast_throw($2));
       }
-    | TOK_TYPE ID LBRACE type_prop_list RBRACE {
-          /* type Person { name: string, age: int }：编译期注册形状（属性清单） */
-          type_register($2, g_prop_names, g_prop_types, g_prop_n);
+    | TOK_TYPE opt_generic_param_list ID LBRACE type_prop_list RBRACE {
+          /* type Person { ... } 或 type <T> Box { ... }：编译期注册形状 */
+          char** gnames = NULL;
+          int gcnt = 0;
+          AstNode* gp = $2;
+          while(gp) { gcnt++; gp = gp->u.param.next; }
+          if(gcnt > 0) {
+              gnames = (char**)malloc((size_t)gcnt * sizeof(char*));
+              int gi = 0;
+              gp = $2;
+              while(gp) { gnames[gi++] = strdup(gp->u.param.name); gp = gp->u.param.next; }
+          }
+          type_register($3, g_prop_names, g_prop_types, g_prop_n, gnames, gcnt);
+          if(gnames) { for(int gi = 0; gi < gcnt; gi++) free(gnames[gi]); free(gnames); }
           type_prop_clear();
-          free($2);
+          free($3);
           $$ = L(ast_none());
       }
     | TOK_ENUM ID LBRACE enum_members RBRACE {
@@ -346,12 +357,16 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           sym_set($3, func_val);
         } ;
 
-/* 泛型参数列表：<T> / <T, U> */
+/* 泛型参数列表：<T> / <T, U>（用 param.next 链接，与函数参数一致） */
 generic_param_list : LT generic_param_items GT { $$ = $2; }
                    ;
 
+opt_generic_param_list : %empty { $$ = NULL; }
+                       | generic_param_list { $$ = $1; }
+                       ;
+
 generic_param_items : ID { $$ = ast_param($1, 0, NULL); }
-                    | generic_param_items COMMA ID { $$ = ast_seq($1, ast_param($3, 0, NULL)); }
+                    | generic_param_items COMMA ID { $$ = ast_param_append($1, ast_param($3, 0, NULL)); }
                     ;
 
 /* 宏定义：macro name(params) { body } */
