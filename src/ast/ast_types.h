@@ -17,10 +17,12 @@ typedef struct {
     int nprops;
     char** generic_params;  // 泛型参数名（NULL=非泛型类型）
     int generic_param_count; // 泛型参数数量
+    char** interfaces;   // 实现的接口名列表（NULL=未实现接口）
+    int ninterfaces;     // 实现的接口数量
 } TypeDef;
 
 // 注册 / 查找（返回下标，-1 未找到）
-int type_register(const char* name, char** props, ValueType* ptypes, int nprops, char** generic_params, int generic_param_count);
+int type_register(const char* name, char** props, ValueType* ptypes, int nprops, char** generic_params, int generic_param_count, char** interfaces, int ninterfaces);
 int type_lookup(const char* name);
 TypeDef* type_get(int idx);
 

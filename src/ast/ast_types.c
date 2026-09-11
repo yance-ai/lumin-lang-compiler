@@ -9,7 +9,7 @@ static TypeDef* g_types = NULL;
 static int g_types_n = 0;
 static int g_types_cap = 0;
 
-int type_register(const char* name, char** props, ValueType* ptypes, int nprops, char** generic_params, int generic_param_count)
+int type_register(const char* name, char** props, ValueType* ptypes, int nprops, char** generic_params, int generic_param_count, char** interfaces, int ninterfaces)
 {
     // 重名：覆盖（后声明优先，与变量赋值一致）
     int i = type_lookup(name);
@@ -28,6 +28,8 @@ int type_register(const char* name, char** props, ValueType* ptypes, int nprops,
         g_types[i].nprops = 0;
         g_types[i].generic_params = NULL;
         g_types[i].generic_param_count = 0;
+        g_types[i].interfaces = NULL;
+        g_types[i].ninterfaces = 0;
     }
     // 释放旧属性（重声明覆盖）
     if(g_types[i].props) {
@@ -38,6 +40,10 @@ int type_register(const char* name, char** props, ValueType* ptypes, int nprops,
     if(g_types[i].generic_params) {
         for(int k = 0; k < g_types[i].generic_param_count; k++) free(g_types[i].generic_params[k]);
         free(g_types[i].generic_params);
+    }
+    if(g_types[i].interfaces) {
+        for(int k = 0; k < g_types[i].ninterfaces; k++) free(g_types[i].interfaces[k]);
+        free(g_types[i].interfaces);
     }
     g_types[i].props = (char**)malloc((size_t)(nprops > 0 ? nprops : 1) * sizeof(char*));
     g_types[i].ptypes = (ValueType*)malloc((size_t)(nprops > 0 ? nprops : 1) * sizeof(ValueType));
@@ -56,6 +62,8 @@ int type_register(const char* name, char** props, ValueType* ptypes, int nprops,
     } else {
         g_types[i].generic_params = NULL;
         g_types[i].generic_param_count = 0;
+        g_types[i].interfaces = NULL;
+        g_types[i].ninterfaces = 0;
     }
     return i;
 }

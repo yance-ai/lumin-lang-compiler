@@ -163,7 +163,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT
-%token TOK_TYPE TOK_ENUM TOK_INTERFACE
+%token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
@@ -195,7 +195,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method
+%type<node> func_def param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list
 %type<ll> type_name builtin_type_name type_keyword
 %type <ch> char_lit
 %type<ll> INTEGER
@@ -291,7 +291,7 @@ closed_stmt
           $$ = L(ast_throw($2));
       }
     | TOK_TYPE opt_generic_param_list ID LBRACE type_prop_list RBRACE {
-          /* type Person { ... } 或 type <T> Box { ... }：编译期注册形状 */
+          /* type Person { ... }：编译期注册形状（无接口实现） */
           char** gnames = NULL;
           int gcnt = 0;
           AstNode* gp = $2;
@@ -302,8 +302,38 @@ closed_stmt
               gp = $2;
               while(gp) { gnames[gi++] = strdup(gp->u.param.name); gp = gp->u.param.next; }
           }
-          type_register($3, g_prop_names, g_prop_types, g_prop_n, gnames, gcnt);
+          type_register($3, g_prop_names, g_prop_types, g_prop_n, gnames, gcnt, NULL, 0);
           if(gnames) { for(int gi = 0; gi < gcnt; gi++) free(gnames[gi]); free(gnames); }
+          type_prop_clear();
+          free($3);
+          $$ = L(ast_none());
+      }
+    | TOK_TYPE opt_generic_param_list ID TOK_IMPLEMENTS interface_list LBRACE type_prop_list RBRACE {
+          /* type Dog implements Printable { ... }：编译期注册形状（带接口实现） */
+          char** gnames = NULL;
+          int gcnt = 0;
+          AstNode* gp = $2;
+          while(gp) { gcnt++; gp = gp->u.param.next; }
+          if(gcnt > 0) {
+              gnames = (char**)malloc((size_t)gcnt * sizeof(char*));
+              int gi = 0;
+              gp = $2;
+              while(gp) { gnames[gi++] = strdup(gp->u.param.name); gp = gp->u.param.next; }
+          }
+          /* 解析接口列表 */
+          char** ifaces = NULL;
+          int nifaces = 0;
+          AstNode* ip = $5;
+          while(ip) { nifaces++; ip = ip->u.param.next; }
+          if(nifaces > 0) {
+              ifaces = (char**)malloc((size_t)nifaces * sizeof(char*));
+              int ii = 0;
+              ip = $5;
+              while(ip) { ifaces[ii++] = strdup(ip->u.param.name); ip = ip->u.param.next; }
+          }
+          type_register($3, g_prop_names, g_prop_types, g_prop_n, gnames, gcnt, ifaces, nifaces);
+          if(gnames) { for(int gi = 0; gi < gcnt; gi++) free(gnames[gi]); free(gnames); }
+          if(ifaces) { for(int ii = 0; ii < nifaces; ii++) free(ifaces[ii]); free(ifaces); }
           type_prop_clear();
           free($3);
           $$ = L(ast_none());
@@ -319,6 +349,11 @@ closed_stmt
           $$ = L(ast_none());
       }
     ;
+
+/* 接口实现列表：Printable, Comparable */
+interface_list : ID { $$ = ast_param($1, 0, NULL); }
+               | interface_list COMMA ID { $$ = ast_param_append($1, ast_param($3, 0, NULL)); }
+               ;
 
 /* 接口方法签名列表 */
 interface_methods : interface_method { $$ = $1; }
