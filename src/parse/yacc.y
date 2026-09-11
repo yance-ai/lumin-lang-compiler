@@ -163,7 +163,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT
-%token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS
+%token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS TOK_EXTEND
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
@@ -355,6 +355,14 @@ closed_stmt
           free($4);
           $$ = L(ast_none());
       }
+    | TOK_EXTEND ID LBRACE func_def RBRACE {
+          /* extend String { func reverse() { ... } }：扩展方法 */
+          $$ = L(ast_none());
+      }
+    | TOK_EXTEND ID LBRACE RBRACE {
+          /* extend String { }：扩展方法语法占位 */
+          $$ = L(ast_none());
+      }
     ;
 
 /* 接口实现列表：Printable, Comparable */
@@ -387,6 +395,16 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
           sym_set($2, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+        }
+        | FUNC PLUS LPAREN param_list RPAREN block_stmt {
+          /* 运算符重载：func +(other) { ... } */
+          $$ = ast_func_def(strdup("+"), $4, $6);
+          $$->u.func_def.annotations = NULL;
+          RuntimeFunc* rf = compile_func_from_ast($$);
+          Value func_val;
+          func_val.type = VAL_FUNC;
+          func_val.v.func.func_obj = rf;
+          sym_set("+", func_val); /* 注册到运行时符号表，运算符名作为键 */
         }
         | annotation_list FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);

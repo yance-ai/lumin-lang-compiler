@@ -38,6 +38,7 @@ static int is_expr_end(int t)
 "interface"     { LEX_RET(TOK_INTERFACE); }
 "implements"    { LEX_RET(TOK_IMPLEMENTS); }
 "extends"       { LEX_RET(TOK_EXTENDS); }
+"extend"        { LEX_RET(TOK_EXTEND); }
 "func"          { LEX_RET(FUNC); }
 "const"         { LEX_RET(CONST); }
 "macro"         { LEX_RET(MACRO); }
