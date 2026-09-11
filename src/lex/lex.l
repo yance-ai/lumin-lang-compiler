@@ -39,6 +39,7 @@ static int is_expr_end(int t)
 "implements"    { LEX_RET(TOK_IMPLEMENTS); }
 "extends"       { LEX_RET(TOK_EXTENDS); }
 "extend"        { LEX_RET(TOK_EXTEND); }
+"unpack"        { LEX_RET(TOK_UNPACK); }
 "func"          { LEX_RET(FUNC); }
 "const"         { LEX_RET(CONST); }
 "macro"         { LEX_RET(MACRO); }

@@ -137,6 +137,60 @@ AstNode* new_cast_node(int cast_type, AstNode* child);
 AstNode* maybe_template(const char* s);      // 字符串模板拆解（parse/tmpl.c）
 void yyerror(const char* s);
 static int g_lambda_seq = 0;                 // 匿名函数内部名 _lambda_N
+static int g_unpack_tmp_counter = 0;              // unpack 临时变量计数器
+// 把一个语句列表（AST_SEQ 链）展开，追加到另一个语句列表末尾
+// 注意：必须使用 ast_seq(list, item) 保持左嵌套结构，与 yacc 原生 stmt_list 一致
+// 使用 ast_seq_append 会创建右嵌套结构，导致运行时崩溃
+static AstNode* stmt_list_append_list(AstNode* list, AstNode* items) {
+    if (!items) return list;
+    if (items->type == AST_SEQ) {
+        list = stmt_list_append_list(list, items->u.seq.first);
+        list = stmt_list_append_list(list, items->u.seq.second);
+        return list;
+    }
+    return ast_seq(list, items);
+}
+static char* make_unpack_tmp_name(void) {
+    char* name = (char*)malloc(32);
+    snprintf(name, 32, "unpacktmp%d", g_unpack_tmp_counter++);
+    return name;
+}
+// 构建对象解构赋值序列：unpack {a,b} = obj -> _tmp=obj; a=_tmp.a; b=_tmp.b;
+static AstNode* build_object_destruct(AstNode* list, AstNode* names, AstNode* rhs) {
+    char* tmp = make_unpack_tmp_name();
+    // 直接把语句追加到 list 后面，使用 ast_seq 保持左嵌套结构
+    list = ast_seq(list, ast_assign(tmp, rhs));
+    AstNode* cur = names;
+    while (cur && cur->type == AST_SEQ) {
+        AstNode* var_node = cur->u.seq.first;
+        if (var_node && var_node->type == AST_VAR) {
+            const char* name = var_node->u.varname;
+            AstNode* idx = ast_index(ast_var(tmp), ast_string(name));
+            list = ast_seq(list, ast_assign(name, idx));
+        }
+        cur = cur->u.seq.second;
+    }
+    return list;
+}
+// 构建数组解构赋值序列：unpack [x,y] = arr -> _tmp=arr; x=_tmp[0]; y=_tmp[1];
+static AstNode* build_array_destruct(AstNode* list, AstNode* names, AstNode* rhs) {
+    char* tmp = make_unpack_tmp_name();
+    // 直接把语句追加到 list 后面
+    list = ast_seq(list, ast_assign(tmp, rhs));
+    AstNode* cur = names;
+    int index = 0;
+    while (cur && cur->type == AST_SEQ) {
+        AstNode* var_node = cur->u.seq.first;
+        if (var_node && var_node->type == AST_VAR) {
+            const char* name = var_node->u.varname;
+            AstNode* idx = ast_index(ast_var(tmp), ast_int(index));
+            list = ast_seq(list, ast_assign(name, idx));
+        }
+        cur = cur->u.seq.second;
+        index++;
+    }
+    return list;
+}
 int yylex(void);
 AstNode* root;
 /* 模块系统（第一阶段）：判断一个标识符是否为 import 别名命名空间 */
@@ -163,7 +217,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT
-%token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS TOK_EXTEND
+%token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS TOK_EXTEND TOK_UNPACK
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
@@ -195,7 +249,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list
+%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list
 %type<ll> type_name builtin_type_name type_keyword
 %type <ch> char_lit
 %type<ll> INTEGER
@@ -211,6 +265,13 @@ program
 stmt_list
     : %empty                   { $$ = NULL; }
     | stmt_list closed_stmt    { $$ = ast_seq($1, $2); }
+    /* unpack 解构赋值：展开为多个独立赋值语句，直接加入 stmt_list */
+    | stmt_list TOK_UNPACK unpack_obj_pattern ASSIGN expr SEMI {
+        $$ = build_object_destruct($1, $3, $5);
+    }
+    | stmt_list TOK_UNPACK unpack_arr_pattern ASSIGN expr SEMI {
+        $$ = build_array_destruct($1, $3, $5);
+    }
     ;
 
 closed_stmt
@@ -523,6 +584,22 @@ destruct_lhs
     : ID COMMA ID                  { $$ = ast_seq(ast_var($1), ast_seq(ast_var($3), NULL)); }
     | destruct_lhs COMMA ID        { $$ = ast_seq_append($1, ast_var($3)); }
 ;
+
+/* unpack 对象解构模式：{a, b, c}（unpack 后 { 被 lexer 识别为 MAP_OPEN） */
+unpack_obj_pattern
+    : MAP_OPEN unpack_name_list RBRACE   { $$ = $2; }
+    ;
+
+/* unpack 数组解构模式：[x, y, z]（unpack 后 [ 被 lexer 识别为 ARRAY_OPEN） */
+unpack_arr_pattern
+    : ARRAY_OPEN unpack_name_list RBRACKET   { $$ = $2; }
+    ;
+
+/* unpack 变量名列表：a, b, c */
+unpack_name_list
+    : ID                              { $$ = ast_seq(ast_var($1), NULL); }
+    | unpack_name_list COMMA ID      { $$ = ast_seq_append($1, ast_var($3)); }
+    ;
 
 
 open_stmt
