@@ -4,6 +4,9 @@
  */
 #include "ir_cgen_internal.h"
 
+/* 前向声明 */
+static const char* emit_tag_to_ctype(int tag);
+
 /* 查找变量的类型标记（-1 表示无精确类型） */
 static int emit_get_var_tag(const BytecodeFunc* fn, const char* name) {
     if(!fn || !fn->var_type_tags || !name) return -1;
@@ -11,6 +14,63 @@ static int emit_get_var_tag(const BytecodeFunc* fn, const char* name) {
         if(fn->syms[i] && strcmp(fn->syms[i], name) == 0) return fn->var_type_tags[i];
     }
     return -1;
+}
+
+/* 查找变量的 struct 类型名（NULL 表示不是 struct） */
+static const char* emit_get_var_struct_name(const BytecodeFunc* fn, const char* name) {
+    if(!fn || !fn->var_struct_names || !name) return NULL;
+    for(int i = 0; i < fn->sym_cnt; i++) {
+        if(fn->syms[i] && strcmp(fn->syms[i], name) == 0) return fn->var_struct_names[i];
+    }
+    return NULL;
+}
+
+/* 生成把 C struct 转换为 Value(Map) 的代码 */
+static void emit_struct_to_value(const char* struct_name, const char* var_expr) {
+    TypeDef* td = struct_lookup(struct_name);
+    if(!td || td->nprops <= 0) {
+        fprintf(out, "    { Value __v = {0}; __stk[__sp++] = __v; }\n");
+        return;
+    }
+    fprintf(out, "    {\n");
+    fprintf(out, "        Value __v = lumyr_make_map();\n");
+    for(int i = 0; i < td->nprops; i++) {
+        int ck = td->field_cast_kinds ? td->field_cast_kinds[i] : CAST_LONGLONG;
+        const char* fname = td->props[i];
+        if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
+            fprintf(out, "        lumyr_map_set(&__v, \"%s\", lumyr_make_double((double)%s.%s));\n", fname, var_expr, fname);
+        } else if(ck == CAST_STRING) {
+            fprintf(out, "        lumyr_map_set(&__v, \"%s\", lumyr_make_string(%s.%s));\n", fname, var_expr, fname);
+        } else if(ck == CAST_BOOL) {
+            fprintf(out, "        lumyr_map_set(&__v, \"%s\", lumyr_make_bool((int)%s.%s));\n", fname, var_expr, fname);
+        } else {
+            fprintf(out, "        lumyr_map_set(&__v, \"%s\", lumyr_make_int((long long)%s.%s));\n", fname, var_expr, fname);
+        }
+    }
+    fprintf(out, "        lumyr_map_set(&__v, \"__classname__\", lumyr_make_string(\"%s\"));\n", struct_name);
+    fprintf(out, "        __stk[__sp++] = __v;\n");
+    fprintf(out, "    }\n");
+}
+
+/* 生成把 Value(Map) 转换为 C struct 的代码 */
+static void emit_value_to_struct(const char* struct_name, const char* var_expr, const char* value_expr) {
+    TypeDef* td = struct_lookup(struct_name);
+    if(!td || td->nprops <= 0) return;
+    for(int i = 0; i < td->nprops; i++) {
+        int ck = td->field_cast_kinds ? td->field_cast_kinds[i] : CAST_LONGLONG;
+        const char* fname = td->props[i];
+        const char* ctype = emit_tag_to_ctype(ck);
+        if(!ctype) ctype = "int64_t";
+        if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
+            fprintf(out, "        %s.%s = (%s)lumyr_map_get(&%s, \"%s\").v.d;\n", var_expr, fname, ctype, value_expr, fname);
+        } else if(ck == CAST_STRING) {
+            fprintf(out, "        %s.%s = (%s)lumyr_str_cstr(&lumyr_map_get(&%s, \"%s\"));\n", var_expr, fname, ctype, value_expr, fname);
+        } else if(ck == CAST_BOOL) {
+            fprintf(out, "        %s.%s = (%s)lumyr_map_get(&%s, \"%s\").v.b;\n", var_expr, fname, ctype, value_expr, fname);
+        } else {
+            fprintf(out, "        %s.%s = (%s)lumyr_map_get(&%s, \"%s\").v.i;\n", var_expr, fname, ctype, value_expr, fname);
+        }
+    }
 }
 
 /* CastKind 转 C 类型名（NULL 表示保持 Value） */

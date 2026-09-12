@@ -551,6 +551,7 @@ void emit_func_def(BytecodeFunc* fn)
         int _gc_locals = 0;
         for(int i = 0; i < fn_locals.count; i++) {
             if(ns_has(&g_boxed, fn_locals.names[i])) { _gc_locals++; continue; }
+            if(get_var_struct_name(fn, fn_locals.names[i])) continue;  /* 跳过 struct 类型变量 */
             int tt = get_var_type_tag(fn, fn_locals.names[i]);
             if(tt < 0 || !castkind_to_c_type(tt)) _gc_locals++;
         }
@@ -574,6 +575,7 @@ void emit_func_def(BytecodeFunc* fn)
                 _idx++;
                 continue;
             }
+            if(get_var_struct_name(fn, fn_locals.names[i])) continue;  /* 跳过 struct 类型变量 */
             int tt = get_var_type_tag(fn, fn_locals.names[i]);
             if(tt >= 0 && castkind_to_c_type(tt)) continue;  /* 跳过精确类型变量 */
             if(_idx) fprintf(out, ", ");
@@ -679,6 +681,9 @@ void emit_main(BytecodeFunc* main_fn)
 {
     // 生成器组合操作（包装生成器）运行时支持
     emit_gen_wrapper_support();
+
+    // TODO: 生成 C struct 定义（后续实现完整的 C struct 优化）
+    // 当前 struct 用 Value(Map) 实现，保证功能正常
 
     // 全局变量：main 指令流里的全部变量引用
     memset(&g_globals, 0, sizeof(g_globals));
@@ -786,6 +791,7 @@ void emit_main(BytecodeFunc* main_fn)
         /* 统计需要 GC 扫描的全局变量数（精确类型的变量如 int/double 不需要 GC 扫描） */
         int _gc_globals = 0;
         for(int i = 0; i < g_globals.count; i++) {
+            if(get_var_struct_name(main_fn, g_globals.names[i])) continue;  /* 跳过 struct 类型变量 */
             int tt = get_var_type_tag(main_fn, g_globals.names[i]);
             if(tt < 0 || !castkind_to_c_type(tt)) _gc_globals++;
         }
@@ -794,6 +800,7 @@ void emit_main(BytecodeFunc* main_fn)
         fprintf(out, "    volatile Value* __local_ptrs[%d] = { ", _arr_size);
         int _idx = 0;
         for(int i = 0; i < g_globals.count; i++) {
+            if(get_var_struct_name(main_fn, g_globals.names[i])) continue;  /* 跳过 struct 类型变量 */
             int tt = get_var_type_tag(main_fn, g_globals.names[i]);
             if(tt >= 0 && castkind_to_c_type(tt)) continue;  /* 跳过精确类型变量 */
             if(_idx) fprintf(out, ", ");

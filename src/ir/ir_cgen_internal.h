@@ -9,6 +9,7 @@
 #include "lumyr_ffi.h"
 #include "ir_compile.h"
 #include "ast/lumyr_types.h"
+#include "ast/ast_types.h"
 #include "ast/func_compile.h"
 #include <stdio.h>
 #include <stdlib.h>
