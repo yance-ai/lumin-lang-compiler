@@ -1749,6 +1749,16 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     jmp_buf* saved_gj = g_err_jmp;
     int saved_fin = vm_fin_n;
 
+    /* 生成器第一次启动：重置 try 状态，避免继承调用者的 try 上下文。
+     * 生成器有独立的 try-catch 栈，不应与调用者共享；否则 yield 时保存的
+     * vm_depth 会错误包含外部 try 深度，恢复时重新 setjmp 会覆盖外部缓冲区，
+     * 导致外部 try-catch 失效（Bug: 生成器 next() 在外部 try 内时异常无法捕获）。 */
+    if(is_generator && !gen_ctx->started) {
+        vm_depth = 0;
+        vm_fin_n = 0;
+        g_err_jmp = NULL;
+    }
+
     /* 生成器恢复时重新建立 try-catch 的 setjmp 缓冲区
      * （yield 时保存的缓冲区指向旧 C 栈帧，已销毁失效，必须在当前栈帧重新 setjmp）
      * setjmp 返回 0：继续建立下一层或进入正常执行
