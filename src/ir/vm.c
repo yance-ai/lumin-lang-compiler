@@ -336,15 +336,12 @@ static void generator_restore_try_context(GeneratorObject* gen)
 
     vm_depth = depth;
     vm_fin_n = fin_n;
-    /* 只有当生成器内部有 try-catch 时才恢复 g_err_jmp；
-     * 否则保持当前调用者的 g_err_jmp，使 GenThrow 抛出的异常能传播到调用者 */
-    if(depth > 0) {
-        g_err_jmp = gen->saved_g_err_jmp;
-    }
+    /* g_err_jmp/vm_jbs/vm_prev 不恢复：它们指向 yield 时的旧 C 栈帧，
+     * 生成器恢复时旧栈帧已销毁，longjmp 到旧缓冲区是未定义行为（0xC0000005）。
+     * 这些指针/缓冲区在 vm_run 中通过重新执行 setjmp 在当前栈帧重建。
+     * 这里只恢复不依赖 C 栈帧的逻辑状态（vm_sp/vm_target/vm_tn/vm_fn）。 */
 
     if(depth > 0) {
-        memcpy(vm_jbs, gen->saved_vm_jbs, (size_t)depth * sizeof(jmp_buf));
-        memcpy(vm_prev, gen->saved_vm_prev, (size_t)depth * sizeof(jmp_buf*));
         memcpy(vm_sp, gen->saved_vm_sp, (size_t)depth * sizeof(int));
         memcpy(vm_target, gen->saved_vm_target, (size_t)depth * sizeof(int));
         memcpy(vm_tn, gen->saved_vm_tn, (size_t)depth * sizeof(int));
@@ -1722,35 +1719,6 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
         if(gen_ctx->started) {
             generator_restore_try_context(gen_ctx);
         }
-        /* 如果有待抛出的异常，在恢复执行后立即抛出（在 yield 位置抛出） */
-        if(gen_ctx->started && gen_ctx->has_pending_exception) {
-            stack[sp++] = gen_ctx->pending_exception;
-            gen_ctx->has_pending_exception = 0;
-            /* 抛出异常：复用 OPC_THROW 的逻辑 */
-            Value v = stack[--sp];
-            const char* type = "Error";
-            char* msg = NULL;
-            if(v.type == VAL_ERROR) {
-                type = v.v.err.type ? v.v.err.type : "Error";
-                msg = strdup(v.v.err.message ? v.v.err.message : "");
-            } else if(v.type == VAL_MAP) {
-                if(lumyr_map_has(v, lumyr_make_string("type"))) {
-                    Value tv = lumyr_map_get(v, lumyr_make_string("type"));
-                    if(tv.type == VAL_STRING) type = lumyr_str_cstr(&tv);
-                }
-                if(lumyr_map_has(v, lumyr_make_string("message"))) {
-                    Value mv = lumyr_map_get(v, lumyr_make_string("message"));
-                    if(mv.type == VAL_STRING) msg = strdup(lumyr_str_cstr(&mv));
-                }
-            }
-            if(!msg) msg = value_to_str(v);
-            g_err_type_set(type);
-            g_err_msg_set(msg);
-            free(msg);
-            if(g_err_jmp) longjmp(*g_err_jmp, 1);
-            fprintf(stderr, "Runtime Error: %s\n", g_err_msg);
-            exit(EXIT_FAILURE);
-        }
         /* 如果是从 yield 恢复（不是第一次启动），把 send_value 压入栈顶作为 yield 表达式的返回值。
          * 即使没有 send_value（第一次 next()），也压入 none 作为默认返回值，
          * 否则 yield 表达式后面的 OPC_POP/赋值会弹出空栈导致栈下溢（sp 变负），
@@ -1780,6 +1748,68 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
     int saved_depth = vm_depth;
     jmp_buf* saved_gj = g_err_jmp;
     int saved_fin = vm_fin_n;
+
+    /* 生成器恢复时重新建立 try-catch 的 setjmp 缓冲区
+     * （yield 时保存的缓冲区指向旧 C 栈帧，已销毁失效，必须在当前栈帧重新 setjmp）
+     * setjmp 返回 0：继续建立下一层或进入正常执行
+     * setjmp 返回非 0：异常被这一层 catch 捕获，恢复状态并跳转到 catch 块 */
+    /* 生成器恢复时重新建立 try-catch 的 setjmp 缓冲区
+     * （yield 时保存的缓冲区指向旧 C 栈帧，已销毁失效，必须在当前栈帧重新 setjmp）
+     * 注意：setjmp/longjmp 之间的非 volatile 局部变量在 longjmp 后值未定义（C 标准），
+     * 故 longjmp 回来后用 g_err_jmp - vm_jbs 反推层号，不依赖循环变量 i（与 OPC_TRY 一致） */
+    int gen_caught_layer = -1;
+    if(is_generator && gen_ctx->started && gen_ctx->saved_vm_depth > 0) {
+        int depth = gen_ctx->saved_vm_depth;
+        for(int i = 0; i < depth; i++) {
+            if(setjmp(vm_jbs[i]) == 0) {
+                vm_prev[i] = (i == 0) ? saved_gj : &vm_jbs[i-1];
+                /* vm_sp[i]/vm_target[i]/vm_tn[i]/vm_fn[i] 已由 generator_restore_try_context 恢复 */
+                vm_depth = i + 1;
+                g_err_jmp = &vm_jbs[i];
+            } else {
+                /* longjmp 后局部变量 i 值未定义：用 g_err_jmp 反推层号（与 OPC_TRY else 分支一致） */
+                int d2 = (int)(g_err_jmp - vm_jbs);
+                if(d2 < 0 || d2 >= depth) d2 = depth - 1;
+                gen_caught_layer = d2;
+                sp = vm_sp[d2];
+                vm_depth = d2 + 1;  /* catch 块与 try 块在同一层 try 保护区中 */
+                g_err_jmp = vm_prev[d2];
+                pc = vm_target[d2];
+                break;
+            }
+        }
+    }
+
+    /* 生成器恢复时的待抛出异常（GenThrow）：
+     * 现在 setjmp 缓冲区已在当前栈帧重新建立，longjmp 有效；
+     * gen_caught_layer >= 0 表示重新 setjmp 时已经被 catch 捕获（不会走到这里） */
+    if(is_generator && gen_ctx->started && gen_ctx->has_pending_exception && gen_caught_layer < 0) {
+        stack[sp++] = gen_ctx->pending_exception;
+        gen_ctx->has_pending_exception = 0;
+        Value v = stack[--sp];
+        const char* type = "Error";
+        char* msg = NULL;
+        if(v.type == VAL_ERROR) {
+            type = v.v.err.type ? v.v.err.type : "Error";
+            msg = strdup(v.v.err.message ? v.v.err.message : "");
+        } else if(v.type == VAL_MAP) {
+            if(lumyr_map_has(v, lumyr_make_string("type"))) {
+                Value tv = lumyr_map_get(v, lumyr_make_string("type"));
+                if(tv.type == VAL_STRING) type = lumyr_str_cstr(&tv);
+            }
+            if(lumyr_map_has(v, lumyr_make_string("message"))) {
+                Value mv = lumyr_map_get(v, lumyr_make_string("message"));
+                if(mv.type == VAL_STRING) msg = strdup(lumyr_str_cstr(&mv));
+            }
+        }
+        if(!msg) msg = value_to_str(v);
+        g_err_type_set(type);
+        g_err_msg_set(msg);
+        free(msg);
+        if(g_err_jmp) longjmp(*g_err_jmp, 1);
+        fprintf(stderr, "Runtime Error: %s\n", g_err_msg);
+        exit(EXIT_FAILURE);
+    }
 
     if(getenv("LUMYR_BC_DUMP")) {
         fprintf(stderr, "== bc dump: %s (code_len=%d, max_stack=%d) ==\n",
