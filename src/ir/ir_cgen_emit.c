@@ -4,6 +4,8 @@
  */
 #include "ir_cgen_internal.h"
 
+static int g_nested_ptr_counter = 0;
+
 /* 前向声明 */
 static const char* emit_tag_to_ctype(int tag);
 
@@ -40,13 +42,13 @@ static void emit_struct_to_value(const char* struct_name, const char* var_expr) 
         const char* fname = td->props[i];
         fprintf(out, "        __kv[%d] = lumyr_make_string(\"%s\");\n", 2*i, fname);
         if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-            fprintf(out, "        __kv[%d] = lumyr_make_double((double)%s.%s);\n", 2*i+1, var_expr, fname);
+            fprintf(out, "        __kv[%d] = lumyr_make_double((double)%s->%s);\n", 2*i+1, var_expr, fname);
         } else if(ck == CAST_STRING) {
-            fprintf(out, "        __kv[%d] = lumyr_make_string(%s.%s);\n", 2*i+1, var_expr, fname);
+            fprintf(out, "        __kv[%d] = lumyr_make_string(%s->%s);\n", 2*i+1, var_expr, fname);
         } else if(ck == CAST_BOOL) {
-            fprintf(out, "        __kv[%d] = lumyr_make_bool((int)%s.%s);\n", 2*i+1, var_expr, fname);
+            fprintf(out, "        __kv[%d] = lumyr_make_bool((int)%s->%s);\n", 2*i+1, var_expr, fname);
         } else {
-            fprintf(out, "        __kv[%d] = lumyr_make_int((long long)%s.%s);\n", 2*i+1, var_expr, fname);
+            fprintf(out, "        __kv[%d] = lumyr_make_int((long long)%s->%s);\n", 2*i+1, var_expr, fname);
         }
     }
     fprintf(out, "        __kv[%d] = lumyr_make_string(\"__classname__\");\n", 2*td->nprops);
@@ -65,23 +67,24 @@ static void emit_value_to_struct(const char* struct_name, const char* var_expr, 
         const char* fname = td->props[i];
         const char* nested_sname = td->field_struct_names ? td->field_struct_names[i] : NULL;
         if(nested_sname) {
-            /* 嵌套 struct 字段：递归转换 */
-            static char nested_var[256];
-            snprintf(nested_var, sizeof(nested_var), "%s.%s", var_expr, fname);
+            /* 嵌套 struct 字段：先把地址赋值给临时指针，再递归转换 */
+            static char tmp_ptr[256];
+            snprintf(tmp_ptr, sizeof(tmp_ptr), "__nested_%s_%d", fname, g_nested_ptr_counter++);
+            fprintf(out, "        lumyr_struct_%s* %s = &%s->%s;\n", nested_sname, tmp_ptr, var_expr, fname);
             static char nested_val[256];
             snprintf(nested_val, sizeof(nested_val), "lumyr_map_get(%s, lumyr_make_string(\"%s\"))", value_expr, fname);
-            emit_value_to_struct(nested_sname, nested_var, nested_val);
+            emit_value_to_struct(nested_sname, tmp_ptr, nested_val);
         } else {
             const char* ctype = emit_tag_to_ctype(ck);
             if(!ctype) ctype = "int64_t";
             if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-                fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.d;\n", var_expr, fname, ctype, value_expr, fname);
+                fprintf(out, "        %s->%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.d;\n", var_expr, fname, ctype, value_expr, fname);
             } else if(ck == CAST_STRING) {
-                fprintf(out, "        %s.%s = (%s)lumyr_str_cstr(&lumyr_map_get(%s, lumyr_make_string(\"%s\")));\n", var_expr, fname, ctype, value_expr, fname);
+                fprintf(out, "        %s->%s = (%s)lumyr_str_cstr(&lumyr_map_get(%s, lumyr_make_string(\"%s\")));\n", var_expr, fname, ctype, value_expr, fname);
             } else if(ck == CAST_BOOL) {
-                fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.b;\n", var_expr, fname, ctype, value_expr, fname);
+                fprintf(out, "        %s->%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.b;\n", var_expr, fname, ctype, value_expr, fname);
             } else {
-                fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.i;\n", var_expr, fname, ctype, value_expr, fname);
+                fprintf(out, "        %s->%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.i;\n", var_expr, fname, ctype, value_expr, fname);
             }
         }
     }
@@ -516,18 +519,19 @@ void emit_insns(BytecodeFunc* fn)
                         }
                     }
                     if(nested_sname) {
-                        /* 嵌套 struct 字段：把 C struct 转换为 Value(Map) */
-                        static char nested_var[256];
-                        snprintf(nested_var, sizeof(nested_var), "%s.%s", cvar_rw(vname), fname);
-                        emit_struct_to_value(nested_sname, nested_var);
+                        /* 嵌套 struct 字段：先把地址赋值给临时指针，再转换为 Value(Map) */
+                        static char tmp_ptr[256];
+                        snprintf(tmp_ptr, sizeof(tmp_ptr), "__nested_load_%s_%d", fname, g_nested_ptr_counter++);
+                        fprintf(out, "    lumyr_struct_%s* %s = &%s->%s;\n", nested_sname, tmp_ptr, cvar_rw(vname), fname);
+                        emit_struct_to_value(nested_sname, tmp_ptr);
                     } else if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-                        fprintf(out, "    __stk[__sp++] = lumyr_make_double((double)%s.%s);\n", cvar_rw(vname), fname);
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_double((double)%s->%s);\n", cvar_rw(vname), fname);
                     } else if(ck == CAST_STRING) {
-                        fprintf(out, "    __stk[__sp++] = lumyr_make_string(%s.%s);\n", cvar_rw(vname), fname);
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_string(%s->%s);\n", cvar_rw(vname), fname);
                     } else if(ck == CAST_BOOL) {
-                        fprintf(out, "    __stk[__sp++] = lumyr_make_bool((int)%s.%s);\n", cvar_rw(vname), fname);
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_bool((int)%s->%s);\n", cvar_rw(vname), fname);
                     } else {
-                        fprintf(out, "    __stk[__sp++] = lumyr_make_int((long long)%s.%s);\n", cvar_rw(vname), fname);
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_int((long long)%s->%s);\n", cvar_rw(vname), fname);
                     }
                 } else {
                     fprintf(out, "    { Value __c = %s; __stk[__sp++] = lumyr_index_get(__c, lumyr_make_string(\"%s\")); }\n", cvar_rw(vname), fname);
@@ -553,13 +557,13 @@ void emit_insns(BytecodeFunc* fn)
                     if(!ctype) ctype = "int64_t";
                     fprintf(out, "    { Value __v = __stk[--__sp];\n");
                     if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-                        fprintf(out, "        %s.%s = (%s)__v.v.d;\n", cvar_rw(vname), fname, ctype);
+                        fprintf(out, "        %s->%s = (%s)__v.v.d;\n", cvar_rw(vname), fname, ctype);
                     } else if(ck == CAST_STRING) {
-                        fprintf(out, "        %s.%s = (%s)lumyr_str_cstr(&__v);\n", cvar_rw(vname), fname, ctype);
+                        fprintf(out, "        %s->%s = (%s)lumyr_str_cstr(&__v);\n", cvar_rw(vname), fname, ctype);
                     } else if(ck == CAST_BOOL) {
-                        fprintf(out, "        %s.%s = (%s)__v.v.b;\n", cvar_rw(vname), fname, ctype);
+                        fprintf(out, "        %s->%s = (%s)__v.v.b;\n", cvar_rw(vname), fname, ctype);
                     } else {
-                        fprintf(out, "        %s.%s = (%s)__v.v.i;\n", cvar_rw(vname), fname, ctype);
+                        fprintf(out, "        %s->%s = (%s)__v.v.i;\n", cvar_rw(vname), fname, ctype);
                     }
                     fprintf(out, "        __stk[__sp++] = __v;\n    }\n");
                 } else {
