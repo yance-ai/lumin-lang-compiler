@@ -19,6 +19,9 @@ typedef struct {
     int generic_param_count; // 泛型参数数量
     char** interfaces;   // 实现的接口名列表（NULL=未实现接口）
     int ninterfaces;     // 实现的接口数量
+    int is_struct;       // 是否是 struct（1=struct，0=普通 type/动态 Map）
+    int* field_cast_kinds; // struct 字段的精确 CastKind 类型（NULL=非 struct）
+    int* field_offsets;    // struct 字段偏移量（编译通道用，NULL=未计算）
 } TypeDef;
 
 // 注册 / 查找（返回下标，-1 未找到）
@@ -53,6 +56,11 @@ typedef struct {
 int interface_register(const char* name, void* methods, const char* parent);
 int interface_lookup(const char* name);
 InterfaceDef* interface_get(int idx);
+
+// struct 注册（字段用精确 CastKind 类型）
+int struct_register(const char* name, char** props, int* cast_kinds, int nprops);
+// 查找是否是 struct（返回 TypeDef* 或 NULL）
+TypeDef* struct_lookup(const char* name);
 
 // 检查类型是否实现了接口（鸭子类型：检查类型是否有接口要求的所有方法）
 int type_implements_interface(const char* type_name, const char* interface_name);

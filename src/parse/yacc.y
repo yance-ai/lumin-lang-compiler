@@ -34,6 +34,31 @@ static void type_prop_clear(void)
     g_prop_names = NULL; g_prop_types = NULL;
     g_prop_n = 0; g_prop_cap = 0;
 }
+
+/* struct 声明属性收集器（用精确 CastKind 类型） */
+static char** g_struct_prop_names = NULL;
+static int* g_struct_cast_kinds = NULL;
+static int g_struct_prop_n = 0, g_struct_prop_cap = 0;
+static void struct_prop_push(char* name, int ck)
+{
+    if(g_struct_prop_n >= g_struct_prop_cap) {
+        int nc = g_struct_prop_cap > 0 ? g_struct_prop_cap * 2 : 8;
+        g_struct_prop_names = (char**)realloc(g_struct_prop_names, (size_t)nc * sizeof(char*));
+        g_struct_cast_kinds = (int*)realloc(g_struct_cast_kinds, (size_t)nc * sizeof(int));
+        g_struct_prop_cap = nc;
+    }
+    g_struct_prop_names[g_struct_prop_n] = name;
+    g_struct_cast_kinds[g_struct_prop_n] = ck;
+    g_struct_prop_n++;
+}
+static void struct_prop_clear(void)
+{
+    for(int i = 0; i < g_struct_prop_n; i++) free(g_struct_prop_names[i]);
+    free(g_struct_prop_names); free(g_struct_cast_kinds);
+    g_struct_prop_names = NULL; g_struct_cast_kinds = NULL;
+    g_struct_prop_n = 0; g_struct_prop_cap = 0;
+}
+
 /* 泛型 <Person>[e1,e2] → 每个元素包 Person(e) 构造调用（遍历 ast_seq 链） */
 static AstNode* wrap_type_list(const char* tname, AstNode* chain)
 {
@@ -218,7 +243,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT TOK_ULONG TOK_UCHAR TOK_SHORT TOK_USHORT TOK_SIZE_T TOK_SSIZE_T TOK_VOID TOK_LONG_DOUBLE TOK_PTR
 %token<ll> TOK_TYPE_ANNOT   /* 类型标注 <type>：词法层面整体匹配，值为 CastKind 枚举 */
-%token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS TOK_EXTEND TOK_UNPACK
+%token TOK_TYPE TOK_STRUCT TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS TOK_EXTEND TOK_UNPACK
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
@@ -250,7 +275,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt yield_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list
+%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop struct_prop_list struct_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list
 %type<ll> type_name builtin_type_name type_keyword
 %type<s> type_name_str
 %type <ch> char_lit
@@ -460,6 +485,13 @@ closed_stmt
           if(ifaces) { for(int ii = 0; ii < nifaces; ii++) free(ifaces[ii]); free(ifaces); }
           type_prop_clear();
           free($3);
+          $$ = L(ast_none());
+      }
+    | TOK_STRUCT ID LBRACE struct_prop_list RBRACE {
+          /* struct Point { x: int, y: int }：编译期注册 struct 类型（精确 CastKind 字段类型） */
+          struct_register($2, g_struct_prop_names, g_struct_cast_kinds, g_struct_prop_n);
+          struct_prop_clear();
+          free($2);
           $$ = L(ast_none());
       }
     | TOK_ENUM ID LBRACE enum_members RBRACE {
@@ -1086,6 +1118,14 @@ type_prop_list
     ;
 type_prop
     : ID COLON type_name         { type_prop_push($1, $3); $$ = ast_none(); }
+    ;
+struct_prop_list
+    : %empty                     { $$ = NULL; }
+    | struct_prop                { $$ = $1; }
+    | struct_prop_list COMMA struct_prop { $$ = ast_seq($1, $3); }
+    ;
+struct_prop
+    : ID COLON builtin_type_name { struct_prop_push($1, $3); $$ = ast_none(); }
     ;
 builtin_type_name
     : TOK_STRING                 { $$ = CAST_STRING; }

@@ -30,6 +30,9 @@ int type_register(const char* name, char** props, ValueType* ptypes, int nprops,
         g_types[i].generic_param_count = 0;
         g_types[i].interfaces = NULL;
         g_types[i].ninterfaces = 0;
+        g_types[i].is_struct = 0;
+        g_types[i].field_cast_kinds = NULL;
+        g_types[i].field_offsets = NULL;
     }
     // 释放旧属性（重声明覆盖）
     if(g_types[i].props) {
@@ -45,6 +48,8 @@ int type_register(const char* name, char** props, ValueType* ptypes, int nprops,
         for(int k = 0; k < g_types[i].ninterfaces; k++) free(g_types[i].interfaces[k]);
         free(g_types[i].interfaces);
     }
+    if(g_types[i].field_cast_kinds) free(g_types[i].field_cast_kinds);
+    if(g_types[i].field_offsets) free(g_types[i].field_offsets);
     g_types[i].props = (char**)malloc((size_t)(nprops > 0 ? nprops : 1) * sizeof(char*));
     g_types[i].ptypes = (ValueType*)malloc((size_t)(nprops > 0 ? nprops : 1) * sizeof(ValueType));
     for(int k = 0; k < nprops; k++) {
@@ -261,6 +266,36 @@ int interface_lookup(const char* name) {
 InterfaceDef* interface_get(int idx) {
     if(idx < 0 || idx >= g_ninterfaces) return NULL;
     return &g_interfaces[idx];
+}
+
+/* ===== struct 注册 ===== */
+int struct_register(const char* name, char** props, int* cast_kinds, int nprops)
+{
+    // 先注册为普通 type（用 ValueType，从 CastKind 转换）
+    ValueType* vtypes = (ValueType*)malloc((size_t)(nprops > 0 ? nprops : 1) * sizeof(ValueType));
+    for(int k = 0; k < nprops; k++) {
+        vtypes[k] = castkind_to_valtype(cast_kinds[k]);
+    }
+    int idx = type_register(name, props, vtypes, nprops, NULL, 0, NULL, 0);
+    free(vtypes);
+
+    // 标记为 struct 并保存精确 CastKind 类型
+    g_types[idx].is_struct = 1;
+    g_types[idx].field_cast_kinds = (int*)malloc((size_t)(nprops > 0 ? nprops : 1) * sizeof(int));
+    for(int k = 0; k < nprops; k++) {
+        g_types[idx].field_cast_kinds[k] = cast_kinds[k];
+    }
+    g_types[idx].field_offsets = NULL; // 编译通道计算偏移时填充
+    return idx;
+}
+
+// 查找是否是 struct（返回 TypeDef* 或 NULL）
+TypeDef* struct_lookup(const char* name)
+{
+    int idx = type_lookup(name);
+    if(idx < 0) return NULL;
+    if(!g_types[idx].is_struct) return NULL;
+    return &g_types[idx];
 }
 
 int type_implements_interface(const char* type_name, const char* interface_name) {

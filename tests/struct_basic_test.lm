@@ -1,0 +1,30 @@
+// struct 基础测试
+print("=== Struct Basic Test ===");
+
+struct Point { x: int, y: int }
+
+p = Point(10, 20);
+print("p.x:", p.x);
+print("p.y:", p.y);
+print("p class:", p.__classname__);
+
+// 值类型语义：赋值拷贝
+p2 = p;
+p2.x = 100;
+print("p.x after p2.x=100:", p.x);
+print("p2.x:", p2.x);
+
+// struct 作为函数参数
+func get_x(pt) {
+    return pt.x;
+}
+print("get_x(p):", get_x(p));
+
+// struct 作为函数返回值
+func make_point(x, y) {
+    return Point(x, y);
+}
+p3 = make_point(30, 40);
+print("p3.x:", p3.x, "p3.y:", p3.y);
+
+print("=== Struct Basic Test Passed ===");
