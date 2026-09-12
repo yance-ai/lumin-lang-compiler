@@ -32,7 +32,11 @@ int type_register(const char* name, char** props, ValueType* ptypes, int nprops,
         g_types[i].ninterfaces = 0;
         g_types[i].is_struct = 0;
         g_types[i].field_cast_kinds = NULL;
+        g_types[i].field_struct_names = NULL;
         g_types[i].field_offsets = NULL;
+        g_types[i].method_names = NULL;
+        g_types[i].method_nodes = NULL;
+        g_types[i].nmethods = 0;
     }
     // 释放旧属性（重声明覆盖）
     if(g_types[i].props) {
@@ -274,7 +278,7 @@ InterfaceDef* interface_get(int idx) {
 }
 
 /* ===== struct 注册 ===== */
-int struct_register(const char* name, char** props, int* cast_kinds, int nprops)
+int struct_register(const char* name, char** props, int* cast_kinds, char** struct_names, int nprops)
 {
     // 先注册为普通 type（用 ValueType，从 CastKind 转换）
     ValueType* vtypes = (ValueType*)malloc((size_t)(nprops > 0 ? nprops : 1) * sizeof(ValueType));
@@ -287,11 +291,44 @@ int struct_register(const char* name, char** props, int* cast_kinds, int nprops)
     // 标记为 struct 并保存精确 CastKind 类型
     g_types[idx].is_struct = 1;
     g_types[idx].field_cast_kinds = (int*)malloc((size_t)(nprops > 0 ? nprops : 1) * sizeof(int));
+    g_types[idx].field_struct_names = (char**)calloc((size_t)(nprops > 0 ? nprops : 1), sizeof(char*));
     for(int k = 0; k < nprops; k++) {
         g_types[idx].field_cast_kinds[k] = cast_kinds[k];
+        if(struct_names && struct_names[k]) {
+            g_types[idx].field_struct_names[k] = strdup(struct_names[k]);
+        }
     }
     g_types[idx].field_offsets = NULL; // 编译通道计算偏移时填充
+    g_types[idx].method_names = NULL;
+    g_types[idx].method_nodes = NULL;
+    g_types[idx].nmethods = 0;
     return idx;
+}
+
+// 添加 struct 方法
+void struct_add_method(const char* struct_name, const char* method_name, struct AstNode* method_node)
+{
+    TypeDef* td = struct_lookup(struct_name);
+    if(!td) return;
+    int n = td->nmethods + 1;
+    td->method_names = (char**)realloc(td->method_names, (size_t)n * sizeof(char*));
+    td->method_nodes = (struct AstNode**)realloc(td->method_nodes, (size_t)n * sizeof(struct AstNode*));
+    td->method_names[td->nmethods] = strdup(method_name);
+    td->method_nodes[td->nmethods] = method_node;
+    td->nmethods = n;
+}
+
+// 查找 struct 方法
+struct AstNode* struct_find_method(const char* struct_name, const char* method_name)
+{
+    TypeDef* td = struct_lookup(struct_name);
+    if(!td) return NULL;
+    for(int i = 0; i < td->nmethods; i++) {
+        if(strcmp(td->method_names[i], method_name) == 0) {
+            return td->method_nodes[i];
+        }
+    }
+    return NULL;
 }
 
 // 查找是否是 struct（返回 TypeDef* 或 NULL）

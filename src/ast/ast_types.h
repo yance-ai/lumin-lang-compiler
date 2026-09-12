@@ -20,9 +20,17 @@ typedef struct {
     char** interfaces;   // 实现的接口名列表（NULL=未实现接口）
     int ninterfaces;     // 实现的接口数量
     int is_struct;       // 是否是 struct（1=struct，0=普通 type/动态 Map）
-    int* field_cast_kinds; // struct 字段的精确 CastKind 类型（NULL=非 struct）
+    int* field_cast_kinds; // struct 字段的精确 CastKind 类型（NULL=非 struct，CAST_NONE=嵌套struct）
+    char** field_struct_names; // struct 字段的嵌套 struct 类型名（NULL=非嵌套struct字段）
     int* field_offsets;    // struct 字段偏移量（编译通道用，NULL=未计算）
+    /* struct 方法 */
+    char** method_names;   // 方法名列表（NULL=无方法）
+    struct AstNode** method_nodes; // 方法的 AST 节点（func_def）
+    int nmethods;          // 方法数量
 } TypeDef;
+
+/* 前向声明 AstNode */
+struct AstNode;
 
 // 注册 / 查找（返回下标，-1 未找到）
 int type_register(const char* name, char** props, ValueType* ptypes, int nprops, char** generic_params, int generic_param_count, char** interfaces, int ninterfaces);
@@ -59,9 +67,13 @@ int interface_lookup(const char* name);
 InterfaceDef* interface_get(int idx);
 
 // struct 注册（字段用精确 CastKind 类型）
-int struct_register(const char* name, char** props, int* cast_kinds, int nprops);
+int struct_register(const char* name, char** props, int* cast_kinds, char** struct_names, int nprops);
 // 查找是否是 struct（返回 TypeDef* 或 NULL）
 TypeDef* struct_lookup(const char* name);
+// 添加 struct 方法
+void struct_add_method(const char* struct_name, const char* method_name, struct AstNode* method_node);
+// 查找 struct 方法（返回 AST 节点或 NULL）
+struct AstNode* struct_find_method(const char* struct_name, const char* method_name);
 
 // 检查类型是否实现了接口（鸭子类型：检查类型是否有接口要求的所有方法）
 int type_implements_interface(const char* type_name, const char* interface_name);

@@ -335,7 +335,12 @@ static AstNode* build_type_ctor(AstNode* call, TypeDef* t)
         int cur = 0;
         AstNode* a = type_arg_nth(args, k, &cur);
         AstNode* key = ast_string(strdup(t->props[k]));
-        items = ast_seq(items, ast_map_entry(key, type_wrap_cast(a, t->ptypes[k])));
+        /* 嵌套 struct 字段：不进行类型转换，原样保留参数 */
+        if(t->field_struct_names && t->field_struct_names[k]) {
+            items = ast_seq(items, ast_map_entry(key, a));
+        } else {
+            items = ast_seq(items, ast_map_entry(key, type_wrap_cast(a, t->ptypes[k])));
+        }
     }
     call->u.call.args = NULL;  /* 参数节点已移入 items 树，摘空原链防双 free */
     return ast_map_lit(items);

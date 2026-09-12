@@ -38,24 +38,47 @@ static void type_prop_clear(void)
 /* struct 声明属性收集器（用精确 CastKind 类型） */
 static char** g_struct_prop_names = NULL;
 static int* g_struct_cast_kinds = NULL;
+static char** g_struct_prop_struct_names = NULL;
 static int g_struct_prop_n = 0, g_struct_prop_cap = 0;
-static void struct_prop_push(char* name, int ck)
+static char* g_current_struct_name = NULL; /* 当前正在解析的 struct 名，用于方法注册 */
+static AstNode** g_struct_methods = NULL; /* 当前 struct 的方法定义临时列表 */
+static int g_struct_method_n = 0, g_struct_method_cap = 0;
+static void g_struct_method_push(AstNode* m) {
+    if(g_struct_method_n >= g_struct_method_cap) {
+        int nc = g_struct_method_cap > 0 ? g_struct_method_cap * 2 : 8;
+        g_struct_methods = (AstNode**)realloc(g_struct_methods, (size_t)nc * sizeof(AstNode*));
+        g_struct_method_cap = nc;
+    }
+    g_struct_methods[g_struct_method_n++] = m;
+}
+static void g_struct_method_clear(void) {
+    free(g_struct_methods);
+    g_struct_methods = NULL;
+    g_struct_method_n = 0;
+    g_struct_method_cap = 0;
+}
+static void struct_prop_push(char* name, int ck, char* struct_name)
 {
     if(g_struct_prop_n >= g_struct_prop_cap) {
         int nc = g_struct_prop_cap > 0 ? g_struct_prop_cap * 2 : 8;
         g_struct_prop_names = (char**)realloc(g_struct_prop_names, (size_t)nc * sizeof(char*));
         g_struct_cast_kinds = (int*)realloc(g_struct_cast_kinds, (size_t)nc * sizeof(int));
+        g_struct_prop_struct_names = (char**)realloc(g_struct_prop_struct_names, (size_t)nc * sizeof(char*));
         g_struct_prop_cap = nc;
     }
     g_struct_prop_names[g_struct_prop_n] = name;
     g_struct_cast_kinds[g_struct_prop_n] = ck;
+    g_struct_prop_struct_names[g_struct_prop_n] = struct_name;
     g_struct_prop_n++;
 }
 static void struct_prop_clear(void)
 {
-    for(int i = 0; i < g_struct_prop_n; i++) free(g_struct_prop_names[i]);
-    free(g_struct_prop_names); free(g_struct_cast_kinds);
-    g_struct_prop_names = NULL; g_struct_cast_kinds = NULL;
+    for(int i = 0; i < g_struct_prop_n; i++) {
+        free(g_struct_prop_names[i]);
+        if(g_struct_prop_struct_names[i]) free(g_struct_prop_struct_names[i]);
+    }
+    free(g_struct_prop_names); free(g_struct_cast_kinds); free(g_struct_prop_struct_names);
+    g_struct_prop_names = NULL; g_struct_cast_kinds = NULL; g_struct_prop_struct_names = NULL;
     g_struct_prop_n = 0; g_struct_prop_cap = 0;
 }
 
@@ -488,11 +511,36 @@ closed_stmt
           $$ = L(ast_none());
       }
     | TOK_STRUCT ID LBRACE struct_prop_list RBRACE {
-          /* struct Point { x: int, y: int }：编译期注册 struct 类型（精确 CastKind 字段类型） */
-          struct_register($2, g_struct_prop_names, g_struct_cast_kinds, g_struct_prop_n);
+          /* struct Point { x: int, y: int, func dist(): int {...} }：编译期注册 struct 类型 */
+          g_current_struct_name = $2;
+          struct_register($2, g_struct_prop_names, g_struct_cast_kinds, g_struct_prop_struct_names, g_struct_prop_n);
+          /* struct 注册后，再添加方法到方法表，并编译注册为全局函数 */
+          for(int mi = 0; mi < g_struct_method_n; mi++) {
+              AstNode* mnode = g_struct_methods[mi];
+              if(mnode && mnode->type == AST_FUNC_DEF) {
+                  struct_add_method($2, mnode->u.func_def.name, mnode);
+                  RuntimeFunc* rf = compile_func_from_ast(mnode);
+                  Value func_val = {0};
+                  func_val.type = VAL_FUNC;
+                  func_val.v.func.func_obj = rf;
+                  func_val.v.func.ffi_func = NULL;
+                  func_val.v.func.is_ffi = 0;
+                  sym_set(mnode->u.func_def.name, func_val);
+                  static_sym_put(mnode->u.func_def.name, VAL_FUNC); /* 注册到静态符号表，语义检查用 */
+              }
+          }
+          /* 先把方法定义的 AST 节点保存到临时列表，再清空 g_struct_methods */
+          AstNode* method_list = NULL;
+          for(int mi = 0; mi < g_struct_method_n; mi++) {
+              AstNode* mnode = g_struct_methods[mi];
+              method_list = method_list ? ast_seq(method_list, mnode) : mnode;
+          }
+          g_struct_method_clear();
           struct_prop_clear();
+          g_current_struct_name = NULL;
           free($2);
-          $$ = L(ast_none());
+          /* 返回方法定义的 AST 节点，让语义检查遍历时能注册它们 */
+          $$ = method_list ? L(method_list) : L(ast_none());
       }
     | TOK_ENUM ID LBRACE enum_members RBRACE {
           /* enum Color { RED, GREEN } → Color = {"RED":"RED","GREEN":"GREEN"} */
@@ -1123,9 +1171,25 @@ struct_prop_list
     : %empty                     { $$ = NULL; }
     | struct_prop                { $$ = $1; }
     | struct_prop_list COMMA struct_prop { $$ = ast_seq($1, $3); }
+    | struct_prop_list func_def  {
+        /* struct 方法定义：保存到临时列表，struct 注册后再统一处理 */
+        if($2 && $2->type == AST_FUNC_DEF) {
+            g_struct_method_push($2);
+        }
+        $$ = ast_seq($1, $2);
+      }
     ;
 struct_prop
-    : ID COLON builtin_type_name { struct_prop_push($1, $3); $$ = ast_none(); }
+    : ID COLON builtin_type_name { struct_prop_push($1, $3, NULL); $$ = ast_none(); }
+    | ID COLON ID {
+        /* 嵌套 struct 类型：struct Rect { top_left: Point } */
+        if(struct_lookup($3)) {
+            struct_prop_push($1, CAST_LONGLONG, $3);
+        } else {
+            struct_prop_push($1, CAST_LONGLONG, NULL);
+        }
+        $$ = ast_none();
+      }
     ;
 builtin_type_name
     : TOK_STRING                 { $$ = CAST_STRING; }
