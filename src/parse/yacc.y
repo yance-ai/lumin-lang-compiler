@@ -216,7 +216,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token WHILE FOR TOK_DO TOK_IN TOK_ITER
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
-%token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT
+%token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT TOK_ULONG TOK_UCHAR TOK_SHORT TOK_USHORT TOK_SIZE_T TOK_SSIZE_T TOK_VOID TOK_LONG_DOUBLE TOK_PTR
 %token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS TOK_EXTEND TOK_UNPACK
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
@@ -895,6 +895,15 @@ primary
     | LPAREN TOK_LONG RPAREN postfix_expr   { $$ = new_cast_node(CAST_LONG, $4); }
     | LPAREN TOK_LONGLONG RPAREN postfix_expr { $$ = new_cast_node(CAST_LONGLONG, $4); }
     | LPAREN TOK_FLOAT RPAREN postfix_expr    { $$ = new_cast_node(CAST_FLOAT, $4); }
+    | LPAREN TOK_ULONG RPAREN postfix_expr   { $$ = new_cast_node(CAST_ULONG, $4); }
+    | LPAREN TOK_UCHAR RPAREN postfix_expr   { $$ = new_cast_node(CAST_UCHAR, $4); }
+    | LPAREN TOK_SHORT RPAREN postfix_expr   { $$ = new_cast_node(CAST_SHORT, $4); }
+    | LPAREN TOK_USHORT RPAREN postfix_expr  { $$ = new_cast_node(CAST_USHORT, $4); }
+    | LPAREN TOK_SIZE_T RPAREN postfix_expr  { $$ = new_cast_node(CAST_SIZE_T, $4); }
+    | LPAREN TOK_SSIZE_T RPAREN postfix_expr { $$ = new_cast_node(CAST_SSIZE_T, $4); }
+    | LPAREN TOK_VOID RPAREN postfix_expr    { $$ = new_cast_node(CAST_VOID, $4); }
+    | LPAREN TOK_LONG_DOUBLE RPAREN postfix_expr { $$ = new_cast_node(CAST_LONG_DOUBLE, $4); }
+    | LPAREN TOK_PTR RPAREN postfix_expr     { $$ = new_cast_node(CAST_PTR, $4); }
     /* 泛型容器字面量：(byte)[1,2,3] 逐元素强转 / (byte){"a":1} 逐值强转
        （lexer 上下文消歧后 cast 后接 LBRACKET/LBRACE，按容器字面量解释） */
     | LPAREN TOK_INT RPAREN LBRACKET arg_list RBRACKET
@@ -1075,6 +1084,15 @@ builtin_type_name
     | TOK_LONG                   { $$ = CAST_LONG; }
     | TOK_LONGLONG               { $$ = CAST_LONGLONG; }
     | TOK_FLOAT                  { $$ = CAST_FLOAT; }
+    | TOK_ULONG                  { $$ = CAST_ULONG; }
+    | TOK_UCHAR                  { $$ = CAST_UCHAR; }
+    | TOK_SHORT                  { $$ = CAST_SHORT; }
+    | TOK_USHORT                 { $$ = CAST_USHORT; }
+    | TOK_SIZE_T                 { $$ = CAST_SIZE_T; }
+    | TOK_SSIZE_T                { $$ = CAST_SSIZE_T; }
+    | TOK_VOID                   { $$ = CAST_VOID; }
+    | TOK_LONG_DOUBLE            { $$ = CAST_LONG_DOUBLE; }
+    | TOK_PTR                    { $$ = CAST_PTR; }
     ;
 type_name
     : builtin_type_name          { $$ = castkind_to_valtype($1); }

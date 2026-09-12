@@ -651,8 +651,23 @@ static void c_expr(Ctx* c, AstNode* node)
                 [CAST_UINT32] = OPC_CAST_UINT32, [CAST_UINT64] = OPC_CAST_UINT64,
                 [CAST_LONG] = OPC_CAST_LONG, [CAST_LONGLONG] = OPC_CAST_LONGLONG,
                 [CAST_FLOAT] = OPC_CAST_FLOAT,
+                /* 补充 C 标准类型：复用现有操作码（运行时统一 long long/double 存储） */
+                [CAST_ULONG] = OPC_CAST_UINT64,
+                [CAST_UCHAR] = OPC_CAST_UINT8,
+                [CAST_SHORT] = OPC_CAST_INT16,
+                [CAST_USHORT] = OPC_CAST_UINT16,
+                [CAST_SIZE_T] = OPC_CAST_UINT64,
+                [CAST_SSIZE_T] = OPC_CAST_INT64,
+                [CAST_LONG_DOUBLE] = OPC_CAST_DOUBLE,
+                [CAST_PTR] = OPC_CAST_INT64,
             };
-            emit(c, cmap[node->u.cast.cast_type], 0, 0);
+            /* CAST_VOID 特殊处理：直接返回 none */
+            if(node->u.cast.cast_type == CAST_VOID) {
+                emit(c, OPC_POP, 0, 0);
+                emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
+            } else {
+                emit(c, cmap[node->u.cast.cast_type], 0, 0);
+            }
             break;
         }
         case AST_TERNARY: {

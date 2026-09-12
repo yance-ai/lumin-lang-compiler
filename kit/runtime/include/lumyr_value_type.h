@@ -46,6 +46,16 @@ typedef enum {
     CAST_LONG,       // long：平台相关，lm 统一 64 位
     CAST_LONGLONG,   // long long：64 位（= int 默认）
     CAST_FLOAT,      // float：32 位单精度，运行时 double 存储，强转时截断精度
+    // 补充 C 标准类型（与 FFI FFIType 对齐，运行时统一 long long/double 存储）
+    CAST_ULONG,      // unsigned long
+    CAST_UCHAR,      // unsigned char（= byte，但语义明确）
+    CAST_SHORT,      // short（16 位有符号）
+    CAST_USHORT,     // unsigned short（16 位无符号）
+    CAST_SIZE_T,     // size_t（无符号整数，平台相关）
+    CAST_SSIZE_T,    // ssize_t（有符号整数，平台相关）
+    CAST_VOID,       // void（无类型/无返回值）
+    CAST_LONG_DOUBLE,// long double（扩展精度浮点）
+    CAST_PTR,        // 指针/句柄（用 int 存储指针值）
 } CastKind;
 
 // 值类型：语言支持的数据类型

@@ -90,8 +90,24 @@ static int is_expr_end(int t)
 "uint64"        { LEX_RET(TOK_UINT64); }
 "uint"          { LEX_RET(TOK_UINT); }
 "long long"     { LEX_RET(TOK_LONGLONG); }
+"longlong"      { LEX_RET(TOK_LONGLONG); }
 "long"          { LEX_RET(TOK_LONG); }
 "float"         { LEX_RET(TOK_FLOAT); }
+"ulong"         { LEX_RET(TOK_ULONG); }
+"unsigned long" { LEX_RET(TOK_ULONG); }
+"uchar"         { LEX_RET(TOK_UCHAR); }
+"unsigned char" { LEX_RET(TOK_UCHAR); }
+"short"         { LEX_RET(TOK_SHORT); }
+"ushort"        { LEX_RET(TOK_USHORT); }
+"unsigned short" { LEX_RET(TOK_USHORT); }
+"size_t"        { LEX_RET(TOK_SIZE_T); }
+"ssize_t"       { LEX_RET(TOK_SSIZE_T); }
+"void"          { LEX_RET(TOK_VOID); }
+"long double"   { LEX_RET(TOK_LONG_DOUBLE); }
+"longdouble"    { LEX_RET(TOK_LONG_DOUBLE); }
+"ptr"           { LEX_RET(TOK_PTR); }
+"pointer"       { LEX_RET(TOK_PTR); }
+"handle"        { LEX_RET(TOK_PTR); }
 
 "..."           { LEX_RET(ELLIPSIS); }
 

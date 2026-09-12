@@ -110,6 +110,13 @@ ValueType castkind_to_valtype(int ck)
             return VAL_INT;
         case CAST_FLOAT:
             return VAL_DOUBLE;
+        case CAST_ULONG: case CAST_UCHAR: case CAST_SHORT: case CAST_USHORT:
+        case CAST_SIZE_T: case CAST_SSIZE_T: case CAST_PTR:
+            return VAL_INT;
+        case CAST_LONG_DOUBLE:
+            return VAL_DOUBLE;
+        case CAST_VOID:
+            return VAL_NONE;
         default: return VAL_NONE;
     }
 }
@@ -135,6 +142,15 @@ char* castkind_to_name(int ck) {
         case CAST_LONGLONG: return strdup("longlong");
         case CAST_FLOAT: return strdup("float");
         case CAST_ASCII: return strdup("ascii");
+        case CAST_ULONG: return strdup("ulong");
+        case CAST_UCHAR: return strdup("uchar");
+        case CAST_SHORT: return strdup("short");
+        case CAST_USHORT: return strdup("ushort");
+        case CAST_SIZE_T: return strdup("size_t");
+        case CAST_SSIZE_T: return strdup("ssize_t");
+        case CAST_VOID: return strdup("void");
+        case CAST_LONG_DOUBLE: return strdup("longdouble");
+        case CAST_PTR: return strdup("ptr");
         default: return strdup("int");
     }
 }
