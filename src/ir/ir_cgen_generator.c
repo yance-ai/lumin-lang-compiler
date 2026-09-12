@@ -119,6 +119,13 @@ void emit_gen_next_header(BytecodeFunc* fn) {
     int nyields = count_yields(fn);
     int maxd = bc_analyze_stack(fn, NULL, 0);
 
+    /* 收集本函数内 FIN_PUSH 的目标（finally/循环结束 label），与普通函数一致 */
+    fin_lab_cnt = 0;
+    for(int i = 0; i < fn->code_len; i++) {
+        Instruction in = fn->code[i];
+        if(in.op == OPC_FIN_PUSH && in.b) fin_lab_idx_of(in.b);
+    }
+
     fprintf(out, "/* 生成器 next() 函数：恢复执行并返回 yield 值 */\n");
     fprintf(out, "static Value lumyr_gen_%s_next(void* __gptr, Value __send_val)\n{\n",
             fn->name);
@@ -133,7 +140,15 @@ void emit_gen_next_header(BytecodeFunc* fn) {
     fprintf(out, "    Value* __stk = g->__stk;\n");
     fprintf(out, "    int __sp = g->__sp;\n");
 
-    /* 函数边界保存（简化版：生成器暂不支持 try-catch-finally） */
+    /* finally 标签数组（与普通函数一致，OPC_FINISH 中 goto *__g_fin_labs[...] 需要） */
+    if(fin_lab_cnt > 0) {
+        fprintf(out, "    static void* __g_fin_labs[%d] = { ", fin_lab_cnt);
+        for(int k = 0; k < fin_lab_cnt; k++)
+            fprintf(out, "&&L%d%s", fin_lab_pcs[k], (k + 1 < fin_lab_cnt) ? ", " : "");
+        fprintf(out, " };\n");
+    }
+
+    /* 函数边界保存 */
     fprintf(out, "    int __g_d0 = __g_depth; jmp_buf* __g_gj0 = g_err_jmp; int __g_fin0 = __g_fin_n;\n");
     fprintf(out, "    g_trace_push(\"%s\");\n", fn->name);
 
