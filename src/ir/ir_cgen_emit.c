@@ -4,6 +4,73 @@
  */
 #include "ir_cgen_internal.h"
 
+/* 查找变量的类型标记（-1 表示无精确类型） */
+static int emit_get_var_tag(const BytecodeFunc* fn, const char* name) {
+    if(!fn || !fn->var_type_tags || !name) return -1;
+    for(int i = 0; i < fn->sym_cnt; i++) {
+        if(fn->syms[i] && strcmp(fn->syms[i], name) == 0) return fn->var_type_tags[i];
+    }
+    return -1;
+}
+
+/* CastKind 转 C 类型名（NULL 表示保持 Value） */
+static const char* emit_tag_to_ctype(int tag) {
+    switch(tag) {
+        case CAST_INT: case CAST_INT32: return "int";
+        case CAST_LONGLONG: case CAST_INT64: case CAST_LONG: return "long long";
+        case CAST_SHORT: case CAST_INT16: return "short";
+        case CAST_CHAR: case CAST_INT8: return "char";
+        case CAST_UCHAR: case CAST_UINT8: case CAST_BYTE: return "unsigned char";
+        case CAST_USHORT: case CAST_UINT16: return "unsigned short";
+        case CAST_UINT32: return "unsigned int";
+        case CAST_ULONG: case CAST_UINT64: return "unsigned long long";
+        case CAST_FLOAT: return "float";
+        case CAST_DOUBLE: case CAST_LONG_DOUBLE: return "double";
+        case CAST_BOOL: return "int";
+        default: return NULL;
+    }
+}
+
+/* 生成精确类型变量读取并转为 Value 的代码表达式 */
+static const char* emit_precise_load(int tag, const char* var_expr) {
+    static char buf[512];
+    switch(tag) {
+        case CAST_INT: case CAST_INT32: snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(int)%s)", var_expr); break;
+        case CAST_LONGLONG: case CAST_INT64: case CAST_LONG: snprintf(buf, sizeof(buf), "lumyr_make_int((long long)%s)", var_expr); break;
+        case CAST_SHORT: case CAST_INT16: snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(short)%s)", var_expr); break;
+        case CAST_CHAR: case CAST_INT8: snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(char)%s)", var_expr); break;
+        case CAST_UCHAR: case CAST_UINT8: case CAST_BYTE: snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(unsigned char)%s)", var_expr); break;
+        case CAST_USHORT: case CAST_UINT16: snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(unsigned short)%s)", var_expr); break;
+        case CAST_UINT32: snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(unsigned int)%s)", var_expr); break;
+        case CAST_ULONG: case CAST_UINT64: snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(unsigned long long)%s)", var_expr); break;
+        case CAST_FLOAT: snprintf(buf, sizeof(buf), "lumyr_make_double((double)(float)%s)", var_expr); break;
+        case CAST_DOUBLE: case CAST_LONG_DOUBLE: snprintf(buf, sizeof(buf), "lumyr_make_double((double)%s)", var_expr); break;
+        case CAST_BOOL: snprintf(buf, sizeof(buf), "lumyr_make_int(%s ? 1 : 0)", var_expr); break;
+        default: snprintf(buf, sizeof(buf), "%s", var_expr); break;
+    }
+    return buf;
+}
+
+/* 生成 Value 转为精确类型的代码表达式（参数为 Value 变量名） */
+static const char* emit_precise_store(int tag, const char* val_expr) {
+    static char buf[512];
+    switch(tag) {
+        case CAST_INT: case CAST_INT32: snprintf(buf, sizeof(buf), "(int)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", val_expr, val_expr, val_expr); break;
+        case CAST_LONGLONG: case CAST_INT64: case CAST_LONG: snprintf(buf, sizeof(buf), "((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", val_expr, val_expr, val_expr); break;
+        case CAST_SHORT: case CAST_INT16: snprintf(buf, sizeof(buf), "(short)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", val_expr, val_expr, val_expr); break;
+        case CAST_CHAR: case CAST_INT8: snprintf(buf, sizeof(buf), "(char)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", val_expr, val_expr, val_expr); break;
+        case CAST_UCHAR: case CAST_UINT8: case CAST_BYTE: snprintf(buf, sizeof(buf), "(unsigned char)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", val_expr, val_expr, val_expr); break;
+        case CAST_USHORT: case CAST_UINT16: snprintf(buf, sizeof(buf), "(unsigned short)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", val_expr, val_expr, val_expr); break;
+        case CAST_UINT32: snprintf(buf, sizeof(buf), "(unsigned int)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", val_expr, val_expr, val_expr); break;
+        case CAST_ULONG: case CAST_UINT64: snprintf(buf, sizeof(buf), "(unsigned long long)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", val_expr, val_expr, val_expr); break;
+        case CAST_FLOAT: snprintf(buf, sizeof(buf), "(float)((%s).type == VAL_INT ? (double)(%s).v.i : (%s).v.d)", val_expr, val_expr, val_expr); break;
+        case CAST_DOUBLE: case CAST_LONG_DOUBLE: snprintf(buf, sizeof(buf), "((%s).type == VAL_INT ? (double)(%s).v.i : (%s).v.d)", val_expr, val_expr, val_expr); break;
+        case CAST_BOOL: snprintf(buf, sizeof(buf), "((%s).type == VAL_INT ? (%s).v.i != 0 : (%s).type == VAL_DOUBLE ? (%s).v.d != 0 : 0)", val_expr, val_expr, val_expr, val_expr); break;
+        default: snprintf(buf, sizeof(buf), "%s", val_expr); break;
+    }
+    return buf;
+}
+
 static int s_gen_map_label_id = 0;  /* 生成器 map/filter goto 标签唯一 ID */
 
 int fin_lab_cnt = 0;
@@ -219,12 +286,25 @@ void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "    }\n");
                 break;
             }
-            case OPC_LOAD_VAR:
-                fprintf(out, "    __stk[__sp++] = %s;\n", cvar_rw(nm));
+            case OPC_LOAD_VAR: {
+                int _tag = emit_get_var_tag(fn, nm);
+                if(_tag >= 0 && emit_tag_to_ctype(_tag)) {
+                    fprintf(out, "    __stk[__sp++] = %s;\n", emit_precise_load(_tag, cvar_rw(nm)));
+                } else {
+                    fprintf(out, "    __stk[__sp++] = %s;\n", cvar_rw(nm));
+                }
                 break;
-            case OPC_STORE_VAR:
-                fprintf(out, "    { Value __v = __stk[--__sp]; %s = __v; __stk[__sp++] = __v; }\n", cvar_rw(nm));
+            }
+            case OPC_STORE_VAR: {
+                int _tag = emit_get_var_tag(fn, nm);
+                if(_tag >= 0 && emit_tag_to_ctype(_tag)) {
+                    fprintf(out, "    { Value __v = __stk[--__sp]; %s = %s; __stk[__sp++] = __v; }\n",
+                            cvar_rw(nm), emit_precise_store(_tag, "__v"));
+                } else {
+                    fprintf(out, "    { Value __v = __stk[--__sp]; %s = __v; __stk[__sp++] = __v; }\n", cvar_rw(nm));
+                }
                 break;
+            }
             case OPC_ADD: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumyr_add(__l, __r); __sp--; }\n"); break;
             case OPC_SUB: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumyr_sub(__l, __r); __sp--; }\n"); break;
             case OPC_MUL: fprintf(out, "    { Value __l = __stk[__sp-2], __r = __stk[__sp-1]; __stk[__sp-2] = lumyr_mul(__l, __r); __sp--; }\n"); break;

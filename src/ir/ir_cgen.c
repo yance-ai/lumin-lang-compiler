@@ -107,6 +107,79 @@ static const char* castkind_to_c_type(int ck) {
     }
 }
 
+/* 检查变量是否有精确类型标记，返回 CastKind（-1 表示无） */
+static int get_var_type_tag(const BytecodeFunc* fn, const char* name) {
+    if(!fn || !fn->var_type_tags) return -1;
+    for(int i = 0; i < fn->sym_cnt; i++) {
+        if(strcmp(fn->syms[i], name) == 0) return fn->var_type_tags[i];
+    }
+    return -1;
+}
+
+/* 生成读取精确类型变量并转换为 Value 的代码 */
+static const char* gen_precise_load(int type_tag, const char* var_expr) {
+    static char buf[512];
+    switch(type_tag) {
+        case CAST_INT: case CAST_INT32:
+            snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(int)%s)", var_expr); break;
+        case CAST_LONGLONG: case CAST_INT64: case CAST_LONG:
+            snprintf(buf, sizeof(buf), "lumyr_make_int((long long)%s)", var_expr); break;
+        case CAST_SHORT: case CAST_INT16:
+            snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(short)%s)", var_expr); break;
+        case CAST_CHAR: case CAST_INT8:
+            snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(char)%s)", var_expr); break;
+        case CAST_UCHAR: case CAST_UINT8: case CAST_BYTE:
+            snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(unsigned char)%s)", var_expr); break;
+        case CAST_USHORT: case CAST_UINT16:
+            snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(unsigned short)%s)", var_expr); break;
+        case CAST_UINT32:
+            snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(unsigned int)%s)", var_expr); break;
+        case CAST_ULONG: case CAST_UINT64:
+            snprintf(buf, sizeof(buf), "lumyr_make_int((long long)(unsigned long long)%s)", var_expr); break;
+        case CAST_FLOAT:
+            snprintf(buf, sizeof(buf), "lumyr_make_double((double)(float)%s)", var_expr); break;
+        case CAST_DOUBLE: case CAST_LONG_DOUBLE:
+            snprintf(buf, sizeof(buf), "lumyr_make_double((double)%s)", var_expr); break;
+        case CAST_BOOL:
+            snprintf(buf, sizeof(buf), "lumyr_make_int(%s ? 1 : 0)", var_expr); break;
+        default:
+            snprintf(buf, sizeof(buf), "%s", var_expr); break;
+    }
+    return buf;
+}
+
+/* 生成存储 Value 到精确类型变量的代码（表达式形式，返回转换后的值） */
+static const char* gen_precise_store(int type_tag, const char* value_expr) {
+    static char buf[512];
+    switch(type_tag) {
+        case CAST_INT: case CAST_INT32:
+            snprintf(buf, sizeof(buf), "(int)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", value_expr, value_expr, value_expr); break;
+        case CAST_LONGLONG: case CAST_INT64: case CAST_LONG:
+            snprintf(buf, sizeof(buf), "((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", value_expr, value_expr, value_expr); break;
+        case CAST_SHORT: case CAST_INT16:
+            snprintf(buf, sizeof(buf), "(short)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", value_expr, value_expr, value_expr); break;
+        case CAST_CHAR: case CAST_INT8:
+            snprintf(buf, sizeof(buf), "(char)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", value_expr, value_expr, value_expr); break;
+        case CAST_UCHAR: case CAST_UINT8: case CAST_BYTE:
+            snprintf(buf, sizeof(buf), "(unsigned char)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", value_expr, value_expr, value_expr); break;
+        case CAST_USHORT: case CAST_UINT16:
+            snprintf(buf, sizeof(buf), "(unsigned short)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", value_expr, value_expr, value_expr); break;
+        case CAST_UINT32:
+            snprintf(buf, sizeof(buf), "(unsigned int)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", value_expr, value_expr, value_expr); break;
+        case CAST_ULONG: case CAST_UINT64:
+            snprintf(buf, sizeof(buf), "(unsigned long long)((%s).type == VAL_DOUBLE ? (long long)(%s).v.d : (%s).v.i)", value_expr, value_expr, value_expr); break;
+        case CAST_FLOAT:
+            snprintf(buf, sizeof(buf), "(float)((%s).type == VAL_INT ? (double)(%s).v.i : (%s).v.d)", value_expr, value_expr, value_expr); break;
+        case CAST_DOUBLE: case CAST_LONG_DOUBLE:
+            snprintf(buf, sizeof(buf), "((%s).type == VAL_INT ? (double)(%s).v.i : (%s).v.d)", value_expr, value_expr, value_expr); break;
+        case CAST_BOOL:
+            snprintf(buf, sizeof(buf), "((%s).type == VAL_INT ? (%s).v.i != 0 : (%s).type == VAL_DOUBLE ? (%s).v.d != 0 : 0)", value_expr, value_expr, value_expr, value_expr); break;
+        default:
+            snprintf(buf, sizeof(buf), "%s", value_expr); break;
+    }
+    return buf;
+}
+
 // ---------------- NameSet ----------------
 
 int ns_has(const NameSet* s, const char* name)
@@ -418,11 +491,18 @@ void emit_func_def(BytecodeFunc* fn)
         }
     }
     for(int i = 0; i < fn_locals.count; i++) {
-        if(ns_has(&g_boxed, fn_locals.names[i]))
+        if(ns_has(&g_boxed, fn_locals.names[i])) {
             fprintf(out, "    Value* lmloc_%s = (Value*)malloc(sizeof(Value)); *lmloc_%s = val_none();\n",
                     fn_locals.names[i], fn_locals.names[i]);
-        else
-            fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
+        } else {
+            int tt = get_var_type_tag(fn, fn_locals.names[i]);
+            const char* ctype = (tt >= 0) ? castkind_to_c_type(tt) : NULL;
+            if(ctype) {
+                fprintf(out, "    %s lmloc_%s = 0;\n", ctype, fn_locals.names[i]);
+            } else {
+                fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
+            }
+        }
     }
     /* 栈分配数组声明：逃逸分析判定为不逃逸的 OPC_ARRAY_LIT（标量替换的跳过） */
     for(int i = 0; i < fn->code_len; i++) {
@@ -458,7 +538,14 @@ void emit_func_def(BytecodeFunc* fn)
         int _sr_total = 0;
         for(int v = 0; v < fn->sym_cnt; v++)
             if(g_scalar_var && g_scalar_var[v]) _sr_total += g_scalar_count[v];
-        int _nlocals = _total_params + fn_locals.count + _sr_total;
+        /* 统计需要 GC 扫描的局部变量数（精确类型的变量如 int/double 不需要 GC 扫描） */
+        int _gc_locals = 0;
+        for(int i = 0; i < fn_locals.count; i++) {
+            if(ns_has(&g_boxed, fn_locals.names[i])) { _gc_locals++; continue; }
+            int tt = get_var_type_tag(fn, fn_locals.names[i]);
+            if(tt < 0 || !castkind_to_c_type(tt)) _gc_locals++;
+        }
+        int _nlocals = _total_params + _gc_locals + _sr_total;
         int _arr_size = _nlocals > 0 ? _nlocals : 1;
         fprintf(out, "    volatile Value* __local_ptrs[%d] = { ", _arr_size);
         int _idx = 0;
@@ -472,11 +559,16 @@ void emit_func_def(BytecodeFunc* fn)
             _idx++;
         }
         for(int i = 0; i < fn_locals.count; i++) {
-            if(_idx) fprintf(out, ", ");
-            if(ns_has(&g_boxed, fn_locals.names[i]))
+            if(ns_has(&g_boxed, fn_locals.names[i])) {
+                if(_idx) fprintf(out, ", ");
                 fprintf(out, "lmloc_%s", fn_locals.names[i]);
-            else
-                fprintf(out, "&lmloc_%s", fn_locals.names[i]);
+                _idx++;
+                continue;
+            }
+            int tt = get_var_type_tag(fn, fn_locals.names[i]);
+            if(tt >= 0 && castkind_to_c_type(tt)) continue;  /* 跳过精确类型变量 */
+            if(_idx) fprintf(out, ", ");
+            fprintf(out, "&lmloc_%s", fn_locals.names[i]);
             _idx++;
         }
         for(int v = 0; v < fn->sym_cnt; v++) {
@@ -583,7 +675,13 @@ void emit_main(BytecodeFunc* main_fn)
     memset(&g_globals, 0, sizeof(g_globals));
     scan_var_refs(main_fn, &g_globals, 1);
     for(int i = 0; i < g_globals.count; i++) {
-        fprintf(out, "static Value lmvar_%s = {0};\n", g_globals.names[i]);
+        int tt = get_var_type_tag(main_fn, g_globals.names[i]);
+        const char* ctype = (tt >= 0) ? castkind_to_c_type(tt) : NULL;
+        if(ctype) {
+            fprintf(out, "static %s lmvar_%s = 0;\n", ctype, g_globals.names[i]);
+        } else {
+            fprintf(out, "static Value lmvar_%s = {0};\n", g_globals.names[i]);
+        }
     }
     fprintf(out, "\n");
 
@@ -676,11 +774,19 @@ void emit_main(BytecodeFunc* main_fn)
         int _sr_total = 0;
         for(int v = 0; v < main_fn->sym_cnt; v++)
             if(g_scalar_var && g_scalar_var[v]) _sr_total += g_scalar_count[v];
-        int _nlocals = g_globals.count + _sr_total;
+        /* 统计需要 GC 扫描的全局变量数（精确类型的变量如 int/double 不需要 GC 扫描） */
+        int _gc_globals = 0;
+        for(int i = 0; i < g_globals.count; i++) {
+            int tt = get_var_type_tag(main_fn, g_globals.names[i]);
+            if(tt < 0 || !castkind_to_c_type(tt)) _gc_globals++;
+        }
+        int _nlocals = _gc_globals + _sr_total;
         int _arr_size = _nlocals > 0 ? _nlocals : 1;
         fprintf(out, "    volatile Value* __local_ptrs[%d] = { ", _arr_size);
         int _idx = 0;
         for(int i = 0; i < g_globals.count; i++) {
+            int tt = get_var_type_tag(main_fn, g_globals.names[i]);
+            if(tt >= 0 && castkind_to_c_type(tt)) continue;  /* 跳过精确类型变量 */
             if(_idx) fprintf(out, ", ");
             fprintf(out, "&lmvar_%s", g_globals.names[i]);
             _idx++;
