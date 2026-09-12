@@ -2062,6 +2062,15 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp++] = val;
                 break;
             }
+            case OPC_LOAD_STRUCT_PTR: {
+                /* 加载 struct 变量的指针（用于方法 self 参数）；VM 中行为同 OPC_LOAD_VAR */
+                const char* name = bf->syms[in.a];
+                _Bool fnd = 0;
+                Value vv = stackframe_get(frame, name, &fnd);
+                if(!fnd) runtime_undefined("变量", name);
+                stack[sp++] = vv;
+                break;
+            }
             case OPC_STORE_NESTED_FIELD: {
                 Value val = stack[--sp];
                 const char* vname = bf->syms[in.a];

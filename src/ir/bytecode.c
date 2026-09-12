@@ -24,6 +24,7 @@ void bytecode_func_free(BytecodeFunc* fn)
     free(fn->consts);
     for(int i = 0; i < fn->param_cnt + fn->has_variadic; i++) free(fn->params[i]);
     free(fn->params);
+    free(fn->method_self_struct);
     free(fn->var_type_tags);
     if(fn->var_struct_names) {
         for(int i = 0; i < fn->sym_cnt; i++) free(fn->var_struct_names[i]);
@@ -170,6 +171,8 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
             return 1;                        // 压1（字段值）
         case OPC_STORE_FIELD:
             return 0;                        // 弹1压1（表达式值）
+        case OPC_LOAD_STRUCT_PTR:
+            return 1;                        // 压1（struct 指针）
         case OPC_STORE_NESTED_FIELD:
             return 0;                        // 弹1压1（表达式值）
         case OPC_STORE_VAR:

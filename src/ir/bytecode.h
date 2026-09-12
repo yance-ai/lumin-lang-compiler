@@ -28,6 +28,7 @@ typedef enum {
     OPC_LOAD_FIELD,   // a=变量符号下标，b=字段名常量下标；直接加载 struct 字段（零开销）
     OPC_STORE_FIELD,  // a=变量符号下标，b=字段名常量下标；弹值写入 struct 字段，压回值（零开销）
     OPC_STORE_NESTED_FIELD, // a=变量符号下标，b=组合字段名常量下标（如 "top_left.x"）；弹值写入嵌套 struct 字段
+    OPC_LOAD_STRUCT_PTR,   // a=变量索引；加载 struct 变量的指针（用于方法 self 参数）
     OPC_BUILTIN,      // a=内置函数 ID，b=实参个数（见 BuiltinId）
     OPC_PRINT,        // 打印栈顶，不弹出
     OPC_TO_BOOL,      // 弹1压1 bool
@@ -195,6 +196,8 @@ typedef struct {
     int is_generator;          // 是否为生成器函数（gen func）
     int* var_type_tags;        // 变量类型标记（CastKind 枚举，-1 表示无标记），与 syms 平行数组
     char** var_struct_names;    // 变量的 struct 类型名（NULL 表示不是 struct），与 syms 平行数组
+    int is_method;              // 是否为结构体方法（self 参数传递指针）
+    char* method_self_struct;   // 方法 self 参数的 struct 类型名
 } BytecodeFunc;
 
 BytecodeFunc* bytecode_func_new(const char* name, int is_main);

@@ -41,6 +41,21 @@ static int* g_struct_cast_kinds = NULL;
 static char** g_struct_prop_struct_names = NULL;
 static int g_struct_prop_n = 0, g_struct_prop_cap = 0;
 static char* g_current_struct_name = NULL; /* 当前正在解析的 struct 名，用于方法注册 */
+/* 辅助：如果在 struct 定义内部，给 self 参数加上 struct 类型标注 */
+static void annotate_self_if_in_struct(AstNode* func_def) {
+    if(!func_def || func_def->type != AST_FUNC_DEF) return;
+    if(!g_current_struct_name) return;
+    AstNode* p = func_def->u.func_def.params;
+    while(p) {
+        if(p->u.param.name && strcmp(p->u.param.name, "self") == 0) {
+            if(!p->u.param.constraint) {
+                p->u.param.constraint = strdup(g_current_struct_name);
+            }
+            break;
+        }
+        p = p->u.param.next;
+    }
+}
 static AstNode** g_struct_methods = NULL; /* 当前 struct 的方法定义临时列表 */
 static int g_struct_method_n = 0, g_struct_method_cap = 0;
 static void g_struct_method_push(AstNode* m) {
@@ -298,7 +313,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt yield_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop struct_prop_list struct_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list
+%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop struct_prop_list struct_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list struct_header
 %type<ll> type_name builtin_type_name type_keyword
 %type<s> type_name_str
 %type <ch> char_lit
@@ -510,16 +525,16 @@ closed_stmt
           free($3);
           $$ = L(ast_none());
       }
-    | TOK_STRUCT ID LBRACE struct_prop_list RBRACE {
+    | struct_header struct_prop_list RBRACE {
           /* struct Point { x: int, y: int, func dist(): int {...} }：编译期注册 struct 类型 */
-          g_current_struct_name = $2;
-          struct_register($2, g_struct_prop_names, g_struct_cast_kinds, g_struct_prop_struct_names, g_struct_prop_n);
+          /* g_current_struct_name 已在 struct_header 中设置 */
+          struct_register(g_current_struct_name, g_struct_prop_names, g_struct_cast_kinds, g_struct_prop_struct_names, g_struct_prop_n);
           /* 只添加方法到方法表（用于查找），不在这里编译方法 */
           /* 方法 AST 节点返回后作为独立函数定义被正常处理一次，避免重复定义 */
           for(int mi = 0; mi < g_struct_method_n; mi++) {
               AstNode* mnode = g_struct_methods[mi];
               if(mnode && mnode->type == AST_FUNC_DEF) {
-                  struct_add_method($2, mnode->u.func_def.name, mnode);
+                  struct_add_method(g_current_struct_name, mnode->u.func_def.name, mnode);
               }
           }
           /* 把方法定义的 AST 节点保存到临时列表 */
@@ -531,7 +546,6 @@ closed_stmt
           g_struct_method_clear();
           struct_prop_clear();
           g_current_struct_name = NULL;
-          free($2);
           /* 返回方法定义的 AST 节点，让它们作为独立函数定义被正常处理一次 */
           $$ = method_list ? L(method_list) : L(ast_none());
       }
@@ -602,6 +616,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);
           $$->u.func_def.annotations = NULL;
           $$->u.func_def.ret_type_name = strdup(castkind_to_name($2));
+          annotate_self_if_in_struct($$);
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val = {0};
@@ -615,6 +630,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($2, $4, $6);
           $$->u.func_def.annotations = NULL;
           $$->u.func_def.ret_type_name = NULL;
+          annotate_self_if_in_struct($$);
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val = {0};
@@ -628,6 +644,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           /* 运算符重载：func +(other) { ... } */
           $$ = ast_func_def($2, $4, $6);
           $$->u.func_def.annotations = NULL;
+          annotate_self_if_in_struct($$);
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val = {0};
           func_val.type = VAL_FUNC;
@@ -639,6 +656,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
         | annotation_list FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);
           $$->u.func_def.annotations = $1;
+          annotate_self_if_in_struct($$);
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val = {0};
@@ -652,6 +670,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);
           $$->u.func_def.annotations = NULL;
           $$->u.func_def.is_const = 1;
+          annotate_self_if_in_struct($$);
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val = {0};
@@ -666,6 +685,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);
           $$->u.func_def.annotations = NULL;
           $$->u.func_def.is_generator = 1;
+          annotate_self_if_in_struct($$);
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val = {0};
           func_val.type = VAL_FUNC;
@@ -678,6 +698,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
         | FUNC generic_param_list ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);
           $$->u.func_def.annotations = NULL;
+          annotate_self_if_in_struct($$);
           $$->u.func_def.generic_params = $2;
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val = {0};
@@ -1168,6 +1189,17 @@ struct_prop_list
     | struct_prop_list func_def  {
         /* struct 方法定义：保存到临时列表，struct 注册后再统一处理 */
         if($2 && $2->type == AST_FUNC_DEF) {
+            /* 给 self 参数加上 struct 类型标注（g_current_struct_name 已在 struct_header 中设置） */
+            AstNode* _p = $2->u.func_def.params;
+            while(_p) {
+                if(_p->u.param.name && strcmp(_p->u.param.name, "self") == 0) {
+                    if(!_p->u.param.constraint && g_current_struct_name) {
+                        _p->u.param.constraint = strdup(g_current_struct_name);
+                    }
+                    break;
+                }
+                _p = _p->u.param.next;
+            }
             g_struct_method_push($2);
         }
         $$ = ast_seq($1, $2);
@@ -1310,6 +1342,13 @@ assignment_expr
 
 expr
     : assignment_expr
+    ;
+
+struct_header: TOK_STRUCT ID LBRACE {
+          /* 在 LBRACE 时就设置 g_current_struct_name，这样方法定义时就能获取到 */
+          g_current_struct_name = $2;
+          $$ = NULL;
+      }
     ;
 
 %%

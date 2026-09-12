@@ -802,7 +802,32 @@ static void c_expr(Ctx* c, AstNode* node)
             }
             /* 引用语义：修改型内置直接原地修改，无需自动 DUP+STORE 回变量 */
             int argc = 0;
-            c_args(c, node->u.call.args, &argc);
+            /* 方法调用：self 参数如果是 struct 变量，用 OPC_LOAD_STRUCT_PTR 传递指针 */
+            BytecodeFunc* _callee = ir_func_table_lookup(node->u.call.name);
+            if(_callee && _callee->is_method && node->u.call.args) {
+                /* 参数列表可能是 AST_SEQ（多参数）或直接是参数值（单参数） */
+                AstNode* _first_arg = node->u.call.args;
+                AstNode* _rest_args = NULL;
+                if(_first_arg->type == AST_SEQ) {
+                    _rest_args = _first_arg->u.seq.second;
+                    _first_arg = _first_arg->u.seq.first;
+                }
+                if(_first_arg->type == AST_VAR) {
+                    const char* _self_name = _first_arg->u.varname;
+                    int _self_idx = bf_sym(c->fn, _self_name);
+                    if(c->fn->var_struct_names && c->fn->var_struct_names[_self_idx]) {
+                        emit(c, OPC_LOAD_STRUCT_PTR, _self_idx, 0);
+                        argc = 1;
+                        c_args(c, _rest_args, &argc);
+                    } else {
+                        c_args(c, node->u.call.args, &argc);
+                    }
+                } else {
+                    c_args(c, node->u.call.args, &argc);
+                }
+            } else {
+                c_args(c, node->u.call.args, &argc);
+            }
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
             static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values", "thread", "thread_join", "mutex", "rmutex", "rwlock", "spinlock", "lock", "unlock", "trylock", "rdlock", "wrlock", "tryrdlock", "trywrlock", "condvar", "cond_wait", "cond_wait_timeout", "cond_signal", "cond_broadcast", "threadlocal_get", "threadlocal_set", "get", "post", "put", "delete", "head", "patch", "json", "stringify", "add", "remove", "clear", "indexOf", "arr_get", "set", "first", "last", "has", "flat", "qs", "addAll", "bytes", "str", "encode", "decode", "encodeURL", "decodeURL", "md5", "encodeBase64", "decodeBase64", "regex_match", "regex_search", "regex_replace", "now", "timestamp", "timestamp_ms", "sleep", "date", "time", "datetime", "format_time", "debug", "info", "warn", "error", "fatal", "gc_count", "gc_bytes", "gc_collect", "gc_stw_ns", "next", "send", "receive", "close", "GenThrow", "chain", "zip", "skip", "take", "enumerate"};
             int bid = -1;
@@ -887,13 +912,35 @@ static void c_expr(Ctx* c, AstNode* node)
                 const char* vname = arr->u.varname;
                 const char* fname = idx->u.sval;
                 int var_idx = bf_sym(c->fn, vname);
-                if(c->fn->var_struct_names && c->fn->var_struct_names[var_idx]) {
-                    const char* sname = c->fn->var_struct_names[var_idx];
-                    TypeDef* td = struct_lookup(sname);
+                /* 方法 self 参数：从参数列表查找 self 的 constraint（不依赖 is_method，因为 recompile 可能丢失） */
+                const char* sname = NULL;
+                if(strcmp(vname, "self") == 0) {
+                    if(c->fn->method_self_struct) {
+                        sname = c->fn->method_self_struct;
+                    } else if(c->fn->var_struct_names && c->fn->var_struct_names[var_idx]) {
+                        sname = c->fn->var_struct_names[var_idx];
+                    }
+                } else if(c->fn->var_struct_names && c->fn->var_struct_names[var_idx]) {
+                    sname = c->fn->var_struct_names[var_idx];
+                }
+                if(sname) {
+                    /* 特殊属性 __classname__：直接加载类名字符串，不需要访问实例 */
+                    if(strcmp(fname, "__classname__") == 0) {
+                        int cname_idx = bf_const(c->fn, make_string(sname));
+                        emit(c, OPC_LOAD_CONST, cname_idx, 0);
+                        break;
+                    }
+                    /* 方法 self 参数：直接生成 OPC_LOAD_FIELD，不依赖 struct_lookup
+                       （parse 期 struct 可能还没注册，但 method_self_struct 已有类型名） */
                     int is_field = 0;
-                    if(td) {
-                        for(int fi = 0; fi < td->nprops; fi++) {
-                            if(strcmp(td->props[fi], fname) == 0) { is_field = 1; break; }
+                    if(strcmp(vname, "self") == 0 && c->fn->method_self_struct) {
+                        is_field = 1; /* 方法内 self 字段访问，直接信任 */
+                    } else {
+                        TypeDef* td = struct_lookup(sname);
+                        if(td) {
+                            for(int fi = 0; fi < td->nprops; fi++) {
+                                if(strcmp(td->props[fi], fname) == 0) { is_field = 1; break; }
+                            }
                         }
                     }
                     if(is_field) {
@@ -945,21 +992,25 @@ static void c_expr(Ctx* c, AstNode* node)
                 const char* vname = arr->u.varname;
                 const char* fname = idx->u.sval;
                 int var_idx = bf_sym(c->fn, vname);
-                if(c->fn->var_struct_names && c->fn->var_struct_names[var_idx]) {
+                /* 方法 self 参数：直接生成 OPC_STORE_FIELD，不依赖 struct_lookup
+                   （parse 期 struct 可能还没注册，但 method_self_struct 已有类型名） */
+                int is_field = 0;
+                if(strcmp(vname, "self") == 0 && c->fn->method_self_struct) {
+                    is_field = 1;
+                } else if(c->fn->var_struct_names && c->fn->var_struct_names[var_idx]) {
                     const char* sname = c->fn->var_struct_names[var_idx];
                     TypeDef* td = struct_lookup(sname);
-                    int is_field = 0;
                     if(td) {
                         for(int fi = 0; fi < td->nprops; fi++) {
                             if(strcmp(td->props[fi], fname) == 0) { is_field = 1; break; }
                         }
                     }
-                    if(is_field) {
-                        int field_idx = bf_const(c->fn, make_string(fname));
-                        c_expr(c, node->u.index_assign.value);
-                        emit(c, OPC_STORE_FIELD, var_idx, field_idx);
-                        break;
-                    }
+                }
+                if(is_field) {
+                    int field_idx = bf_const(c->fn, make_string(fname));
+                    c_expr(c, node->u.index_assign.value);
+                    emit(c, OPC_STORE_FIELD, var_idx, field_idx);
+                    break;
                 }
             }
             c_expr(c, arr);
@@ -1537,6 +1588,13 @@ static void compile_params(BytecodeFunc* fn, AstNode* params)
         if(p->u.param.is_ellipsis) fn->has_variadic = 1;
         fn->params = (char**)realloc(fn->params, sizeof(char*) * (idx + 1));
         fn->params[idx++] = strdup(p->u.param.name);
+        /* 参数有类型标注时，添加到 var_struct_names（不检查是否已注册，parse 期可能还没注册） */
+        if(p->u.param.name && p->u.param.constraint) {
+            int pidx = bf_sym(fn, p->u.param.name);
+            if(fn->var_struct_names) {
+                fn->var_struct_names[pidx] = strdup(p->u.param.constraint);
+            }
+        }
         p = p->u.param.next;
     }
     fn->param_cnt = idx - (fn->has_variadic ? 1 : 0);
@@ -1547,6 +1605,18 @@ BytecodeFunc* ir_compile_function(const char* name, AstNode* params, AstNode* bo
     BytecodeFunc* fn = bytecode_func_new(name, 0);
     fn->is_generator = is_generator;
     compile_params(fn, params);
+    /* 方法标记：第一个参数名是 "self" 时，标记为方法，self 传递 struct 指针 */
+    if(params && params->u.param.name && strcmp(params->u.param.name, "self") == 0) {
+        fn->is_method = 1;
+        if(params->u.param.constraint) {
+            fn->method_self_struct = strdup(params->u.param.constraint);
+            /* 把 self 参数添加到 var_struct_names，让 self.x 访问生成 OPC_LOAD_FIELD */
+            int self_idx = bf_sym(fn, "self");
+            if(fn->var_struct_names) {
+                fn->var_struct_names[self_idx] = strdup(params->u.param.constraint);
+            }
+        }
+    }
 
     Ctx c = { .fn = fn, .layer_depth = 0 };
     c_stmt(&c, body);
@@ -1561,7 +1631,28 @@ BytecodeFunc* ir_compile_function(const char* name, AstNode* params, AstNode* bo
 // 保持函数表顺序与 CALL 指令的 index 绑定不变）。
 BytecodeFunc* ir_func_table_recompile(const char* name, AstNode* params, AstNode* body)
 {
+    /* 先保存旧函数的方法标记（recompile 可能会丢失参数 constraint） */
+    int old_is_method = 0;
+    char* old_method_self_struct = NULL;
+    for(int i = 0; i < ir_func_count; i++) {
+        if(ir_func_table[i]->name && strcmp(ir_func_table[i]->name, name) == 0) {
+            old_is_method = ir_func_table[i]->is_method;
+            if(ir_func_table[i]->method_self_struct) {
+                old_method_self_struct = strdup(ir_func_table[i]->method_self_struct);
+            }
+            break;
+        }
+    }
     BytecodeFunc* nb = ir_compile_function(name, params, body, 0); // 内部 add 到表尾
+    /* 恢复方法标记 */
+    if(old_is_method && !nb->is_method) {
+        nb->is_method = old_is_method;
+        if(old_method_self_struct && !nb->method_self_struct) {
+            nb->method_self_struct = old_method_self_struct;
+            old_method_self_struct = NULL; /* 所有权转移 */
+        }
+    }
+    free(old_method_self_struct);
     int old = -1;
     for(int i = 0; i < ir_func_count - 1; i++) {
         if(ir_func_table[i]->name && strcmp(ir_func_table[i]->name, name) == 0) { old = i; break; }
