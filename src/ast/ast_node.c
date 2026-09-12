@@ -515,6 +515,7 @@ AstNode* ast_extern_func(char* name, AstNode* params, char* ret_type_name, char*
 }
 
 // 类型标注 <type>expr：给变量打类型标记（等价 C 的类型声明）
+// 数组/map 字面量：当前直接返回原字面量，元素级类型转换后续完善
 AstNode* ast_type_annotation(int cast_type, AstNode* expr) {
     AstNode* n = ast_new(AST_TYPE_ANNOTATION);
     n->u.type_annotation.cast_type = cast_type;
