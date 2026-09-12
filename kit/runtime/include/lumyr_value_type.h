@@ -10,6 +10,7 @@ typedef struct MapEntry MapEntry;
 typedef struct ValueMap ValueMap;
 // ✅ 新增前置声明：FuncEntry 参数需要 StackFrame*，此时还没完整定义 StackFrame
 typedef struct StackFrame StackFrame;
+typedef struct FFIFunc FFIFunc;
 
 // ✅ 修改：函数入口回调类型，新增 StackFrame* frame 参数
 // 函数原型类型，RuntimeFunc.entry 使用 FuncEntry*
@@ -84,9 +85,11 @@ typedef struct {
     char* stack;     // 调用栈回溯文本（可空）
 } ValueError;
 
-// VAL_FUNC：直接持有独立运行时函数堆对象
+// VAL_FUNC：直接持有独立运行时函数堆对象；FFI 外部函数用 ffi_func 字段
 typedef struct {
     RuntimeFunc* func_obj;
+    FFIFunc* ffi_func;    /* FFI 外部函数对象（is_ffi=1 时有效） */
+    int is_ffi;            /* 1=FFI 外部函数，0=普通函数 */
 } ValueFunc;
 
 // SSO 最大内联字符数（按字节算，不含 \0）

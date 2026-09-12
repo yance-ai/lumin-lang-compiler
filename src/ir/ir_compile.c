@@ -3,6 +3,9 @@
 // AST → 字节码 IR 编译器
 // 遍历结构与 ast_typecheck.c / codegen.c 对齐（用户建议复用其递归结构）。
 #include "ir_compile.h"
+#include "ir_cgen.h"
+#include "lumyr_ffi.h"
+#include "ast/ast_runtime_sym.h"
 #include "ir_opt.h"
 #include "ast/lumyr_types.h"
 #include "ast/ast_types.h"
@@ -1302,6 +1305,41 @@ static void c_stmt(Ctx* c, AstNode* node)
         case AST_FUNC_DEF:
             // 函数定义已由 yacc 期注册；顶层/函数体内的定义节点不产生指令
             break;
+        case AST_EXTERN_FUNC: {
+            /* FFI 外部函数声明：编译阶段创建 FFIFunc 对象，注册到全局符号表，
+               同时添加到编译通道的 extern 声明列表中 */
+            FFIType ret_type = (FFIType)node->u.extern_func.ret_type;
+            int param_count = 0;
+            AstNode* p = node->u.extern_func.params;
+            while(p) { param_count++; p = p->u.param.next; }
+            FFIType* param_types = NULL;
+            int* cgen_param_types = NULL;
+            if(param_count > 0) {
+                param_types = (FFIType*)malloc((size_t)param_count * sizeof(FFIType));
+                cgen_param_types = (int*)malloc((size_t)param_count * sizeof(int));
+                p = node->u.extern_func.params;
+                for(int i = 0; i < param_count && p; i++) {
+                    param_types[i] = lumyr_ffi_type_from_name(p->u.param.constraint);
+                    cgen_param_types[i] = (int)param_types[i];
+                    p = p->u.param.next;
+                }
+            }
+            FFIFunc* ffi = lumyr_ffi_func_create(node->u.extern_func.name,
+                                                    node->u.extern_func.libname,
+                                                    ret_type, param_types, param_count);
+            free(param_types);
+            Value fv;
+            fv.type = VAL_FUNC;
+            fv.v.func.func_obj = NULL;
+            fv.v.func.ffi_func = ffi;
+            fv.v.func.is_ffi = 1;
+            sym_set(node->u.extern_func.name, fv);
+            /* 添加到编译通道的 extern 声明列表 */
+            ffi_decl_add(node->u.extern_func.name, node->u.extern_func.libname,
+                         (int)ret_type, cgen_param_types, param_count);
+            free(cgen_param_types);
+            break;
+        }
         default:
             break;
     }

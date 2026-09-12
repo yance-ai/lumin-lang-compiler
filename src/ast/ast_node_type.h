@@ -137,6 +137,13 @@ struct AstNode {
         } yieldnode;
 
         struct {
+            char* name;       // 外部函数名
+            AstNode* params;  // AST_PARAM链表（参数类型在 constraint 字段）
+            int ret_type;     // 返回值类型（ValueType）
+            char* libname;    // 库名（NULL = 从当前进程符号表查找）
+        } extern_func;
+
+        struct {
             char* name;
             int is_ellipsis; // 1=...args可变参数，只能最后一个
             AstNode* default_val; // 默认值表达式，NULL=无默认值

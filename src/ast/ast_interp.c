@@ -1,4 +1,5 @@
 #include "ast_interp.h"
+#include "lumyr_ffi.h"
 #include "ast_runtime_sym.h"
 #include "func_compile.h"
 #include "stackframe.h"
@@ -567,8 +568,38 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
             Value fv;
             fv.type = VAL_FUNC;
             fv.v.func.func_obj = rf;
+            fv.v.func.ffi_func = NULL;
+            fv.v.func.is_ffi = 0;
             stackframe_set(frame, node->u.func_def.name, fv);
             return fv;
+        }
+        case AST_EXTERN_FUNC:
+        {
+            /* FFI 外部函数声明：创建 FFIFunc 对象，包装成 Value 注册到符号表 */
+            FFIType ret_type = (FFIType)node->u.extern_func.ret_type;
+            int param_count = 0;
+            AstNode* p = node->u.extern_func.params;
+            while(p) { param_count++; p = p->u.param.next; }
+            FFIType* param_types = NULL;
+            if(param_count > 0) {
+                param_types = (FFIType*)malloc((size_t)param_count * sizeof(FFIType));
+                p = node->u.extern_func.params;
+                for(int i = 0; i < param_count && p; i++) {
+                    param_types[i] = lumyr_ffi_type_from_name(p->u.param.constraint);
+                    p = p->u.param.next;
+                }
+            }
+            FFIFunc* ffi = lumyr_ffi_func_create(node->u.extern_func.name,
+                                                    node->u.extern_func.libname,
+                                                    ret_type, param_types, param_count);
+            free(param_types);
+            Value fv;
+            fv.type = VAL_FUNC;
+            fv.v.func.func_obj = NULL;
+            fv.v.func.ffi_func = ffi;
+            fv.v.func.is_ffi = 1;
+            sym_set(node->u.extern_func.name, fv);
+            return make_nil();
         }
 
         // ---- 函数调用：新建栈帧 → 参数绑定 → 调用entry → 销毁栈帧 ----
@@ -589,6 +620,20 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
             if(func_val.type != VAL_FUNC) {
                 fprintf(stderr, "Runtime Error: 尝试调用非函数: %s\n", fname);
                 exit(EXIT_FAILURE);
+            }
+            /* FFI 外部函数调用 */
+            if(func_val.v.func.is_ffi && func_val.v.func.ffi_func) {
+                int argc = 0;
+                arg_list_count(node->u.call.args, &argc);
+                Value* args = NULL;
+                if(argc > 0) {
+                    args = (Value*)malloc(sizeof(Value) * (size_t)argc);
+                    int idx = 0;
+                    arg_list_collect(node->u.call.args, args, &idx, ctx, frame);
+                }
+                Value ret = lumyr_ffi_call(func_val.v.func.ffi_func, args, argc);
+                free(args);
+                return ret;
             }
             RuntimeFunc* rf = func_val.v.func.func_obj;
 

@@ -47,6 +47,7 @@ AstNode* ast_case_append(AstNode* case_list, AstNode* one_case);
 
 // func def: func name(params) body
 AstNode* ast_func_def(char* name, AstNode* params, AstNode* body);
+AstNode* ast_extern_func(char* name, AstNode* params, int ret_type, char* libname);
 // 形参；is_ellipsis=1代表 ...args
 AstNode* ast_param(char* name, int is_ellipsis, AstNode* default_val);
 AstNode* ast_param_append(AstNode* list, AstNode* p);

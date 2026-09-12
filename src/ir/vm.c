@@ -1,6 +1,7 @@
 // 字节码 VM 执行器
 // 指令语义与 ast_interp.c 对齐（栈帧链变量、调用绑定、return 深拷贝、break/continue 编译期跳转）。
 #include "vm.h"
+#include "lumyr_ffi.h"
 #include "ast/stackframe.h"
 #include "ast/func_compile.h"
 #include "ast/ast_runtime_sym.h"
@@ -2204,6 +2205,14 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     char buf[256];
                     snprintf(buf, sizeof(buf), "尝试调用非函数: %s", fname);
                     runtime_error(buf);
+                }
+                /* FFI 外部函数调用 */
+                if(func_val.v.func.is_ffi && func_val.v.func.ffi_func) {
+                    Value* eval_args = (sp > 0 && argc > 0) ? &stack[sp - argc] : NULL;
+                    Value ret = lumyr_ffi_call(func_val.v.func.ffi_func, eval_args, argc);
+                    sp -= argc;
+                    stack[sp++] = ret;
+                    break;
                 }
                 RuntimeFunc* rf = func_val.v.func.func_obj;
                 // 2. 实参：栈顶 argc 个（指针指向 VM 栈，entry 内绑定完成前有效）

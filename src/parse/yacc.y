@@ -222,7 +222,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
 %token CONTINUE
-%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE CONST MACRO TOK_GEN TOK_YIELD
+%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE CONST MACRO TOK_GEN TOK_YIELD TOK_EXTERN
 %token READ WRITE
 %token COMMA
 %token AND OR NOT MOD
@@ -585,6 +585,14 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
           sym_set($3, func_val);
+        }
+        /* FFI 外部函数声明：extern func name(params): ret_type */
+        | TOK_EXTERN FUNC ID LPAREN param_list RPAREN COLON type_name SEMI {
+          $$ = ast_extern_func($3, $5, $8, NULL);
+        }
+        /* FFI 外部函数声明（指定库）：extern "libname" func name(params): ret_type */
+        | TOK_EXTERN STRING_LIT FUNC ID LPAREN param_list RPAREN COLON type_name SEMI {
+          $$ = ast_extern_func($4, $6, $9, $2);
         } ;
 
 /* 函数定义列表：用于扩展方法块 */
@@ -625,6 +633,7 @@ param
     : ID                     { $$ = ast_param($1, 0, NULL); } /*普通参数 is_ellipsis=0 */
     | ID ASSIGN expr         { $$ = ast_param($1, 0, $3); } /*带默认值的参数 */
     | ELLIPSIS ID            { $$ = ast_param($2, 1, NULL); } /* ...args 可变参数 is_ellipsis=1 */
+    | ID COLON type_name     { $$ = ast_param($1, 0, NULL); $$->u.param.constraint = valtype_to_name($3); } /*带类型标注的参数 */
 ;
 
 /* 注解：@name 或 @name(args) */

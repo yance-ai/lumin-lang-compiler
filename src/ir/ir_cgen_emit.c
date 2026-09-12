@@ -1059,6 +1059,59 @@ void emit_insns(BytecodeFunc* fn)
                     fprintf(out, "    }\n");
                     break;
                 }
+                /* FFI 外部函数调用：直接生成 C 函数调用代码 */
+                int ffi_idx = -1;
+                for(int fi = 0; fi < ffi_decl_count(); fi++) {
+                    if(strcmp(ffi_decl_get(fi)->name, nm) == 0) { ffi_idx = fi; break; }
+                }
+                if(ffi_idx >= 0) {
+                    FFIDecl* ffi = ffi_decl_get(ffi_idx);
+                    int argc = in.b;
+                    fprintf(out, "    {\n");
+                    fprintf(out, "        int __lmin_argc = %d;\n", argc);
+                    fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
+                    fprintf(out, "        for (int __k = 0; __k < __lmin_argc; __k++) __args[__k] = __stk[__sp - __lmin_argc + __k];\n");
+                    fprintf(out, "        __sp -= __lmin_argc;\n");
+                    /* 生成函数调用 */
+                    if(ffi->ret_type == 0) {
+                        /* void 返回值 */
+                        fprintf(out, "        %s(", nm);
+                    } else {
+                        /* 有返回值：先声明 C 类型变量，再调用，再转换为 Value */
+                        const char* ret_c = "long long";
+                        switch(ffi->ret_type) {
+                            case 1: ret_c = "long long"; break;
+                            case 2: ret_c = "double"; break;
+                            case 3: ret_c = "int"; break;
+                            case 4: ret_c = "const char*"; break;
+                            default: ret_c = "long long"; break;
+                        }
+                        fprintf(out, "        %s __ffi_ret = %s(", ret_c, nm);
+                    }
+                    for(int k = 0; k < argc && k < ffi->param_count; k++) {
+                        if(k) fprintf(out, ", ");
+                        switch(ffi->param_types[k]) {
+                            case 1: fprintf(out, "(long long)value_as_number(__args[%d])", k); break;
+                            case 2: fprintf(out, "value_as_number(__args[%d])", k); break;
+                            case 3: fprintf(out, "lumyr_to_bool(__args[%d])", k); break;
+                            case 4: fprintf(out, "lumyr_str_cstr(&__args[%d])", k); break;
+                            default: fprintf(out, "(long long)value_as_number(__args[%d])", k); break;
+                        }
+                    }
+                    fprintf(out, ");\n");
+                    /* 返回值转换为 Value */
+                    if(ffi->ret_type != 0) {
+                        switch(ffi->ret_type) {
+                            case 1: fprintf(out, "        __stk[__sp++] = val_int((int64_t)__ffi_ret);\n"); break;
+                            case 2: fprintf(out, "        __stk[__sp++] = val_double(__ffi_ret);\n"); break;
+                            case 3: fprintf(out, "        __stk[__sp++] = val_bool(__ffi_ret);\n"); break;
+                            case 4: fprintf(out, "        __stk[__sp++] = lumyr_make_string(__ffi_ret);\n"); break;
+                            default: fprintf(out, "        __stk[__sp++] = val_int((int64_t)__ffi_ret);\n"); break;
+                        }
+                    }
+                    fprintf(out, "    }\n");
+                    break;
+                }
                 BytecodeFunc* callee = ir_func_table_lookup(nm);
                 if(!callee) {
                     fprintf(stderr, "codegen: 未定义函数: %s\n", nm);

@@ -52,6 +52,7 @@ typedef enum {
     AST_DESTRUCT,      // 解构赋值 a,b = [1,2]
     AST_SPREAD,        // 展开运算符 ...expr（数组/map 字面量内）
     AST_YIELD,         // yield 表达式（生成器函数中）
+    AST_EXTERN_FUNC,   // FFI 外部函数声明 extern func f(a): ret
 } AstType;
 
 // 二元运算符

@@ -5,6 +5,7 @@
  * 这些函数和变量不对外暴露，仅在 ir_cgen 系列模块内部使用 */
 
 #include "bytecode.h"
+#include "ir_cgen.h"
 #include "ir_compile.h"
 #include "ast/lumyr_types.h"
 #include "ast/func_compile.h"

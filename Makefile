@@ -93,6 +93,7 @@ RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_crypto.c
 RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_regex.c
 RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_time.c
 RUNTIME_SRCS += $(RUNTIME_DIR)/src/lm_qs.c
+RUNTIME_SRCS += $(RUNTIME_DIR)/src/lumyr_ffi.c
 # Value 类型定义已迁移到 kit/runtime/
 RUNTIME_SRCS += $(RUNTIME_DIR)/src/lumyr_value.c
 

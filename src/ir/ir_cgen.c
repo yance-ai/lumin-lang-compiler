@@ -12,6 +12,32 @@ NameSet g_globals;      // 全局变量（main 指令流引用）
 NameSet fn_locals;      // 当前函数局部变量（非参数、非全局）
 BytecodeFunc* g_cur_fn; // 当前生成所在函数（NULL=main）
 
+/* FFI 外部函数声明列表（编译通道用） */
+static FFIDecl* g_ffi_decls = NULL;
+static int g_ffi_count = 0;
+static int g_ffi_cap = 0;
+
+void ffi_decl_add(const char* name, const char* libname, int ret_type, int* param_types, int param_count) {
+    if(g_ffi_count >= g_ffi_cap) {
+        g_ffi_cap = g_ffi_cap ? g_ffi_cap * 2 : 8;
+        g_ffi_decls = (FFIDecl*)realloc(g_ffi_decls, (size_t)g_ffi_cap * sizeof(FFIDecl));
+    }
+    FFIDecl* d = &g_ffi_decls[g_ffi_count++];
+    d->name = name ? strdup(name) : NULL;
+    d->libname = libname ? strdup(libname) : NULL;
+    d->ret_type = ret_type;
+    d->param_count = param_count;
+    if(param_count > 0 && param_types) {
+        d->param_types = (int*)malloc((size_t)param_count * sizeof(int));
+        memcpy(d->param_types, param_types, (size_t)param_count * sizeof(int));
+    } else {
+        d->param_types = NULL;
+    }
+}
+
+int ffi_decl_count(void) { return g_ffi_count; }
+FFIDecl* ffi_decl_get(int idx) { return (idx >= 0 && idx < g_ffi_count) ? &g_ffi_decls[idx] : NULL; }
+
 /* 逃逸分析结果：
  * g_stack_alloc[i]=1：指令 i 处的 OPC_ARRAY_LIT 栈分配（ValueArray 结构体）
  * g_items_stack_alloc[i]=1：items 缓冲区也栈分配（完全免堆）
@@ -539,6 +565,9 @@ void emit_main(BytecodeFunc* main_fn)
     }
     fprintf(out, "\n");
 
+    // FFI 外部函数：不生成 extern 声明，直接调用 C 函数（依赖系统头文件或用户自定义头文件中的声明）
+    // 常见系统头文件已在文件开头 include，覆盖大部分 C 标准库函数
+
     // 函数原型（前向引用/递归）
     for(int i = 0; i < ir_func_table_count(); i++) {
         emit_func_proto(ir_func_table_get(i));
@@ -689,6 +718,8 @@ void ir_cgen_file(const char* out_c_path, BytecodeFunc* main_fn)
     fprintf(out, "#include <stdio.h>\n");
     fprintf(out, "#include <stdlib.h>\n");
     fprintf(out, "#include <string.h>\n");
+    fprintf(out, "#include <math.h>\n");
+    fprintf(out, "#include <stdint.h>\n");
     fprintf(out, "#include \"lm_runtime.h\"\n");
     fprintf(out, "#include \"lm_map.h\"\n");
     fprintf(out, "#include \"lm_thread.h\"\n");

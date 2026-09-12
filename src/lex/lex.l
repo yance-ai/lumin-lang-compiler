@@ -45,6 +45,7 @@ static int is_expr_end(int t)
 "yield"         { LEX_RET(TOK_YIELD); }
 "const"         { LEX_RET(CONST); }
 "macro"         { LEX_RET(MACRO); }
+"extern"        { LEX_RET(TOK_EXTERN); }
 
 "print"         { LEX_RET(PRINT); }
 "true"          { LEX_RET(TRUE); }

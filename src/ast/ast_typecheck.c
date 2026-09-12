@@ -152,6 +152,11 @@ static void collect_top_level(AstNode* node) {
             static_sym_put(node->u.func_def.name, VAL_FUNC);
             break;
         }
+        case AST_EXTERN_FUNC: {
+            // FFI 外部函数声明：登记函数名（支持前向引用）
+            static_sym_put(node->u.extern_func.name, VAL_FUNC);
+            break;
+        }
         case AST_BINOP:
             collect_top_level(node->u.bin.left);
             collect_top_level(node->u.bin.right);
