@@ -37,7 +37,7 @@ Value lumyr_range_n(Value* args, int n) {
 Value lumyr_del(Value* arr, Value idx)
 {
     if(arr->type == VAL_MAP) {
-        lumyr_check_classname_ro(*arr, idx, "删除");
+        lumyr_check_mapname_ro(*arr, idx, "删除");
         lumyr_map_del(arr, idx);
         return *arr;
     }
@@ -119,7 +119,7 @@ Value lumyr_array_get_safe(Value arr, Value idx)
 Value lumyr_array_set_method(Value arr, Value idx, Value val)
 {
     if(arr.type == VAL_MAP) {
-        lumyr_check_classname_ro(arr, idx, "赋值");
+        lumyr_check_mapname_ro(arr, idx, "赋值");
         lumyr_map_set(&arr, idx, val);
         return arr;
     }
@@ -166,27 +166,27 @@ Value lumyr_array_last(Value arr)
 Value lumyr_map_add(Value m, Value k, Value v)
 {
     if(m.type != VAL_MAP) runtime_error("add() 第一个参数必须是数组或字典");
-    lumyr_check_classname_ro(m, k, "赋值");
+    lumyr_check_mapname_ro(m, k, "赋值");
     lumyr_map_set(&m, k, v);
     return m;
 }
 
 // clear 容器：原地清空（保留 capacity），返回自身支持链式
-// 只读 __classname__ 不被清理：type 构造对象 clear 后类名属性保留
+// 只读 __mapname__ 不被清理：type 构造对象 clear 后类名属性保留
 Value lumyr_array_clear(Value* v)
 {
     if(v->type == VAL_MAP) {
         ValueMap* m = v->v.map;
         Value cnv = val_none();
-        if(lumyr_map_has(*v, lumyr_make_string("__classname__")))
-            cnv = lumyr_map_get(*v, lumyr_make_string("__classname__"));
+        if(lumyr_map_has(*v, lumyr_make_string("__mapname__")))
+            cnv = lumyr_map_get(*v, lumyr_make_string("__mapname__"));
         // 清空所有桶（entry 由 GC 回收，此处仅从数据结构摘除）
         for(int bi = 0; bi < m->cap; bi++) {
             m->buckets[bi] = NULL;
             m->tree[bi] = 0;
         }
         m->len = 0;
-        if(cnv.type != VAL_NONE) { lumyr_map_set(v, lumyr_make_string("__classname__"), cnv); }
+        if(cnv.type != VAL_NONE) { lumyr_map_set(v, lumyr_make_string("__mapname__"), cnv); }
         return *v;
     }
     if(v->type == VAL_ARRAY) {

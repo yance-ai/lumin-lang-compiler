@@ -373,18 +373,18 @@ long long range_to_ll(Value v) {
 }
 
 // range(n) / range(a,b) / range(a,b,step)：生成等差数列数组
-// 只读属性检查：type 构造对象的 __classname__ 不可写/删（map 写路径统一拦截）
-void lumyr_check_classname_ro(Value arr, Value idx, const char* op)
+// 只读属性检查：type 构造对象的 __mapname__ 不可写/删（map 写路径统一拦截）
+void lumyr_check_mapname_ro(Value arr, Value idx, const char* op)
 {
-    if(arr.type == VAL_MAP && idx.type == VAL_STRING && strcmp(lumyr_str_cstr(&idx), "__classname__") == 0) {
+    if(arr.type == VAL_MAP && idx.type == VAL_STRING && strcmp(lumyr_str_cstr(&idx), "__mapname__") == 0) {
         char b[96];
-        snprintf(b, sizeof b, "只读属性 __classname__ 不能%s", op);
+        snprintf(b, sizeof b, "只读属性 __mapname__ 不能%s", op);
         runtime_error(b);
     }
 }
 
 Value lumyr_array_set(Value arr, Value idx, Value val) {
-    if(arr.type == VAL_MAP) { lumyr_check_classname_ro(arr, idx, "赋值"); lumyr_map_set(&arr, idx, val); return val; }
+    if(arr.type == VAL_MAP) { lumyr_check_mapname_ro(arr, idx, "赋值"); lumyr_map_set(&arr, idx, val); return val; }
     if(arr.type != VAL_ARRAY) runtime_error("下标访问的对象不是数组");
     long long i = array_index_of(idx);
     if(i < 0 || i >= arr.v.array->len) {

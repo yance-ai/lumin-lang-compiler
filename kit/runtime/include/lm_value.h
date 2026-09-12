@@ -38,7 +38,7 @@ Value lumyr_logic_not(Value v);
 // ===== 数组 =====
 Value lumyr_array_get(Value arr, Value idx);
 Value lumyr_array_set(Value arr, Value idx, Value val);
-void lumyr_check_classname_ro(Value arr, Value idx, const char* op); // 只读 __classname__ 拦截
+void lumyr_check_mapname_ro(Value arr, Value idx, const char* op); // 只读 __mapname__ 拦截
 Value lumyr_len(Value v);           // 数组/字符串/字典长度
 Value lumyr_index_get(Value c, Value idx);  // 数组元素 / 字符串字符 / 字典键
 
