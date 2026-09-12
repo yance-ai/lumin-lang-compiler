@@ -291,6 +291,16 @@ void emit_func_def(BytecodeFunc* fn)
         g_is_generator = 1;
         g_gen_yield_count = 0;
 
+        /* 收集所有 try-catch 块的 catch 标签（用于 GenThrow 时直接 goto catch 块） */
+        int try_labels[256];
+        int try_label_count = 0;
+        for(int ti = 0; ti < fn->code_len && try_label_count < 256; ti++) {
+            if(fn->code[ti].op == OPC_TRY) {
+                try_labels[try_label_count++] = fn->code[ti].a;
+            }
+        }
+        gen_set_try_labels(try_labels, try_label_count);
+
         /* 1. 生成状态机结构体 */
         emit_gen_struct(fn);
 

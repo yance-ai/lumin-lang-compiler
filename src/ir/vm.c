@@ -336,7 +336,11 @@ static void generator_restore_try_context(GeneratorObject* gen)
 
     vm_depth = depth;
     vm_fin_n = fin_n;
-    g_err_jmp = gen->saved_g_err_jmp;
+    /* 只有当生成器内部有 try-catch 时才恢复 g_err_jmp；
+     * 否则保持当前调用者的 g_err_jmp，使 GenThrow 抛出的异常能传播到调用者 */
+    if(depth > 0) {
+        g_err_jmp = gen->saved_g_err_jmp;
+    }
 
     if(depth > 0) {
         memcpy(vm_jbs, gen->saved_vm_jbs, (size_t)depth * sizeof(jmp_buf));

@@ -18,6 +18,18 @@
 int g_gen_yield_count = 0;
 int g_is_generator = 0;  /* 当前是否在生成器函数中 */
 
+/* 当前生成器的 try-catch 块 catch 标签列表（用于 GenThrow 时直接 goto catch 块，
+   避免 longjmp 到旧栈帧的未定义行为） */
+static int s_gen_try_labels[256];
+static int s_gen_try_label_count = 0;
+
+void gen_set_try_labels(int* labels, int count) {
+    s_gen_try_label_count = count;
+    for(int i = 0; i < count && i < 256; i++) {
+        s_gen_try_labels[i] = labels[i];
+    }
+}
+
 /*
  * 统计函数中 OPC_YIELD 的数量
  */
@@ -41,6 +53,14 @@ void emit_gen_struct(BytecodeFunc* fn) {
     fprintf(out, "    Value (*next)(void*, Value);  /* next() 函数指针（通用接口，包装生成器可调用） */\n");
     fprintf(out, "    int __state;          /* 执行状态：0=初始, 1..n=yield点, -1=结束（与包装生成器布局一致） */\n");
     fprintf(out, "    Value __send_val;     /* send() 发送的值，receive() 返回 */\n");
+    fprintf(out, "    Value __pending_exc;  /* 待抛出的异常（GenThrow() 设置，恢复时抛出） */\n");
+    fprintf(out, "    int __has_pending_exc; /* 是否有待抛出的异常 */\n");
+    fprintf(out, "    int __saved_depth;     /* 暂停时的 try-catch 嵌套深度 */\n");
+    fprintf(out, "    jmp_buf* __saved_err_jmp; /* 暂停时的错误跳转缓冲区 */\n");
+    fprintf(out, "    int __saved_fin_n;     /* 暂停时的 finally 嵌套深度 */\n");
+    fprintf(out, "    int __saved_trace_n;   /* 暂停时的调用栈深度 */\n");
+    fprintf(out, "    jmp_buf __saved_jb;    /* 暂停时最内层 setjmp 缓冲区内容 */\n");
+    fprintf(out, "    int __saved_catch_tgt; /* 暂停时最内层 try-catch 块的 catch 标签编号 */\n");
     fprintf(out, "    int __sp;             /* 操作数栈指针 */\n");
     fprintf(out, "    Value __stk[%d];      /* 操作数栈 */\n", maxd + 2);
 
@@ -151,8 +171,54 @@ void emit_gen_yield(BytecodeFunc* fn, int yield_id) {
     fprintf(out, "    __g_gen_in_generator = 0;  /* 暂停时离开生成器上下文 */\n");
     fprintf(out, "    g->__state = %d;\n", yield_id);
     fprintf(out, "    g->__sp = __sp;\n");
+    fprintf(out, "    g->__saved_depth = __g_depth;\n");
+    fprintf(out, "    g->__saved_err_jmp = g_err_jmp;\n");
+    fprintf(out, "    g->__saved_fin_n = __g_fin_n;\n");
+    fprintf(out, "    g->__saved_trace_n = g_trace_n;\n");
+    fprintf(out, "    if(__g_depth > 0) memcpy(g->__saved_jb, __g_jbs[__g_depth - 1], sizeof(jmp_buf));\n");
+    fprintf(out, "    g->__saved_catch_tgt = (__g_depth > 0) ? __g_tgt[__g_depth - 1] : -1;\n");
     fprintf(out, "    return __stk[__sp - 1];\n");
     fprintf(out, "__gen_yield_%d:\n", yield_id);
+    /* 从 yield 恢复：先恢复 try-catch 上下文（g_err_jmp 等），否则异常无法被生成器内部 catch */
+    fprintf(out, "    __g_depth = g->__saved_depth;\n");
+    fprintf(out, "    /* 只有当生成器内部有 try-catch 时才恢复 g_err_jmp；否则保持调用者的 g_err_jmp */\n");
+    fprintf(out, "    if(g->__saved_depth > 0) g_err_jmp = g->__saved_err_jmp;\n");
+    fprintf(out, "    __g_fin_n = g->__saved_fin_n;\n");
+    fprintf(out, "    g_trace_n = g->__saved_trace_n;\n");
+    fprintf(out, "    if(__g_depth > 0) memcpy(__g_jbs[__g_depth - 1], g->__saved_jb, sizeof(jmp_buf));\n");
+    /* 从 yield 恢复：先检查是否有待抛出的异常（GenThrow），有则立即抛出 */
+    fprintf(out, "    if(g->__has_pending_exc) {\n");
+    fprintf(out, "        g->__has_pending_exc = 0;\n");
+    fprintf(out, "        Value __v = g->__pending_exc;\n");
+    fprintf(out, "        const char* __type = \"Error\"; char* __msg = NULL;\n");
+    fprintf(out, "        if(__v.type == VAL_ERROR) { __type = __v.v.err.type ? __v.v.err.type : \"Error\"; __msg = strdup(__v.v.err.message ? __v.v.err.message : \"\"); }\n");
+    fprintf(out, "        else if(__v.type == VAL_MAP) {\n");
+    fprintf(out, "            if(lumyr_map_has(__v, lumyr_make_string(\"type\"))) { Value __tv = lumyr_map_get(__v, lumyr_make_string(\"type\")); if(__tv.type == VAL_STRING) __type = lumyr_str_cstr(&__tv); }\n");
+    fprintf(out, "            if(lumyr_map_has(__v, lumyr_make_string(\"message\"))) { Value __mv = lumyr_map_get(__v, lumyr_make_string(\"message\")); if(__mv.type == VAL_STRING) __msg = strdup(lumyr_str_cstr(&__mv)); }\n");
+    fprintf(out, "        }\n");
+    fprintf(out, "        if(!__msg) __msg = value_to_str(__v);\n");
+    fprintf(out, "        g_err_type_set(__type); g_err_msg_set(__msg); free(__msg);\n");
+    fprintf(out, "        if(g->__saved_catch_tgt >= 0) {\n");
+    fprintf(out, "            /* 生成器内部有 try-catch：直接跳转到 catch 块，避免 longjmp 到旧栈帧 */\n");
+    fprintf(out, "            g->__state = -1;\n");
+    fprintf(out, "            int __d2 = (int)(g_err_jmp - __g_jbs);\n");
+    fprintf(out, "            if(__d2 < 0) __d2 = g->__saved_depth - 1;\n");
+    fprintf(out, "            __sp = __g_sp0[__d2]; __g_depth = __d2; g_err_jmp = __g_prev[__d2];\n");
+    fprintf(out, "            switch(g->__saved_catch_tgt) {\n");
+    for(int ti = 0; ti < s_gen_try_label_count; ti++) {
+        fprintf(out, "                case %d: goto L%d;\n", s_gen_try_labels[ti], s_gen_try_labels[ti]);
+    }
+    fprintf(out, "                default: break;\n");
+    fprintf(out, "            }\n");
+    fprintf(out, "        } else {\n");
+    fprintf(out, "            /* 生成器内部没有 try-catch：g_err_jmp 已经是调用者的值（恢复时未覆盖），直接 longjmp */\n");
+    fprintf(out, "            g->__state = -1;\n");
+    fprintf(out, "            __g_depth = g->__saved_depth;\n");
+    fprintf(out, "            __g_fin_n = g->__saved_fin_n; g_trace_n = g->__saved_trace_n;\n");
+    fprintf(out, "            if(g_err_jmp) longjmp(*g_err_jmp, 1);\n");
+    fprintf(out, "        }\n");
+    fprintf(out, "        fprintf(stderr, \"Runtime Error: %%s\\n\", g_err_msg); exit(EXIT_FAILURE);\n");
+    fprintf(out, "    }\n");
     /* 从 yield 恢复：如果有 send 值，压入栈 */
     fprintf(out, "    if(__send_val.type != VAL_NONE) { __stk[__sp++] = __send_val; }\n");
 }

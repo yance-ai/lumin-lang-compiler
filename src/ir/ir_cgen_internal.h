@@ -114,5 +114,6 @@ extern void emit_gen_next_header(BytecodeFunc* fn);
 extern void emit_gen_next_footer(BytecodeFunc* fn);
 extern void emit_gen_yield(BytecodeFunc* fn, int yield_id);
 extern void emit_gen_wrapper_support(void);
+extern void gen_set_try_labels(int* labels, int count);  /* 设置当前生成器的 try-catch 块 catch 标签列表 */
 
 #endif // LUMYR_IR_CGEN_INTERNAL_H

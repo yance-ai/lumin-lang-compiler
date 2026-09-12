@@ -341,6 +341,16 @@ void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "    { Value __g = __stk[--__sp]; if(__g.type == VAL_GENERATOR) { struct { void* next; int __state; } *__gen = (void*)__g.v.generator; __gen->__state = -1; } __stk[__sp++] = val_none(); }\n");
                         break;
                     }
+                    case BUILTIN_GEN_THROW: {
+                        /* GenThrow(gen, err)：向生成器抛出异常，在 yield 位置抛出 */
+                        fprintf(out, "    { Value __err = __stk[--__sp]; Value __g = __stk[--__sp];\n");
+                        fprintf(out, "      if(__g.type != VAL_GENERATOR) { fprintf(stderr, \"Runtime Error: GenThrow() 需要生成器对象\\n\"); exit(EXIT_FAILURE); }\n");
+                        fprintf(out, "      struct { Value (*next)(void*, Value); int __state; Value __send_val; Value __pending_exc; int __has_pending_exc; } *__gen = (void*)__g.v.generator;\n");
+                        fprintf(out, "      if(__gen->__state == -1) { fprintf(stderr, \"Runtime Error: GenThrow() 生成器已结束\\n\"); exit(EXIT_FAILURE); }\n");
+                        fprintf(out, "      __gen->__pending_exc = __err; __gen->__has_pending_exc = 1;\n");
+                        fprintf(out, "      __stk[__sp++] = __gen->next(__g.v.generator, val_none()); }\n");
+                        break;
+                    }
                     case BUILTIN_RECEIVE: {
                         fprintf(out, "    { __stk[__sp++] = __g_gen_in_generator ? __g_gen_send_val : val_none(); }\n");
                         break;
