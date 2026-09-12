@@ -8,8 +8,8 @@ struct Point {
 
 p = Point(10, 20);
 
-// 测试 __classname__（已有）
-print("__classname__:", p.__classname__);
+// 测试 __mapname__（已有）
+print("__mapname__:", p.__mapname__);
 
 // 测试 __structname__（新增）
 print("__structname__:", p.__structname__);

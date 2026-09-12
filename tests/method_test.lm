@@ -129,7 +129,7 @@ print(m.first());                  // 2（引用语义：x 已被删，首键 y 
 print(m.last());                   // 2
 print(m.add("z", 3).len());        // 2（y+z）
 print(m.set("w", 4).len());        // 3（y+z+w）
-print(m.clear().len());            // 0（普通 map 无 __classname__，清空后 0）
+print(m.clear().len());            // 0（普通 map 无 __mapname__，清空后 0）
 
 print("== 边界 ==");
 print(len([].clear()));                // 0

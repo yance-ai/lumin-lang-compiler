@@ -70,7 +70,7 @@ print("== 11. 泛型自定义 type 值 ==");
 type Pixel { r: uint8, g: uint8, b: uint8 }
 m11 = <string,Pixel>{"red": {r:255,g:0,b:0}};
 print(m11["red"].r);
-print(m11["red"].__classname__);
+print(m11["red"].__mapname__);
 
 print("== 12. keys() 返回任意类型键数组 ==");
 m12 = {1: "a", 2: "b"};

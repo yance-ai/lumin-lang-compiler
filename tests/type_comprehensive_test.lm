@@ -28,7 +28,7 @@ p1 = Point(10, 20);
 c1 = Color(255, 128, 0);
 print("Point x:", p1.x, "y:", p1.y);
 print("Color r:", c1.r, "g:", c1.g, "b:", c1.b);
-print("Point class:", p1.__classname__);
+print("Point class:", p1.__mapname__);
 
 // ========== 3. 自定义 type 嵌套 ==========
 print("\n--- 3. Nested Custom Type ---");
@@ -37,7 +37,7 @@ pix1 = Pixel(Point(5, 5), Color(255, 0, 0));
 print("Pixel pos x:", pix1.pos.x);
 print("Pixel pos y:", pix1.pos.y);
 print("Pixel color r:", pix1.color.r);
-print("Pixel class:", pix1.__classname__);
+print("Pixel class:", pix1.__mapname__);
 
 // ========== 4. 自定义 type 作为数组元素 ==========
 print("\n--- 4. Custom Type in Array ---");

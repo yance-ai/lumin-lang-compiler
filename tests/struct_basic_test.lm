@@ -6,7 +6,7 @@ struct Point { x: int, y: int }
 p = Point(10, 20);
 print("p.x:", p.x);
 print("p.y:", p.y);
-print("p class:", p.__classname__);
+print("p class:", p.__mapname__);
 
 // struct 作为函数参数
 func get_x(pt) {

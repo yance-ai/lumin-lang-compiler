@@ -59,12 +59,12 @@ ts3 = [];
 for (i = 0; i < N; i = i + 1) { ts3 = ts3.add(thread(person_worker, i)); }
 for (i = 0; i < N; i = i + 1) { thread_join(ts3[i]); }
 print(len(people));            // 60
-print(people[0].__classname__);  // Person（type 构造注入）
+print(people[0].__mapname__);  // Person（type 构造注入）
 p0 = people[0];
-print(p0.__classname__ == "Person");  // true
+print(p0.__mapname__ == "Person");  // true
 ok = true;
 for (i = 0; i < len(people); i = i + 1) {
-    if (people[i].__classname__ != "Person") { ok = false; }
+    if (people[i].__mapname__ != "Person") { ok = false; }
     if (people[i].age != i) { ok = false; }
     if (people[i].name != "t" + i) { ok = false; }
 }
@@ -84,7 +84,7 @@ ts4 = [];
 for (i = 0; i < 20; i = i + 1) { ts4 = ts4.add(thread(incr_worker)); }
 for (i = 0; i < 20; i = i + 1) { thread_join(ts4[i]); }
 print(shared.age);             // 2000（20 线程 × 100 次）
-print(shared.__classname__);   // Person（属性变更不影响类名）
+print(shared.__mapname__);   // Person（属性变更不影响类名）
 
 print("== 多线程并发读（map 键值确定性验证） ==");
 mr = mutex();

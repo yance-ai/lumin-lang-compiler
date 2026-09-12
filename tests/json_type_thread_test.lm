@@ -71,14 +71,14 @@ print(stringify(pix));
 print(pix.pos.x);
 print(pix.color.r);
 
-print("== 12. type 实例序列化（含 __classname__） ==");
+print("== 12. type 实例序列化（含 __mapname__） ==");
 pt = Point(x=10, y=20);
-print(pt.__classname__);
+print(pt.__mapname__);
 spt = stringify(pt);
 print(spt);
 ppt = json(spt);
 print(ppt["x"]);
-print(ppt["__classname__"]);
+print(ppt["__mapname__"]);
 
 print("== 13. 多线程：并发序列化 ==");
 func worker(id) {

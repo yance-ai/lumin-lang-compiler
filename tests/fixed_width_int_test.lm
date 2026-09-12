@@ -48,7 +48,7 @@ type Pixel { r: uint8, g: uint8, b: uint8 }
 p = Pixel(200, 128, 64);
 print(p.r);  // 200
 print(p.g);  // 128
-print(p.__classname__);  // Pixel
+print(p.__mapname__);  // Pixel
 print("== 12. long / long long ==");
 print((long)3.14);       // 3
 print((long long)3.14);  // 3

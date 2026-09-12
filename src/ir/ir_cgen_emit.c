@@ -34,7 +34,7 @@ static void emit_struct_to_value(const char* struct_name, const char* var_expr) 
         fprintf(out, "    { Value __v = {0}; __stk[__sp++] = __v; }\n");
         return;
     }
-    int nkv = td->nprops + 2;  // +2 for __classname__ and __structname__
+    int nkv = td->nprops + 2;  // +2 for __mapname__ and __structname__
     fprintf(out, "    {\n");
     fprintf(out, "        Value __kv[%d];\n", 2 * nkv);
     for(int i = 0; i < td->nprops; i++) {
@@ -51,7 +51,7 @@ static void emit_struct_to_value(const char* struct_name, const char* var_expr) 
             fprintf(out, "        __kv[%d] = lumyr_make_int((long long)%s->%s);\n", 2*i+1, var_expr, fname);
         }
     }
-    fprintf(out, "        __kv[%d] = lumyr_make_string(\"__classname__\");\n", 2*td->nprops);
+    fprintf(out, "        __kv[%d] = lumyr_make_string(\"__mapname__\");\n", 2*td->nprops);
     fprintf(out, "        __kv[%d] = lumyr_make_string(\"%s\");\n", 2*td->nprops+1, struct_name);
     fprintf(out, "        __kv[%d] = lumyr_make_string(\"__structname__\");\n", 2*td->nprops+2);
     fprintf(out, "        __kv[%d] = lumyr_make_string(\"%s\");\n", 2*td->nprops+3, struct_name);
