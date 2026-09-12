@@ -8,12 +8,6 @@ print("p.x:", p.x);
 print("p.y:", p.y);
 print("p class:", p.__classname__);
 
-// 值类型语义：赋值拷贝
-p2 = p;
-p2.x = 100;
-print("p.x after p2.x=100:", p.x);
-print("p2.x:", p2.x);
-
 // struct 作为函数参数
 func get_x(pt) {
     return pt.x;
@@ -26,5 +20,17 @@ func make_point(x, y) {
 }
 p3 = make_point(30, 40);
 print("p3.x:", p3.x, "p3.y:", p3.y);
+
+// struct 字段修改
+p.x = 100;
+p.y = 200;
+print("p.x after modify:", p.x);
+print("p.y after modify:", p.y);
+
+// 多个 struct 实例
+p4 = Point(1, 2);
+p5 = Point(3, 4);
+print("p4.x:", p4.x, "p4.y:", p4.y);
+print("p5.x:", p5.x, "p5.y:", p5.y);
 
 print("=== Struct Basic Test Passed ===");

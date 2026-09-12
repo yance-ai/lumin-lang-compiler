@@ -32,22 +32,26 @@ static void emit_struct_to_value(const char* struct_name, const char* var_expr) 
         fprintf(out, "    { Value __v = {0}; __stk[__sp++] = __v; }\n");
         return;
     }
+    int nkv = td->nprops + 1;  // +1 for __classname__
     fprintf(out, "    {\n");
-    fprintf(out, "        Value __v = lumyr_make_map();\n");
+    fprintf(out, "        Value __kv[%d];\n", 2 * nkv);
     for(int i = 0; i < td->nprops; i++) {
         int ck = td->field_cast_kinds ? td->field_cast_kinds[i] : CAST_LONGLONG;
         const char* fname = td->props[i];
+        fprintf(out, "        __kv[%d] = lumyr_make_string(\"%s\");\n", 2*i, fname);
         if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-            fprintf(out, "        lumyr_map_set(&__v, \"%s\", lumyr_make_double((double)%s.%s));\n", fname, var_expr, fname);
+            fprintf(out, "        __kv[%d] = lumyr_make_double((double)%s.%s);\n", 2*i+1, var_expr, fname);
         } else if(ck == CAST_STRING) {
-            fprintf(out, "        lumyr_map_set(&__v, \"%s\", lumyr_make_string(%s.%s));\n", fname, var_expr, fname);
+            fprintf(out, "        __kv[%d] = lumyr_make_string(%s.%s);\n", 2*i+1, var_expr, fname);
         } else if(ck == CAST_BOOL) {
-            fprintf(out, "        lumyr_map_set(&__v, \"%s\", lumyr_make_bool((int)%s.%s));\n", fname, var_expr, fname);
+            fprintf(out, "        __kv[%d] = lumyr_make_bool((int)%s.%s);\n", 2*i+1, var_expr, fname);
         } else {
-            fprintf(out, "        lumyr_map_set(&__v, \"%s\", lumyr_make_int((long long)%s.%s));\n", fname, var_expr, fname);
+            fprintf(out, "        __kv[%d] = lumyr_make_int((long long)%s.%s);\n", 2*i+1, var_expr, fname);
         }
     }
-    fprintf(out, "        lumyr_map_set(&__v, \"__classname__\", lumyr_make_string(\"%s\"));\n", struct_name);
+    fprintf(out, "        __kv[%d] = lumyr_make_string(\"__classname__\");\n", 2*td->nprops);
+    fprintf(out, "        __kv[%d] = lumyr_make_string(\"%s\");\n", 2*td->nprops+1, struct_name);
+    fprintf(out, "        Value __v = lumyr_map_lit(__kv, %d);\n", nkv);
     fprintf(out, "        __stk[__sp++] = __v;\n");
     fprintf(out, "    }\n");
 }
@@ -62,13 +66,13 @@ static void emit_value_to_struct(const char* struct_name, const char* var_expr, 
         const char* ctype = emit_tag_to_ctype(ck);
         if(!ctype) ctype = "int64_t";
         if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-            fprintf(out, "        %s.%s = (%s)lumyr_map_get(&%s, \"%s\").v.d;\n", var_expr, fname, ctype, value_expr, fname);
+            fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.d;\n", var_expr, fname, ctype, value_expr, fname);
         } else if(ck == CAST_STRING) {
-            fprintf(out, "        %s.%s = (%s)lumyr_str_cstr(&lumyr_map_get(&%s, \"%s\"));\n", var_expr, fname, ctype, value_expr, fname);
+            fprintf(out, "        %s.%s = (%s)lumyr_str_cstr(&lumyr_map_get(%s, lumyr_make_string(\"%s\")));\n", var_expr, fname, ctype, value_expr, fname);
         } else if(ck == CAST_BOOL) {
-            fprintf(out, "        %s.%s = (%s)lumyr_map_get(&%s, \"%s\").v.b;\n", var_expr, fname, ctype, value_expr, fname);
+            fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.b;\n", var_expr, fname, ctype, value_expr, fname);
         } else {
-            fprintf(out, "        %s.%s = (%s)lumyr_map_get(&%s, \"%s\").v.i;\n", var_expr, fname, ctype, value_expr, fname);
+            fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.i;\n", var_expr, fname, ctype, value_expr, fname);
         }
     }
 }

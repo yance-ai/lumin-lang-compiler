@@ -682,8 +682,20 @@ void emit_main(BytecodeFunc* main_fn)
     // 生成器组合操作（包装生成器）运行时支持
     emit_gen_wrapper_support();
 
-    // TODO: 生成 C struct 定义（后续实现完整的 C struct 优化）
-    // 当前 struct 用 Value(Map) 实现，保证功能正常
+    // 生成 C struct 定义（所有已注册的 struct 类型）
+    for(int si = 0; si < type_count(); si++) {
+        TypeDef* td = type_get(si);
+        if(td && td->is_struct && td->nprops > 0) {
+            fprintf(out, "typedef struct {\n");
+            for(int fi = 0; fi < td->nprops; fi++) {
+                int ck = td->field_cast_kinds ? td->field_cast_kinds[fi] : CAST_LONGLONG;
+                const char* ftype = castkind_to_c_type(ck);
+                if(!ftype) ftype = "int64_t";
+                fprintf(out, "    %s %s;\n", ftype, td->props[fi]);
+            }
+            fprintf(out, "} lumyr_struct_%s;\n\n", td->name);
+        }
+    }
 
     // 全局变量：main 指令流里的全部变量引用
     memset(&g_globals, 0, sizeof(g_globals));
