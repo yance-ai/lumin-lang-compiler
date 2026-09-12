@@ -911,6 +911,36 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_INDEX_ASSIGN: {
             AstNode* arr = node->u.index_assign.arr;
             AstNode* idx = node->u.index_assign.idx;
+            /* 嵌套 struct 字段赋值：r.top_left.x = 100 */
+            if(arr && arr->type == AST_INDEX && arr->u.index.arr && arr->u.index.arr->type == AST_VAR &&
+               arr->u.index.idx && arr->u.index.idx->type == AST_STRING &&
+               idx && idx->type == AST_STRING) {
+                const char* vname = arr->u.index.arr->u.varname;
+                const char* nested_fname = arr->u.index.idx->u.sval;
+                const char* fname = idx->u.sval;
+                int var_idx = bf_sym(c->fn, vname);
+                if(c->fn->var_struct_names && c->fn->var_struct_names[var_idx]) {
+                    const char* sname = c->fn->var_struct_names[var_idx];
+                    TypeDef* td = struct_lookup(sname);
+                    int is_nested_field = 0;
+                    if(td && td->field_struct_names) {
+                        for(int fi = 0; fi < td->nprops; fi++) {
+                            if(strcmp(td->props[fi], nested_fname) == 0 && td->field_struct_names[fi]) {
+                                is_nested_field = 1;
+                                break;
+                            }
+                        }
+                    }
+                    if(is_nested_field) {
+                        char combined[256];
+                        snprintf(combined, sizeof(combined), "%s.%s", nested_fname, fname);
+                        int field_idx = bf_const(c->fn, make_string(combined));
+                        c_expr(c, node->u.index_assign.value);
+                        emit(c, OPC_STORE_NESTED_FIELD, var_idx, field_idx);
+                        break;
+                    }
+                }
+            }
             if(arr && arr->type == AST_VAR && idx && idx->type == AST_STRING) {
                 const char* vname = arr->u.varname;
                 const char* fname = idx->u.sval;

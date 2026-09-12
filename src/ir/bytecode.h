@@ -27,6 +27,7 @@ typedef enum {
     OPC_INDEX_SET,    // 弹 arr,idx,val 写回；压回 val（表达式值）
     OPC_LOAD_FIELD,   // a=变量符号下标，b=字段名常量下标；直接加载 struct 字段（零开销）
     OPC_STORE_FIELD,  // a=变量符号下标，b=字段名常量下标；弹值写入 struct 字段，压回值（零开销）
+    OPC_STORE_NESTED_FIELD, // a=变量符号下标，b=组合字段名常量下标（如 "top_left.x"）；弹值写入嵌套 struct 字段
     OPC_BUILTIN,      // a=内置函数 ID，b=实参个数（见 BuiltinId）
     OPC_PRINT,        // 打印栈顶，不弹出
     OPC_TO_BOOL,      // 弹1压1 bool

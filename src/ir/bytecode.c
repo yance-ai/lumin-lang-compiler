@@ -170,6 +170,8 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
             return 1;                        // 压1（字段值）
         case OPC_STORE_FIELD:
             return 0;                        // 弹1压1（表达式值）
+        case OPC_STORE_NESTED_FIELD:
+            return 0;                        // 弹1压1（表达式值）
         case OPC_STORE_VAR:
             return 0;                        // 弹1压1
         case OPC_PRINT:

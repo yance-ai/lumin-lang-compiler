@@ -571,6 +571,62 @@ void emit_insns(BytecodeFunc* fn)
                 }
                 break;
             }
+            case OPC_STORE_NESTED_FIELD: {
+                const char* vname = fn->syms[in.a];
+                const char* combined = lumyr_str_cstr(&fn->consts[in.b]);
+                const char* sname = emit_get_var_struct_name(fn, vname);
+                /* 解析组合字段名 "top_left.x" */
+                char nested_fname[128], field_name[128];
+                const char* dot = strchr(combined, '.');
+                if(dot && sname) {
+                    size_t nlen = (size_t)(dot - combined);
+                    if(nlen >= sizeof(nested_fname)) nlen = sizeof(nested_fname) - 1;
+                    memcpy(nested_fname, combined, nlen);
+                    nested_fname[nlen] = '\0';
+                    strncpy(field_name, dot + 1, sizeof(field_name) - 1);
+                    field_name[sizeof(field_name) - 1] = '\0';
+                    /* 查找嵌套 struct 的类型和字段类型 */
+                    TypeDef* td = struct_lookup(sname);
+                    const char* nested_sname = NULL;
+                    if(td && td->field_struct_names) {
+                        for(int fi = 0; fi < td->nprops; fi++) {
+                            if(strcmp(td->props[fi], nested_fname) == 0) {
+                                nested_sname = td->field_struct_names[fi];
+                                break;
+                            }
+                        }
+                    }
+                    int ck = CAST_LONGLONG;
+                    if(nested_sname) {
+                        TypeDef* nested_td = struct_lookup(nested_sname);
+                        if(nested_td && nested_td->field_cast_kinds) {
+                            for(int fi = 0; fi < nested_td->nprops; fi++) {
+                                if(strcmp(nested_td->props[fi], field_name) == 0) {
+                                    ck = nested_td->field_cast_kinds[fi];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    const char* ctype = emit_tag_to_ctype(ck);
+                    if(!ctype) ctype = "int64_t";
+                    fprintf(out, "    { Value __v = __stk[--__sp];\n");
+                    if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
+                        fprintf(out, "        %s->%s.%s = (%s)__v.v.d;\n", cvar_rw(vname), nested_fname, field_name, ctype);
+                    } else if(ck == CAST_STRING) {
+                        fprintf(out, "        %s->%s.%s = (%s)lumyr_str_cstr(&__v);\n", cvar_rw(vname), nested_fname, field_name, ctype);
+                    } else if(ck == CAST_BOOL) {
+                        fprintf(out, "        %s->%s.%s = (%s)__v.v.b;\n", cvar_rw(vname), nested_fname, field_name, ctype);
+                    } else {
+                        fprintf(out, "        %s->%s.%s = (%s)__v.v.i;\n", cvar_rw(vname), nested_fname, field_name, ctype);
+                    }
+                    fprintf(out, "        __stk[__sp++] = __v;\n    }\n");
+                } else {
+                    /* 降级为普通索引赋值 */
+                    fprintf(out, "    { Value __v = __stk[--__sp]; Value __c = %s; lumyr_array_set(__c, lumyr_make_string(\"%s\"), __v); __stk[__sp++] = __v; }\n", cvar_rw(vname), combined);
+                }
+                break;
+            }
             case OPC_BUILTIN:
                 fprintf(out, "    gc_stw_check_fast();\n");
                 switch(in.a) {

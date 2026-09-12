@@ -2062,6 +2062,30 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp++] = val;
                 break;
             }
+            case OPC_STORE_NESTED_FIELD: {
+                Value val = stack[--sp];
+                const char* vname = bf->syms[in.a];
+                const char* combined = lumyr_str_cstr(&bf->consts[in.b]);
+                _Bool fnd = 0;
+                Value obj = stackframe_get(frame, vname, &fnd);
+                if(!fnd) runtime_undefined("变量", vname);
+                /* 解析组合字段名 "top_left.x" */
+                char nested_fname[128], field_name[128];
+                const char* dot = strchr(combined, '.');
+                if(dot) {
+                    size_t nlen = (size_t)(dot - combined);
+                    if(nlen >= sizeof(nested_fname)) nlen = sizeof(nested_fname) - 1;
+                    memcpy(nested_fname, combined, nlen);
+                    nested_fname[nlen] = '\0';
+                    strncpy(field_name, dot + 1, sizeof(field_name) - 1);
+                    field_name[sizeof(field_name) - 1] = '\0';
+                    /* 访问嵌套 struct 字段，然后写入字段值 */
+                    Value nested = lumyr_index_get(obj, lumyr_make_string(nested_fname));
+                    lumyr_array_set(nested, lumyr_make_string(field_name), val);
+                }
+                stack[sp++] = val;
+                break;
+            }
             case OPC_BUILTIN: {
                 sp = vm_exec_builtin(in, stack, sp, frame, ctx);
                 break;
