@@ -514,22 +514,15 @@ closed_stmt
           /* struct Point { x: int, y: int, func dist(): int {...} }：编译期注册 struct 类型 */
           g_current_struct_name = $2;
           struct_register($2, g_struct_prop_names, g_struct_cast_kinds, g_struct_prop_struct_names, g_struct_prop_n);
-          /* struct 注册后，再添加方法到方法表，并编译注册为全局函数 */
+          /* 只添加方法到方法表（用于查找），不在这里编译方法 */
+          /* 方法 AST 节点返回后作为独立函数定义被正常处理一次，避免重复定义 */
           for(int mi = 0; mi < g_struct_method_n; mi++) {
               AstNode* mnode = g_struct_methods[mi];
               if(mnode && mnode->type == AST_FUNC_DEF) {
                   struct_add_method($2, mnode->u.func_def.name, mnode);
-                  RuntimeFunc* rf = compile_func_from_ast(mnode);
-                  Value func_val = {0};
-                  func_val.type = VAL_FUNC;
-                  func_val.v.func.func_obj = rf;
-                  func_val.v.func.ffi_func = NULL;
-                  func_val.v.func.is_ffi = 0;
-                  sym_set(mnode->u.func_def.name, func_val);
-                  static_sym_put(mnode->u.func_def.name, VAL_FUNC); /* 注册到静态符号表，语义检查用 */
               }
           }
-          /* 先把方法定义的 AST 节点保存到临时列表，再清空 g_struct_methods */
+          /* 把方法定义的 AST 节点保存到临时列表 */
           AstNode* method_list = NULL;
           for(int mi = 0; mi < g_struct_method_n; mi++) {
               AstNode* mnode = g_struct_methods[mi];
@@ -539,7 +532,7 @@ closed_stmt
           struct_prop_clear();
           g_current_struct_name = NULL;
           free($2);
-          /* 返回方法定义的 AST 节点，让语义检查遍历时能注册它们 */
+          /* 返回方法定义的 AST 节点，让它们作为独立函数定义被正常处理一次 */
           $$ = method_list ? L(method_list) : L(ast_none());
       }
     | TOK_ENUM ID LBRACE enum_members RBRACE {

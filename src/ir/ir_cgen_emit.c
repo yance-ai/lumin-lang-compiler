@@ -63,16 +63,26 @@ static void emit_value_to_struct(const char* struct_name, const char* var_expr, 
     for(int i = 0; i < td->nprops; i++) {
         int ck = td->field_cast_kinds ? td->field_cast_kinds[i] : CAST_LONGLONG;
         const char* fname = td->props[i];
-        const char* ctype = emit_tag_to_ctype(ck);
-        if(!ctype) ctype = "int64_t";
-        if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-            fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.d;\n", var_expr, fname, ctype, value_expr, fname);
-        } else if(ck == CAST_STRING) {
-            fprintf(out, "        %s.%s = (%s)lumyr_str_cstr(&lumyr_map_get(%s, lumyr_make_string(\"%s\")));\n", var_expr, fname, ctype, value_expr, fname);
-        } else if(ck == CAST_BOOL) {
-            fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.b;\n", var_expr, fname, ctype, value_expr, fname);
+        const char* nested_sname = td->field_struct_names ? td->field_struct_names[i] : NULL;
+        if(nested_sname) {
+            /* 嵌套 struct 字段：递归转换 */
+            static char nested_var[256];
+            snprintf(nested_var, sizeof(nested_var), "%s.%s", var_expr, fname);
+            static char nested_val[256];
+            snprintf(nested_val, sizeof(nested_val), "lumyr_map_get(%s, lumyr_make_string(\"%s\"))", value_expr, fname);
+            emit_value_to_struct(nested_sname, nested_var, nested_val);
         } else {
-            fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.i;\n", var_expr, fname, ctype, value_expr, fname);
+            const char* ctype = emit_tag_to_ctype(ck);
+            if(!ctype) ctype = "int64_t";
+            if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
+                fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.d;\n", var_expr, fname, ctype, value_expr, fname);
+            } else if(ck == CAST_STRING) {
+                fprintf(out, "        %s.%s = (%s)lumyr_str_cstr(&lumyr_map_get(%s, lumyr_make_string(\"%s\")));\n", var_expr, fname, ctype, value_expr, fname);
+            } else if(ck == CAST_BOOL) {
+                fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.b;\n", var_expr, fname, ctype, value_expr, fname);
+            } else {
+                fprintf(out, "        %s.%s = (%s)lumyr_map_get(%s, lumyr_make_string(\"%s\")).v.i;\n", var_expr, fname, ctype, value_expr, fname);
+            }
         }
     }
 }
@@ -496,7 +506,21 @@ void emit_insns(BytecodeFunc* fn)
                             }
                         }
                     }
-                    if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
+                    const char* nested_sname = NULL;
+                    if(td && td->field_struct_names) {
+                        for(int fi = 0; fi < td->nprops; fi++) {
+                            if(strcmp(td->props[fi], fname) == 0) {
+                                nested_sname = td->field_struct_names[fi];
+                                break;
+                            }
+                        }
+                    }
+                    if(nested_sname) {
+                        /* 嵌套 struct 字段：把 C struct 转换为 Value(Map) */
+                        static char nested_var[256];
+                        snprintf(nested_var, sizeof(nested_var), "%s.%s", cvar_rw(vname), fname);
+                        emit_struct_to_value(nested_sname, nested_var);
+                    } else if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
                         fprintf(out, "    __stk[__sp++] = lumyr_make_double((double)%s.%s);\n", cvar_rw(vname), fname);
                     } else if(ck == CAST_STRING) {
                         fprintf(out, "    __stk[__sp++] = lumyr_make_string(%s.%s);\n", cvar_rw(vname), fname);

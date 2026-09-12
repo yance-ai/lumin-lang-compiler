@@ -689,8 +689,16 @@ void emit_main(BytecodeFunc* main_fn)
             fprintf(out, "typedef struct {\n");
             for(int fi = 0; fi < td->nprops; fi++) {
                 int ck = td->field_cast_kinds ? td->field_cast_kinds[fi] : CAST_LONGLONG;
-                const char* ftype = castkind_to_c_type(ck);
-                if(!ftype) ftype = "int64_t";
+                const char* ftype;
+                if(td->field_struct_names && td->field_struct_names[fi]) {
+                    /* 嵌套 struct 字段，使用对应的 C struct 类型 */
+                    static char sname[256];
+                    snprintf(sname, sizeof(sname), "lumyr_struct_%s", td->field_struct_names[fi]);
+                    ftype = sname;
+                } else {
+                    ftype = castkind_to_c_type(ck);
+                    if(!ftype) ftype = "int64_t";
+                }
                 fprintf(out, "    %s %s;\n", ftype, td->props[fi]);
             }
             fprintf(out, "} lumyr_struct_%s;\n\n", td->name);
