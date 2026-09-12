@@ -137,10 +137,10 @@ struct AstNode {
         } yieldnode;
 
         struct {
-            char* name;       // 外部函数名
-            AstNode* params;  // AST_PARAM链表（参数类型在 constraint 字段）
-            int ret_type;     // 返回值类型（ValueType）
-            char* libname;    // 库名（NULL = 从当前进程符号表查找）
+            char* name;          // 外部函数名
+            AstNode* params;     // AST_PARAM链表（参数类型在 constraint 字段）
+            char* ret_type_name; // 返回值类型名（如 "int","double","string","ptr","handle"）
+            char* libname;       // 库名（NULL = 从当前进程符号表查找）
         } extern_func;
 
         struct {

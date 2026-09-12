@@ -251,6 +251,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<s> opt_catch_type
 %type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list
 %type<ll> type_name builtin_type_name type_keyword
+%type<s> type_name_str
 %type <ch> char_lit
 %type<ll> INTEGER
 %type<d> NUMBER
@@ -587,12 +588,18 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           sym_set($3, func_val);
         }
         /* FFI 外部函数声明：extern func name(params): ret_type */
-        | TOK_EXTERN FUNC ID LPAREN param_list RPAREN COLON type_name SEMI {
+        | TOK_EXTERN FUNC ID LPAREN param_list RPAREN COLON ID SEMI {
           $$ = ast_extern_func($3, $5, $8, NULL);
         }
+        | TOK_EXTERN FUNC ID LPAREN param_list RPAREN COLON builtin_type_name SEMI {
+          $$ = ast_extern_func($3, $5, castkind_to_name($8), NULL);
+        }
         /* FFI 外部函数声明（指定库）：extern "libname" func name(params): ret_type */
-        | TOK_EXTERN STRING_LIT FUNC ID LPAREN param_list RPAREN COLON type_name SEMI {
+        | TOK_EXTERN STRING_LIT FUNC ID LPAREN param_list RPAREN COLON ID SEMI {
           $$ = ast_extern_func($4, $6, $9, $2);
+        }
+        | TOK_EXTERN STRING_LIT FUNC ID LPAREN param_list RPAREN COLON builtin_type_name SEMI {
+          $$ = ast_extern_func($4, $6, castkind_to_name($9), $2);
         } ;
 
 /* 函数定义列表：用于扩展方法块 */
@@ -633,7 +640,7 @@ param
     : ID                     { $$ = ast_param($1, 0, NULL); } /*普通参数 is_ellipsis=0 */
     | ID ASSIGN expr         { $$ = ast_param($1, 0, $3); } /*带默认值的参数 */
     | ELLIPSIS ID            { $$ = ast_param($2, 1, NULL); } /* ...args 可变参数 is_ellipsis=1 */
-    | ID COLON type_name     { $$ = ast_param($1, 0, NULL); $$->u.param.constraint = valtype_to_name($3); } /*带类型标注的参数 */
+    | ID COLON type_name_str { $$ = ast_param($1, 0, NULL); $$->u.param.constraint = $3; } /*带类型标注的参数（直接存储原始类型名字符串）*/
 ;
 
 /* 注解：@name 或 @name(args) */
@@ -1072,6 +1079,12 @@ builtin_type_name
 type_name
     : builtin_type_name          { $$ = castkind_to_valtype($1); }
     | ID                         { $$ = type_name_to_valtype($1); }
+    ;
+
+/* 类型名字符串（用于 FFI 参数类型标注，直接返回原始字符串，避免 ValueType 枚举冲突） */
+type_name_str
+    : ID                         { $$ = $1; }
+    | builtin_type_name          { $$ = castkind_to_name($1); }
     ;
 
 /* 枚举成员：值 = 成员名字符串 */

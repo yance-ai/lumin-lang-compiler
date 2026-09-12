@@ -576,7 +576,7 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
         case AST_EXTERN_FUNC:
         {
             /* FFI 外部函数声明：创建 FFIFunc 对象，包装成 Value 注册到符号表 */
-            FFIType ret_type = (FFIType)node->u.extern_func.ret_type;
+            FFIType ret_type = lumyr_ffi_type_from_name(node->u.extern_func.ret_type_name);
             int param_count = 0;
             AstNode* p = node->u.extern_func.params;
             while(p) { param_count++; p = p->u.param.next; }

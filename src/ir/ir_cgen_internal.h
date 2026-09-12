@@ -6,6 +6,7 @@
 
 #include "bytecode.h"
 #include "ir_cgen.h"
+#include "lumyr_ffi.h"
 #include "ir_compile.h"
 #include "ast/lumyr_types.h"
 #include "ast/func_compile.h"

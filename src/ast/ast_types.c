@@ -114,6 +114,31 @@ ValueType castkind_to_valtype(int ck)
     }
 }
 
+/* CAST_xxx -> 类型名字符串（用于 FFI extern 函数返回类型存储） */
+char* castkind_to_name(int ck) {
+    switch(ck) {
+        case CAST_STRING: return strdup("string");
+        case CAST_INT: return strdup("int");
+        case CAST_DOUBLE: return strdup("double");
+        case CAST_BOOL: return strdup("bool");
+        case CAST_CHAR: return strdup("char");
+        case CAST_BYTE: return strdup("byte");
+        case CAST_INT8: return strdup("int8");
+        case CAST_INT16: return strdup("int16");
+        case CAST_INT32: return strdup("int32");
+        case CAST_INT64: return strdup("int64");
+        case CAST_UINT8: return strdup("uint8");
+        case CAST_UINT16: return strdup("uint16");
+        case CAST_UINT32: return strdup("uint32");
+        case CAST_UINT64: return strdup("uint64");
+        case CAST_LONG: return strdup("long");
+        case CAST_LONGLONG: return strdup("longlong");
+        case CAST_FLOAT: return strdup("float");
+        case CAST_ASCII: return strdup("ascii");
+        default: return strdup("int");
+    }
+}
+
 /* ValueType -> 类型名字符串（用于接口方法返回类型存储） */
 char* valtype_to_name(ValueType vt) {
     switch(vt) {

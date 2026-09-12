@@ -4,6 +4,13 @@
  * 支持动态加载 C 库并调用外部函数。
  * 编译通道：直接生成 extern 声明和 C 函数调用
  * VM 通道：通过动态加载库 + 函数指针调用
+ *
+ * 支持类型：
+ * - void, int, double, bool, string
+ * - ptr（指针/句柄/数组/结构体指针，用 int 存储）
+ * - callback（回调函数，Lumyr 函数作为 C 函数指针传递）
+ *
+ * 支持最多 16 个参数
  */
 #ifndef LUMYR_FFI_H
 #define LUMYR_FFI_H
@@ -21,8 +28,12 @@ typedef enum {
     FFI_DOUBLE,
     FFI_BOOL,
     FFI_STRING,
-    FFI_PTR
+    FFI_PTR,       /* 指针/句柄/数组/结构体指针 */
+    FFI_CALLBACK   /* 回调函数（函数指针） */
 } FFIType;
+
+#define FFI_MAX_ARGS 16
+#define FFI_MAX_CALLBACKS 16
 
 /* FFI 函数签名 */
 struct FFIFunc {
@@ -41,7 +52,7 @@ void* lumyr_ffi_load_lib(const char* libname);
 /* 获取函数地址（Windows: GetProcAddress, POSIX: dlsym） */
 void* lumyr_ffi_get_func(void* lib_handle, const char* funcname);
 
-/* 调用 FFI 函数（支持最多 6 个参数） */
+/* 调用 FFI 函数（支持最多 FFI_MAX_ARGS 个参数） */
 Value lumyr_ffi_call(FFIFunc* func, Value* args, int argc);
 
 /* 创建 FFI 函数对象 */
@@ -54,6 +65,20 @@ void lumyr_ffi_func_free(FFIFunc* func);
 /* 类型名转换 */
 FFIType lumyr_ffi_type_from_name(const char* name);
 const char* lumyr_ffi_type_to_name(FFIType type);
+
+/* 获取 C 类型名字符串（用于编译通道生成代码） */
+const char* lumyr_ffi_type_to_cname(FFIType type);
+
+/* ==================== 回调函数支持 ==================== */
+
+/* 注册回调函数，返回槽位 ID（作为函数指针传递给 C） */
+int lumyr_ffi_register_callback(Value func_val, int param_count);
+
+/* 注销回调函数 */
+void lumyr_ffi_unregister_callback(int slot);
+
+/* 调用 Lumyr 回调函数（由 FFI 调用的 C 函数内部触发） */
+Value lumyr_ffi_invoke_callback(int slot, Value* args, int argc);
 
 #ifdef __cplusplus
 }

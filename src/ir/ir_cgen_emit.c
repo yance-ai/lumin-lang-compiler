@@ -1078,35 +1078,64 @@ void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "        %s(", nm);
                     } else {
                         /* 有返回值：先声明 C 类型变量，再调用，再转换为 Value */
-                        const char* ret_c = "long long";
-                        switch(ffi->ret_type) {
-                            case 1: ret_c = "long long"; break;
-                            case 2: ret_c = "double"; break;
-                            case 3: ret_c = "int"; break;
-                            case 4: ret_c = "const char*"; break;
-                            default: ret_c = "long long"; break;
-                        }
+                        const char* ret_c = lumyr_ffi_type_to_cname((FFIType)ffi->ret_type);
                         fprintf(out, "        %s __ffi_ret = %s(", ret_c, nm);
                     }
                     for(int k = 0; k < argc && k < ffi->param_count; k++) {
                         if(k) fprintf(out, ", ");
-                        switch(ffi->param_types[k]) {
-                            case 1: fprintf(out, "(long long)value_as_number(__args[%d])", k); break;
-                            case 2: fprintf(out, "value_as_number(__args[%d])", k); break;
-                            case 3: fprintf(out, "lumyr_to_bool(__args[%d])", k); break;
-                            case 4: fprintf(out, "lumyr_str_cstr(&__args[%d])", k); break;
-                            default: fprintf(out, "(long long)value_as_number(__args[%d])", k); break;
+                        {
+                        FFIType ptype = (FFIType)ffi->param_types[k];
+                        switch(ptype) {
+                            case FFI_INT:
+                                fprintf(out, "(long long)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_PTR:
+                                /* 指针/句柄：直接传递 int 值 */
+                                fprintf(out, "(void*)(intptr_t)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_DOUBLE:
+                                fprintf(out, "value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_BOOL:
+                                fprintf(out, "lumyr_to_bool(__args[%d])", k);
+                                break;
+                            case FFI_STRING:
+                                fprintf(out, "lumyr_str_cstr(&__args[%d])", k);
+                                break;
+                            case FFI_CALLBACK:
+                                /* 回调函数：注册 Lumyr 函数，传递槽位 ID 作为函数指针 */
+                                fprintf(out, "(void*)(intptr_t)lumyr_ffi_register_callback(__args[%d], 4)", k);
+                                break;
+                            default:
+                                fprintf(out, "(long long)value_as_number(__args[%d])", k);
+                                break;
+                        }
                         }
                     }
                     fprintf(out, ");\n");
                     /* 返回值转换为 Value */
                     if(ffi->ret_type != 0) {
-                        switch(ffi->ret_type) {
-                            case 1: fprintf(out, "        __stk[__sp++] = val_int((int64_t)__ffi_ret);\n"); break;
-                            case 2: fprintf(out, "        __stk[__sp++] = val_double(__ffi_ret);\n"); break;
-                            case 3: fprintf(out, "        __stk[__sp++] = val_bool(__ffi_ret);\n"); break;
-                            case 4: fprintf(out, "        __stk[__sp++] = lumyr_make_string(__ffi_ret);\n"); break;
-                            default: fprintf(out, "        __stk[__sp++] = val_int((int64_t)__ffi_ret);\n"); break;
+                        {
+                        FFIType rtype = (FFIType)ffi->ret_type;
+                        switch(rtype) {
+                            case FFI_INT:
+                            case FFI_PTR:
+                                /* 指针/句柄返回：用 int 存储指针值 */
+                                fprintf(out, "        __stk[__sp++] = val_int((int64_t)(intptr_t)__ffi_ret);\n");
+                                break;
+                            case FFI_DOUBLE:
+                                fprintf(out, "        __stk[__sp++] = val_double(__ffi_ret);\n");
+                                break;
+                            case FFI_BOOL:
+                                fprintf(out, "        __stk[__sp++] = val_bool(__ffi_ret);\n");
+                                break;
+                            case FFI_STRING:
+                                fprintf(out, "        __stk[__sp++] = lumyr_make_string(__ffi_ret);\n");
+                                break;
+                            default:
+                                fprintf(out, "        __stk[__sp++] = val_int((int64_t)__ffi_ret);\n");
+                                break;
+                        }
                         }
                     }
                     fprintf(out, "    }\n");

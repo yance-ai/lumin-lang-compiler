@@ -505,11 +505,11 @@ AstNode* ast_func_def(char* name, AstNode* params, AstNode* body) {
     return n;
 }
 
-AstNode* ast_extern_func(char* name, AstNode* params, int ret_type, char* libname) {
+AstNode* ast_extern_func(char* name, AstNode* params, char* ret_type_name, char* libname) {
     AstNode* n = ast_new(AST_EXTERN_FUNC);
     n->u.extern_func.name = strdup(name);
     n->u.extern_func.params = params;
-    n->u.extern_func.ret_type = ret_type;
+    n->u.extern_func.ret_type_name = ret_type_name ? strdup(ret_type_name) : NULL;
     n->u.extern_func.libname = libname ? strdup(libname) : NULL;
     return n;
 }

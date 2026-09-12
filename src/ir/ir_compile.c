@@ -1308,7 +1308,7 @@ static void c_stmt(Ctx* c, AstNode* node)
         case AST_EXTERN_FUNC: {
             /* FFI 外部函数声明：编译阶段创建 FFIFunc 对象，注册到全局符号表，
                同时添加到编译通道的 extern 声明列表中 */
-            FFIType ret_type = (FFIType)node->u.extern_func.ret_type;
+            FFIType ret_type = lumyr_ffi_type_from_name(node->u.extern_func.ret_type_name);
             int param_count = 0;
             AstNode* p = node->u.extern_func.params;
             while(p) { param_count++; p = p->u.param.next; }
