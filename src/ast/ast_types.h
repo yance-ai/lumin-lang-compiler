@@ -30,6 +30,7 @@ TypeDef* type_get(int idx);
 ValueType type_name_to_valtype(const char* tname);
 char* valtype_to_name(ValueType vt);
 ValueType castkind_to_valtype(int ck);
+int valuetype_to_castkind(int vt);
 char* castkind_to_name(int ck);
 
 /* ===== 接口/trait 系统 ===== */

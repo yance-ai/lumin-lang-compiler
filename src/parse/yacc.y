@@ -951,8 +951,8 @@ primary
        <string,V>{k:v} map 值强转（键固定 string） */
     | TOK_TYPE_ANNOT unary_expr
         { $$ = ast_type_annotation($1, $2); }
-    | LT builtin_type_name COMMA builtin_type_name GT MAP_OPEN map_items RBRACE
-        { $$ = new_cast_node($4, ast_map_lit($7)); }
+    | LT type_name COMMA type_name GT MAP_OPEN map_items RBRACE
+        { $$ = new_cast_node(valuetype_to_castkind($4), ast_map_lit($7)); }
     | LT ID GT ARRAY_OPEN arg_list RBRACKET {
           /* 泛型自定义类型：<Person>[e1,e2] → [Person(e1), Person(e2)]（形状构造） */
           if(type_lookup($2) >= 0) {

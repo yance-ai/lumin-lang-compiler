@@ -122,6 +122,18 @@ ValueType castkind_to_valtype(int ck)
 }
 
 /* CAST_xxx -> 类型名字符串（用于 FFI extern 函数返回类型存储） */
+int valuetype_to_castkind(int vt) {
+    switch(vt) {
+        case VAL_INT: return CAST_LONGLONG;
+        case VAL_DOUBLE: return CAST_DOUBLE;
+        case VAL_BOOL: return CAST_BOOL;
+        case VAL_CHAR: return CAST_CHAR;
+        case VAL_STRING: return CAST_STRING;
+        case VAL_BYTE: return CAST_BYTE;
+        default: return CAST_LONGLONG;  /* 默认整数类型 */
+    }
+}
+
 char* castkind_to_name(int ck) {
     switch(ck) {
         case CAST_STRING: return strdup("string");
