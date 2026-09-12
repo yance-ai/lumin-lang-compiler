@@ -504,12 +504,19 @@ void emit_func_def(BytecodeFunc* fn)
             fprintf(out, "    Value* lmloc_%s = (Value*)malloc(sizeof(Value)); *lmloc_%s = val_none();\n",
                     fn_locals.names[i], fn_locals.names[i]);
         } else {
-            int tt = get_var_type_tag(fn, fn_locals.names[i]);
-            const char* ctype = (tt >= 0) ? castkind_to_c_type(tt) : NULL;
-            if(ctype) {
-                fprintf(out, "    %s lmloc_%s = 0;\n", ctype, fn_locals.names[i]);
+            const char* sname = get_var_struct_name(fn, fn_locals.names[i]);
+            if(sname) {
+                /* struct 类型局部变量：真正的 C 结构体，零开销 */
+                fprintf(out, "    lumyr_struct_%s lmloc_%s__s;\n", sname, fn_locals.names[i]);
+                fprintf(out, "    lumyr_struct_%s* lmloc_%s = &lmloc_%s__s;\n", sname, fn_locals.names[i], fn_locals.names[i]);
             } else {
-                fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
+                int tt = get_var_type_tag(fn, fn_locals.names[i]);
+                const char* ctype = (tt >= 0) ? castkind_to_c_type(tt) : NULL;
+                if(ctype) {
+                    fprintf(out, "    %s lmloc_%s = 0;\n", ctype, fn_locals.names[i]);
+                } else {
+                    fprintf(out, "    Value lmloc_%s = val_none();\n", fn_locals.names[i]);
+                }
             }
         }
     }

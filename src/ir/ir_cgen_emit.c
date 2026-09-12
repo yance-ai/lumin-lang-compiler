@@ -40,8 +40,19 @@ static void emit_struct_to_value(const char* struct_name, const char* var_expr) 
     for(int i = 0; i < td->nprops; i++) {
         int ck = td->field_cast_kinds ? td->field_cast_kinds[i] : CAST_LONGLONG;
         const char* fname = td->props[i];
+        const char* nested_sname = (td->field_struct_names) ? td->field_struct_names[i] : NULL;
         fprintf(out, "        __kv[%d] = lumyr_make_string(\"%s\");\n", 2*i, fname);
-        if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
+        if(nested_sname) {
+            /* 嵌套 struct 字段：递归转换成 Value(map)，存入临时变量 */
+            fprintf(out, "        { lumyr_struct_%s* __nested_p = &%s->%s;\n", nested_sname, var_expr, fname);
+            fprintf(out, "          Value __nested_kv[4];\n");
+            fprintf(out, "          __nested_kv[0] = lumyr_make_string(\"__mapname__\");\n");
+            fprintf(out, "          __nested_kv[1] = lumyr_make_string(\"%s\");\n", nested_sname);
+            fprintf(out, "          __nested_kv[2] = lumyr_make_string(\"__structname__\");\n");
+            fprintf(out, "          __nested_kv[3] = lumyr_make_string(\"%s\");\n", nested_sname);
+            fprintf(out, "          __kv[%d] = lumyr_map_lit(__nested_kv, 2);\n", 2*i+1);
+            fprintf(out, "        }\n");
+        } else if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
             fprintf(out, "        __kv[%d] = lumyr_make_double((double)%s->%s);\n", 2*i+1, var_expr, fname);
         } else if(ck == CAST_STRING) {
             fprintf(out, "        __kv[%d] = lumyr_make_string(%s->%s);\n", 2*i+1, var_expr, fname);
