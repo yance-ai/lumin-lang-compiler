@@ -327,8 +327,10 @@ static AstNode* build_type_ctor(AstNode* call, TypeDef* t)
         call->u.call.args = NULL;
         return m;
     }
-    /* 首项注入只读类名属性：__classname__ = 类型名 */
+    /* 首项注入只读类名属性：__classname__ / __structname__ = 类型名 */
     items = ast_seq(items, ast_map_entry(ast_string(strdup("__classname__")),
+                                         ast_string(strdup(t->name))));
+    items = ast_seq(items, ast_map_entry(ast_string(strdup("__structname__")),
                                          ast_string(strdup(t->name))));
     int n = argc < t->nprops ? argc : t->nprops;
     for(int k = 0; k < n; k++) {
@@ -924,8 +926,8 @@ static void c_expr(Ctx* c, AstNode* node)
                     sname = c->fn->var_struct_names[var_idx];
                 }
                 if(sname) {
-                    /* 特殊属性 __classname__：直接加载类名字符串，不需要访问实例 */
-                    if(strcmp(fname, "__classname__") == 0) {
+                    /* 特殊属性 __classname__ / __structname__：直接加载类名字符串，不需要访问实例 */
+                    if(strcmp(fname, "__classname__") == 0 || strcmp(fname, "__structname__") == 0) {
                         int cname_idx = bf_const(c->fn, make_string(sname));
                         emit(c, OPC_LOAD_CONST, cname_idx, 0);
                         break;

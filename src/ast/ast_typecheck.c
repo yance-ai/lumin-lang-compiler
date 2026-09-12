@@ -655,10 +655,11 @@ int typecheck_expr(AstNode* node)
             err |= typecheck_expr(node->u.index_assign.arr);
             err |= typecheck_expr(node->u.index_assign.idx);
             err |= typecheck_expr(node->u.index_assign.value);
-            /* 只读属性：__classname__ 编译期拦截（DOT 属性赋值与 "[" 下标赋值） */
+            /* 只读属性：__classname__ / __structname__ 编译期拦截（DOT 属性赋值与 "[" 下标赋值） */
             if(node->u.index_assign.idx->type == AST_STRING &&
-               strcmp(node->u.index_assign.idx->u.sval, "__classname__") == 0) {
-                fprintf(stderr, "语义错误(第%d行)：只读属性 __classname__ 不能赋值\n", node->line);
+               (strcmp(node->u.index_assign.idx->u.sval, "__classname__") == 0 ||
+                strcmp(node->u.index_assign.idx->u.sval, "__structname__") == 0)) {
+                fprintf(stderr, "语义错误(第%d行)：只读属性 %s 不能赋值\n", node->line, node->u.index_assign.idx->u.sval);
                 err = 1;
             }
             if(node->u.index_assign.arr->val_type != VAL_ARRAY &&
