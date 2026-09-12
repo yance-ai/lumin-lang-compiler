@@ -139,7 +139,7 @@ void emit_insns(BytecodeFunc* fn)
                             int fidx = -1;
                             for(int fi = 0; fi < ir_func_table_count(); fi++)
                                 if(strcmp(ir_func_table_get(fi)->name, vnm) == 0) { fidx = fi; break; }
-                            fprintf(out, "    { Value __f; __f.type = VAL_FUNC; __f.v.func.func_obj = (void*)&lum_wrap_%d_rf; __stk[__sp++] = __f; }\n", fidx);
+                            fprintf(out, "    { Value __f = {0}; __f.type = VAL_FUNC; __f.v.func.ffi_func = NULL; __f.v.func.is_ffi = 0; __f.v.func.func_obj = (void*)&lum_wrap_%d_rf; __stk[__sp++] = __f; }\n", fidx);
                         } else {
                             /* 不支持的值表达式类型：回退到正常处理（不应发生，分析阶段已过滤） */
                             fprintf(out, "    __stk[__sp++] = val_none(); /* scalar-repl fallback */\n");
@@ -185,7 +185,7 @@ void emit_insns(BytecodeFunc* fn)
                 for(int fi = 0; fi < ir_func_table_count(); fi++)
                     if(strcmp(ir_func_table_get(fi)->name, nm) == 0) { fidx = fi; break; }
                 if(fidx < 0) { fprintf(stderr, "codegen: 未定义函数: %s\n", nm); exit(EXIT_FAILURE); }
-                fprintf(out, "    { Value __f; __f.type = VAL_FUNC; __f.v.func.func_obj = (void*)&lum_wrap_%d_rf; __stk[__sp++] = __f; }\n", fidx);
+                fprintf(out, "    { Value __f = {0}; __f.type = VAL_FUNC; __f.v.func.ffi_func = NULL; __f.v.func.is_ffi = 0; __f.v.func.func_obj = (void*)&lum_wrap_%d_rf; __stk[__sp++] = __f; }\n", fidx);
                 break;
             }
             case OPC_MKCLOSURE: {
@@ -214,7 +214,7 @@ void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "        __rf->has_variadic = %d;\n", lfn->has_variadic ? 1 : 0);
                 fprintf(out, "        __rf->captures = (Value*)__cc;\n");
                 fprintf(out, "        __rf->capture_count = -2;\n");
-                fprintf(out, "        Value __fv; __fv.type = VAL_FUNC; __fv.v.func.func_obj = __rf;\n");
+                fprintf(out, "        Value __fv = {0}; __fv.type = VAL_FUNC; __fv.v.func.ffi_func = NULL; __fv.v.func.is_ffi = 0; __fv.v.func.func_obj = __rf;\n");
                 fprintf(out, "        __stk[__sp++] = __fv;\n");
                 fprintf(out, "    }\n");
                 break;

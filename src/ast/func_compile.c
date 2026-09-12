@@ -207,8 +207,11 @@ Value closure_make_instance(RuntimeFunc* template_rf, StackFrame* cur_frame)
     gc_enable();
 
     Value v;
+    memset(&v, 0, sizeof(v));
     v.type = VAL_FUNC;
     v.v.func.func_obj = rf;
+    v.v.func.ffi_func = NULL;
+    v.v.func.is_ffi = 0;
     return v;
 }
 

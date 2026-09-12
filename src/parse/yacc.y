@@ -530,9 +530,11 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           $$->u.func_def.annotations = NULL;
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
-          Value func_val;
+          Value func_val = {0};
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
+          func_val.v.func.ffi_func = NULL;
+          func_val.v.func.is_ffi = 0;
           sym_set($2, func_val); /* 注册到运行时符号表，后续调用可以查到 */
         }
         | FUNC operator LPAREN param_list RPAREN block_stmt {
@@ -540,9 +542,11 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($2, $4, $6);
           $$->u.func_def.annotations = NULL;
           RuntimeFunc* rf = compile_func_from_ast($$);
-          Value func_val;
+          Value func_val = {0};
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
+          func_val.v.func.ffi_func = NULL;
+          func_val.v.func.is_ffi = 0;
           sym_set($2, func_val); /* 注册到运行时符号表，运算符名作为键 */
         }
         | annotation_list FUNC ID LPAREN param_list RPAREN block_stmt {
@@ -550,9 +554,11 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           $$->u.func_def.annotations = $1;
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
-          Value func_val;
+          Value func_val = {0};
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
+          func_val.v.func.ffi_func = NULL;
+          func_val.v.func.is_ffi = 0;
           sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
         }
         | CONST FUNC ID LPAREN param_list RPAREN block_stmt {
@@ -561,9 +567,11 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           $$->u.func_def.is_const = 1;
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
-          Value func_val;
+          Value func_val = {0};
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
+          func_val.v.func.ffi_func = NULL;
+          func_val.v.func.is_ffi = 0;
           sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
         }
         /* 生成器函数：gen func name(params) { body } */
@@ -572,9 +580,11 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           $$->u.func_def.annotations = NULL;
           $$->u.func_def.is_generator = 1;
           RuntimeFunc* rf = compile_func_from_ast($$);
-          Value func_val;
+          Value func_val = {0};
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
+          func_val.v.func.ffi_func = NULL;
+          func_val.v.func.is_ffi = 0;
           sym_set($3, func_val);
         }
         /* 泛型函数：func<T> name(params) { body } */
@@ -583,9 +593,11 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           $$->u.func_def.annotations = NULL;
           $$->u.func_def.generic_params = $2;
           RuntimeFunc* rf = compile_func_from_ast($$);
-          Value func_val;
+          Value func_val = {0};
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
+          func_val.v.func.ffi_func = NULL;
+          func_val.v.func.is_ffi = 0;
           sym_set($3, func_val);
         }
         /* FFI 外部函数声明：extern func name(params): ret_type */
@@ -960,9 +972,11 @@ primary
           snprintf(nm, sizeof nm, "_lambda_%d", g_lambda_seq++);
           $$ = L(ast_func_def(nm, $3, $5));
           RuntimeFunc* rf = compile_func_from_ast($$);
-          Value func_val;
+          Value func_val = {0};
           func_val.type = VAL_FUNC;
           func_val.v.func.func_obj = rf;
+          func_val.v.func.ffi_func = NULL;
+          func_val.v.func.is_ffi = 0;
           sym_set(nm, func_val);
       }
     | READ STRING_LIT {
