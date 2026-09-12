@@ -139,7 +139,7 @@ char* castkind_to_name(int ck) {
         case CAST_UINT32: return strdup("uint32");
         case CAST_UINT64: return strdup("uint64");
         case CAST_LONG: return strdup("long");
-        case CAST_LONGLONG: return strdup("longlong");
+        case CAST_LONGLONG: return strdup("long long");
         case CAST_FLOAT: return strdup("float");
         case CAST_ASCII: return strdup("ascii");
         case CAST_ULONG: return strdup("ulong");
@@ -149,7 +149,7 @@ char* castkind_to_name(int ck) {
         case CAST_SIZE_T: return strdup("size_t");
         case CAST_SSIZE_T: return strdup("ssize_t");
         case CAST_VOID: return strdup("void");
-        case CAST_LONG_DOUBLE: return strdup("longdouble");
+        case CAST_LONG_DOUBLE: return strdup("long double");
         case CAST_PTR: return strdup("ptr");
         default: return strdup("int");
     }
