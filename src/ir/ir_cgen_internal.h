@@ -113,5 +113,6 @@ extern void emit_gen_create(BytecodeFunc* fn);
 extern void emit_gen_next_header(BytecodeFunc* fn);
 extern void emit_gen_next_footer(BytecodeFunc* fn);
 extern void emit_gen_yield(BytecodeFunc* fn, int yield_id);
+extern void emit_gen_wrapper_support(void);
 
 #endif // LUMYR_IR_CGEN_INTERNAL_H

@@ -38,9 +38,9 @@ void emit_gen_struct(BytecodeFunc* fn) {
 
     fprintf(out, "/* 生成器状态机结构体：%s */\n", fn->name);
     fprintf(out, "struct lumyr_gen_%s {\n", fn->name);
-    fprintf(out, "    Value (*next)(struct lumyr_gen_%s*, Value);  /* next() 函数指针 */\n", fn->name);
+    fprintf(out, "    Value (*next)(void*, Value);  /* next() 函数指针（通用接口，包装生成器可调用） */\n");
+    fprintf(out, "    int __state;          /* 执行状态：0=初始, 1..n=yield点, -1=结束（与包装生成器布局一致） */\n");
     fprintf(out, "    Value __send_val;     /* send() 发送的值，receive() 返回 */\n");
-    fprintf(out, "    int __state;          /* 执行状态：0=初始, 1..n=yield点, -1=结束 */\n");
     fprintf(out, "    int __sp;             /* 操作数栈指针 */\n");
     fprintf(out, "    Value __stk[%d];      /* 操作数栈 */\n", maxd + 2);
 
@@ -100,8 +100,9 @@ void emit_gen_next_header(BytecodeFunc* fn) {
     int maxd = bc_analyze_stack(fn, NULL, 0);
 
     fprintf(out, "/* 生成器 next() 函数：恢复执行并返回 yield 值 */\n");
-    fprintf(out, "static Value lumyr_gen_%s_next(lumyr_gen_%s* g, Value __send_val)\n{\n",
-            fn->name, fn->name);
+    fprintf(out, "static Value lumyr_gen_%s_next(void* __gptr, Value __send_val)\n{\n",
+            fn->name);
+    fprintf(out, "    lumyr_gen_%s* g = (lumyr_gen_%s*)__gptr;\n", fn->name, fn->name);
     fprintf(out, "    if(g->__state == -1) return val_none();\n");
 
     /* 设置生成器上下文：保存 send 值，标记在生成器内部 */
@@ -154,4 +155,121 @@ void emit_gen_yield(BytecodeFunc* fn, int yield_id) {
     fprintf(out, "__gen_yield_%d:\n", yield_id);
     /* 从 yield 恢复：如果有 send 值，压入栈 */
     fprintf(out, "    if(__send_val.type != VAL_NONE) { __stk[__sp++] = __send_val; }\n");
+}
+
+
+/*
+ * 生成包装生成器（组合操作）的运行时支持代码
+ */
+void emit_gen_wrapper_support(void) {
+    fprintf(out, "/* ===== 生成器组合操作运行时支持 ===== */\n");
+    fprintf(out, "typedef enum { WRAP_NONE=0, WRAP_MAP=1, WRAP_FILTER=2, WRAP_SKIP=3, WRAP_TAKE=4, WRAP_ENUMERATE=5, WRAP_CHAIN=6, WRAP_ZIP=7 } WrapType;\n");
+    fprintf(out, "typedef struct lumyr_gen_wrap {\n");
+    fprintf(out, "    Value (*next)(void*, Value);\n");
+    fprintf(out, "    int __state;\n");
+    fprintf(out, "    int is_wrapped;\n");
+    fprintf(out, "    int wrap_type;\n");
+    fprintf(out, "    void* wrapped_gen;\n");
+    fprintf(out, "    void* wrapped_gen2;\n");
+    fprintf(out, "    Value wrap_fn;\n");
+    fprintf(out, "    int wrap_arg;\n");
+    fprintf(out, "    int wrap_index;\n");
+    fprintf(out, "} lumyr_gen_wrap;\n\n");
+
+    fprintf(out, "static Value lumyr_gen_wrap_next(void* __gptr, Value __send_val) {\n");
+    fprintf(out, "    lumyr_gen_wrap* g = (lumyr_gen_wrap*)__gptr;\n");
+    fprintf(out, "    if(g->__state == -1) return val_none();\n");
+    fprintf(out, "    Value (*wnext)(void*, Value) = *(Value(**)(void*,Value))g->wrapped_gen;\n");
+    fprintf(out, "    switch(g->wrap_type) {\n");
+
+    fprintf(out, "        case WRAP_MAP: {\n");
+    fprintf(out, "            Value v = wnext(g->wrapped_gen, val_none());\n");
+    fprintf(out, "            if(v.type == VAL_NONE) { g->__state = -1; return val_none(); }\n");
+    fprintf(out, "            Value args[1]; args[0] = v;\n");
+    fprintf(out, "            Value (*fn)(Value*,int) = (Value(*)(Value*,int))((RuntimeFunc*)g->wrap_fn.v.func.func_obj)->entry;\n");
+    fprintf(out, "            return fn(args, 1);\n");
+    fprintf(out, "        }\n");
+
+    fprintf(out, "        case WRAP_FILTER: {\n");
+    fprintf(out, "            while(1) {\n");
+    fprintf(out, "                Value v = wnext(g->wrapped_gen, val_none());\n");
+    fprintf(out, "                if(v.type == VAL_NONE) { g->__state = -1; return val_none(); }\n");
+    fprintf(out, "                Value args[1]; args[0] = v;\n");
+    fprintf(out, "                Value (*fn)(Value*,int) = (Value(*)(Value*,int))((RuntimeFunc*)g->wrap_fn.v.func.func_obj)->entry;\n");
+    fprintf(out, "                Value r = fn(args, 1);\n");
+    fprintf(out, "                if(lumyr_to_bool(r)) return v;\n");
+    fprintf(out, "            }\n");
+    fprintf(out, "        }\n");
+
+    fprintf(out, "        case WRAP_SKIP: {\n");
+    fprintf(out, "            while(g->wrap_index < g->wrap_arg) {\n");
+    fprintf(out, "                Value v = wnext(g->wrapped_gen, val_none());\n");
+    fprintf(out, "                if(v.type == VAL_NONE) { g->__state = -1; return val_none(); }\n");
+    fprintf(out, "                g->wrap_index++;\n");
+    fprintf(out, "            }\n");
+    fprintf(out, "            Value v = wnext(g->wrapped_gen, val_none());\n");
+    fprintf(out, "            if(v.type == VAL_NONE) { g->__state = -1; return val_none(); }\n");
+    fprintf(out, "            return v;\n");
+    fprintf(out, "        }\n");
+
+    fprintf(out, "        case WRAP_TAKE: {\n");
+    fprintf(out, "            if(g->wrap_index >= g->wrap_arg) { g->__state = -1; return val_none(); }\n");
+    fprintf(out, "            Value v = wnext(g->wrapped_gen, val_none());\n");
+    fprintf(out, "            if(v.type == VAL_NONE) { g->__state = -1; return val_none(); }\n");
+    fprintf(out, "            g->wrap_index++;\n");
+    fprintf(out, "            return v;\n");
+    fprintf(out, "        }\n");
+
+    fprintf(out, "        case WRAP_ENUMERATE: {\n");
+    fprintf(out, "            Value v = wnext(g->wrapped_gen, val_none());\n");
+    fprintf(out, "            if(v.type == VAL_NONE) { g->__state = -1; return val_none(); }\n");
+    fprintf(out, "            Value arr = val_array(2);\n");
+    fprintf(out, "            arr.v.array->items[0] = lumyr_make_int(g->wrap_index);\n");
+    fprintf(out, "            arr.v.array->items[1] = v;\n");
+    fprintf(out, "            g->wrap_index++;\n");
+    fprintf(out, "            return arr;\n");
+    fprintf(out, "        }\n");
+
+    fprintf(out, "        case WRAP_CHAIN: {\n");
+    fprintf(out, "            if(g->wrap_index == 0) {\n");
+    fprintf(out, "                Value v = wnext(g->wrapped_gen, val_none());\n");
+    fprintf(out, "                if(v.type != VAL_NONE) return v;\n");
+    fprintf(out, "                g->wrap_index = 1;\n");
+    fprintf(out, "            }\n");
+    fprintf(out, "            Value (*wnext2)(void*,Value) = *(Value(**)(void*,Value))g->wrapped_gen2;\n");
+    fprintf(out, "            Value v = wnext2(g->wrapped_gen2, val_none());\n");
+    fprintf(out, "            if(v.type == VAL_NONE) { g->__state = -1; return val_none(); }\n");
+    fprintf(out, "            return v;\n");
+    fprintf(out, "        }\n");
+
+    fprintf(out, "        case WRAP_ZIP: {\n");
+    fprintf(out, "            Value (*wnext2)(void*,Value) = *(Value(**)(void*,Value))g->wrapped_gen2;\n");
+    fprintf(out, "            Value v1 = wnext(g->wrapped_gen, val_none());\n");
+    fprintf(out, "            Value v2 = wnext2(g->wrapped_gen2, val_none());\n");
+    fprintf(out, "            if(v1.type == VAL_NONE || v2.type == VAL_NONE) { g->__state = -1; return val_none(); }\n");
+    fprintf(out, "            Value arr = val_array(2);\n");
+    fprintf(out, "            arr.v.array->items[0] = v1;\n");
+    fprintf(out, "            arr.v.array->items[1] = v2;\n");
+    fprintf(out, "            return arr;\n");
+    fprintf(out, "        }\n");
+
+    fprintf(out, "        default: g->__state = -1; return val_none();\n");
+    fprintf(out, "    }\n");
+    fprintf(out, "}\n\n");
+
+    fprintf(out, "static Value lumyr_wrap_create(int wtype, Value g1, Value g2, Value fn, int arg) {\n");
+    fprintf(out, "    if(g1.type != VAL_GENERATOR) runtime_error(\"组合操作第一个参数必须是生成器\");\n");
+    fprintf(out, "    lumyr_gen_wrap* wg = (lumyr_gen_wrap*)calloc(1, sizeof(lumyr_gen_wrap));\n");
+    fprintf(out, "    wg->next = lumyr_gen_wrap_next;\n");
+    fprintf(out, "    wg->is_wrapped = 1;\n");
+    fprintf(out, "    wg->wrap_type = wtype;\n");
+    fprintf(out, "    wg->wrapped_gen = g1.v.generator;\n");
+    fprintf(out, "    if(g2.type == VAL_GENERATOR) wg->wrapped_gen2 = g2.v.generator;\n");
+    fprintf(out, "    wg->wrap_fn = fn;\n");
+    fprintf(out, "    wg->wrap_arg = arg;\n");
+    fprintf(out, "    wg->wrap_index = 0;\n");
+    fprintf(out, "    Value gv; gv.type = VAL_GENERATOR; gv.v.generator = (void*)wg;\n");
+    fprintf(out, "    return gv;\n");
+    fprintf(out, "}\n\n");
+    fprintf(out, "/* ===== 生成器组合操作支持结束 ===== */\n\n");
 }

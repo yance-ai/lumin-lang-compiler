@@ -266,7 +266,7 @@ void emit_func_proto(BytecodeFunc* fn)
             fprintf(out, "Value");
         }
         fprintf(out, ");\n");
-        fprintf(out, "static Value lumyr_gen_%s_next(lumyr_gen_%s*, Value);\n", fn->name, fn->name);
+        fprintf(out, "static Value lumyr_gen_%s_next(void*, Value);\n", fn->name);
         return;
     }
 
@@ -518,6 +518,9 @@ void emit_func_wraps(void)
 
 void emit_main(BytecodeFunc* main_fn)
 {
+    // 生成器组合操作（包装生成器）运行时支持
+    emit_gen_wrapper_support();
+
     // 全局变量：main 指令流里的全部变量引用
     memset(&g_globals, 0, sizeof(g_globals));
     scan_var_refs(main_fn, &g_globals, 1);

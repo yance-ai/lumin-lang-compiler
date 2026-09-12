@@ -4,6 +4,8 @@
  */
 #include "ir_cgen_internal.h"
 
+static int s_gen_map_label_id = 0;  /* 生成器 map/filter goto 标签唯一 ID */
+
 int fin_lab_cnt = 0;
 int* fin_lab_pcs = NULL;
 int fin_lab_cap = 0;
@@ -336,7 +338,7 @@ void emit_insns(BytecodeFunc* fn)
                         break;
                     }
                     case BUILTIN_CLOSE: {
-                        fprintf(out, "    { Value __g = __stk[--__sp]; if(__g.type == VAL_GENERATOR) { struct { int __state; } *__gen = (void*)__g.v.generator; __gen->__state = -1; } __stk[__sp++] = val_none(); }\n");
+                        fprintf(out, "    { Value __g = __stk[--__sp]; if(__g.type == VAL_GENERATOR) { struct { void* next; int __state; } *__gen = (void*)__g.v.generator; __gen->__state = -1; } __stk[__sp++] = val_none(); }\n");
                         break;
                     }
                     case BUILTIN_RECEIVE: {
@@ -828,6 +830,26 @@ void emit_insns(BytecodeFunc* fn)
                     case BUILTIN_VALUES:
                         fprintf(out, "    { Value __r = lumyr_map_values(__stk[__sp - %d]); __stk[__sp - %d] = __r; __sp = __sp - %d + 1; }\n", in.b, in.b, in.b);
                         break;
+                    case BUILTIN_CHAIN: {
+                        fprintf(out, "    { Value g2 = __stk[--__sp]; Value g1 = __stk[--__sp]; __stk[__sp++] = lumyr_wrap_create(WRAP_CHAIN, g1, g2, val_none(), 0); }\n");
+                        break;
+                    }
+                    case BUILTIN_ZIP: {
+                        fprintf(out, "    { Value g2 = __stk[--__sp]; Value g1 = __stk[--__sp]; __stk[__sp++] = lumyr_wrap_create(WRAP_ZIP, g1, g2, val_none(), 0); }\n");
+                        break;
+                    }
+                    case BUILTIN_SKIP: {
+                        fprintf(out, "    { Value n = __stk[--__sp]; Value g = __stk[--__sp]; __stk[__sp++] = lumyr_wrap_create(WRAP_SKIP, g, val_none(), val_none(), lumyr_extract_int(n)); }\n");
+                        break;
+                    }
+                    case BUILTIN_TAKE: {
+                        fprintf(out, "    { Value n = __stk[--__sp]; Value g = __stk[--__sp]; __stk[__sp++] = lumyr_wrap_create(WRAP_TAKE, g, val_none(), val_none(), lumyr_extract_int(n)); }\n");
+                        break;
+                    }
+                    case BUILTIN_ENUMERATE: {
+                        fprintf(out, "    { Value g = __stk[--__sp]; __stk[__sp++] = lumyr_wrap_create(WRAP_ENUMERATE, g, val_none(), val_none(), 0); }\n");
+                        break;
+                    }
                     case BUILTIN_MAP:
                     case BUILTIN_FILTER:
                     case BUILTIN_REDUCE: {
@@ -854,7 +876,14 @@ void emit_insns(BytecodeFunc* fn)
                             fprintf(out, "            __stk[__sp++] = __mout;\n");
                             fprintf(out, "        } else {\n");
                         }
-                        fprintf(out, "        if(__arr.type != VAL_ARRAY) runtime_error(\"map()/filter()/reduce() 第一个参数必须是数组\");\n");
+                        fprintf(out, "        if(__arr.type == VAL_GENERATOR) {\n");
+                        fprintf(out, "            if(__fn.type != VAL_FUNC) runtime_error(\"map()/filter() 第二个参数必须是函数\");\n");
+                        const char* __wtype = (in.a == BUILTIN_MAP) ? "WRAP_MAP" : "WRAP_FILTER";
+                        fprintf(out, "            __stk[__sp++] = lumyr_wrap_create(%s, __arr, val_none(), __fn, 0);\n", __wtype);
+                        int __gmlid = s_gen_map_label_id++;
+                        fprintf(out, "            goto __gen_map_done_%d;\n", __gmlid);
+                        fprintf(out, "        }\n");
+                        fprintf(out, "        if(__arr.type != VAL_ARRAY) runtime_error(\"map()/filter()/reduce() 第一个参数必须是数组或生成器\");\n");
                         fprintf(out, "        if(__fn.type != VAL_FUNC) runtime_error(\"map()/filter()/reduce() 第二个参数必须是函数\");\n");
                         fprintf(out, "        Value (*__cf)(Value*, int) = (Value(*)(Value*, int))((RuntimeFunc*)__fn.v.func.func_obj)->entry;\n");
                         fprintf(out, "        int __n = __arr.v.array->len;\n");
@@ -887,6 +916,7 @@ void emit_insns(BytecodeFunc* fn)
                         if(in.a == BUILTIN_MAP) {
                             fprintf(out, "        }\n");  /* 闭合 map 字典分支的 else */
                         }
+                        fprintf(out, "    __gen_map_done_%d:;\n", __gmlid);
                         fprintf(out, "    }\n");
                         break;
                     }
