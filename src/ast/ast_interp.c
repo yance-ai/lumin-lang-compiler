@@ -258,18 +258,35 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
         }
 
         case AST_PRINT:{
-            Value v = ast_eval_ctx(node->u.print.expr, ctx, frame);
-            if(v.type == VAL_INT)
-                printf("%lld\n", v.v.i);
-            else if(v.type == VAL_CHAR)
-                printf("%c\n", v.v.c);
-            else if(v.type == VAL_BOOL)
-                printf("%s\n", v.v.b ? "true":"false");
-            else if(v.type == VAL_STRING)
-                printf("%s\n", lumyr_str_cstr(&v));
-            else
-                printf("%g\n", v.v.d);
-            return v;
+            /* 多参数打印：递归收集 args 列表（左嵌套 AST_SEQ: seq(seq(a,b),c)），依次打印 */
+            int cnt = 0;
+            arg_list_count(node->u.print.args, &cnt);
+            if(cnt > 0) {
+                Value* vals = malloc(sizeof(Value) * (size_t)cnt);
+                int idx = 0;
+                arg_list_collect(node->u.print.args, vals, &idx, ctx, frame);
+                for(int i = 0; i < cnt; i++) {
+                    if(i > 0) printf(" ");  /* 参数之间用空格分隔 */
+                    Value v = vals[i];
+                    if(v.type == VAL_INT)
+                        printf("%lld", v.v.i);
+                    else if(v.type == VAL_CHAR)
+                        printf("%c", v.v.c);
+                    else if(v.type == VAL_BOOL)
+                        printf("%s", v.v.b ? "true":"false");
+                    else if(v.type == VAL_STRING)
+                        printf("%s", lumyr_str_cstr(&v));
+                    else if(v.type == VAL_DOUBLE)
+                        printf("%g", v.v.d);
+                    else if(v.type == VAL_NONE)
+                        printf("null");
+                    else
+                        printf("%g", v.v.d);
+                }
+                free(vals);
+            }
+            printf("\n");
+            return make_nil();
         }
 
         case AST_SEQ:{

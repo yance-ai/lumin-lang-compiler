@@ -103,12 +103,12 @@ AstNode* ast_assign(char* name, AstNode* e)
     return p;
 }
 
-AstNode* ast_print(AstNode* e)
+AstNode* ast_print(AstNode* args)
 {
     AstNode* p = malloc(sizeof(AstNode));
     p->type = AST_PRINT;
     p->val_type = VAL_NONE;
-    p->u.print.expr = e;
+    p->u.print.args = args;
     return p;
 }
 
@@ -346,7 +346,7 @@ AstNode* ast_clone_node(const AstNode* src)
         }
         case AST_PRINT: {
             AstNode* n = ast_new(AST_PRINT);
-            n->u.print.expr = ast_clone_node(src->u.print.expr);
+            n->u.print.args = ast_clone_node(src->u.print.args);
             return n;
         }
         case AST_ASSIGN: {
@@ -677,7 +677,7 @@ void ast_free(AstNode* node) {
             ast_free(node->u.assign.expr);
             break;
         case AST_PRINT:
-            ast_free(node->u.print.expr);
+            ast_free(node->u.print.args);
             break;
         case AST_SEQ:
             ast_free(node->u.seq.first);

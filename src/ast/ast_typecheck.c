@@ -211,7 +211,7 @@ static void collect_top_level(AstNode* node) {
             collect_top_level(node->u.ternary.false_expr);
             break;
         case AST_PRINT:
-            collect_top_level(node->u.print.expr);
+            collect_top_level(node->u.print.args);
             break;
         case AST_SEQ:
             collect_top_level(node->u.seq.first);
@@ -703,8 +703,8 @@ int typecheck_expr(AstNode* node)
             node->val_type = VAL_NONE;
             break;
         case AST_PRINT:
-            err |= typecheck_expr(node->u.print.expr);
-            node->val_type = node->u.print.expr->val_type;
+            err |= typecheck_expr(node->u.print.args);
+            node->val_type = VAL_NONE;
             break;
         case AST_SEQ:
             err |= typecheck_expr(node->u.seq.first);

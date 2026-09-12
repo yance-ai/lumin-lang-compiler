@@ -882,6 +882,49 @@ void lumyr_print(Value v) {
     }
 }
 
+/* 打印单个值不换行，用于多参数 print(a, b, c) */
+void lumyr_print_inline(Value v) {
+    switch(v.type)
+    {
+        case VAL_INT:
+            printf("%lld", v.v.i);
+            break;
+        case VAL_DOUBLE:
+            printf("%g", v.v.d);
+            break;
+        case VAL_BOOL:
+            printf("%s", v.v.b ? "true" : "false");
+            break;
+        case VAL_STRING:
+            printf("%s", lumyr_str_cstr(&v) ? lumyr_str_cstr(&v) : "(null)");
+            break;
+        case VAL_CHAR:
+            printf("%c", v.v.c);
+            break;
+        case VAL_BYTE:
+            printf("%lld", v.v.i & 0xFF);
+            break;
+        case VAL_NONE:
+            printf("null");
+            break;
+        case VAL_FUNC:
+            printf("<func>");
+            break;
+        case VAL_ARRAY:
+            printf("<array>");
+            break;
+        case VAL_MAP: {
+            char* js = lumyr_json_stringify(v);
+            printf("%s", js);
+            free(js);
+            break;
+        }
+        default:
+            printf("<unknown>");
+            break;
+    }
+}
+
 // toupper/tolower：ASCII 大小写转换（非 ASCII 保持）
 
 // ===== 固定宽度整数强转（返回 VAL_INT，C 风格截断） =====

@@ -85,6 +85,7 @@ Value lumyr_cast_float(Value v);
 int lumyr_extract_int(Value v);
 
 void lumyr_print(Value v);
+void lumyr_print_inline(Value v);  /* 打印单个值不换行，用于多参数 print */
 
 // ===== 跨文件共享辅助（拆分后子模块依赖） =====
 double value_as_number(Value x);    // 值转数值（数值/布尔/字符）

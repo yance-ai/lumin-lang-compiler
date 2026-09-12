@@ -157,6 +157,7 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
         case OPC_STORE_VAR:
             return 0;                        // 弹1压1
         case OPC_PRINT:
+            return -(in.a > 0 ? in.a : 1);  /* 多参数打印：弹出所有参数（向后兼容：a<=0 时弹1） */
         case OPC_TO_BOOL:
         case OPC_JMP:
         case OPC_RETURN_NIL:

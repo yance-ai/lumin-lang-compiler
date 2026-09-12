@@ -505,6 +505,24 @@ static int fold_const(Ctx* c, AstNode* node, Value* out)
     }
 }
 
+/* 递归编译 print 的参数列表（左嵌套 AST_SEQ: seq(seq(a,b),c)），返回参数数量 */
+static int c_print_args_recursive(Ctx* c, AstNode* args)
+{
+    if(!args) return 0;
+    if(args->type != AST_SEQ) {
+        c_expr(c, args);
+        return 1;
+    }
+    int n1 = c_print_args_recursive(c, args->u.seq.first);
+    int n2 = c_print_args_recursive(c, args->u.seq.second);
+    return n1 + n2;
+}
+
+static int c_print_args(Ctx* c, AstNode* args)
+{
+    return c_print_args_recursive(c, args);
+}
+
 static void c_expr(Ctx* c, AstNode* node)
 {
     if(!node) { emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0); return; }
@@ -788,10 +806,11 @@ static void c_expr(Ctx* c, AstNode* node)
             }
             break;
         }
-        case AST_PRINT:
-            c_expr(c, node->u.print.expr);
-            emit(c, OPC_PRINT, 0, 0);
+        case AST_PRINT: {
+            int cnt = c_print_args(c, node->u.print.args);
+            emit(c, OPC_PRINT, cnt, 0);
             break;
+        }
         case AST_SEQ:
             c_expr(c, node->u.seq.first);
             emit(c, OPC_POP, 0, 0);
@@ -878,11 +897,12 @@ static void c_stmt(Ctx* c, AstNode* node)
             c_expr(c, node);
             emit(c, OPC_POP, 0, 0);
             break;
-        case AST_PRINT:
-            c_expr(c, node->u.print.expr);
-            emit(c, OPC_PRINT, 0, 0);
-            emit(c, OPC_POP, 0, 0);
+        case AST_PRINT: {
+            int cnt = c_print_args(c, node->u.print.args);
+            emit(c, OPC_PRINT, cnt, 0);
+            /* OPC_PRINT 会弹出所有参数，不需要额外的 OPC_POP */
             break;
+        }
         case AST_IF: {
             c_expr(c, node->u.ifnode.cond);
             int jf = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);

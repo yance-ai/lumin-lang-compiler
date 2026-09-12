@@ -281,7 +281,7 @@ closed_stmt
         ast_collect_varnames($1, &names, &cnt);
         $$ = ast_destruct(names, cnt, $3);
     }
-    | PRINT LPAREN expr RPAREN SEMI  { $$ = ast_print($3); }
+    | PRINT LPAREN arg_list RPAREN SEMI  { $$ = ast_print($3); }
     | block_stmt                     { $$ = $1; }
     /* 宏调用作为语句：如果是宏，则展开为语句列表；否则作为表达式语句 */
     | ID LPAREN arg_list RPAREN SEMI {

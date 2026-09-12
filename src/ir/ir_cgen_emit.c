@@ -935,9 +935,13 @@ void emit_insns(BytecodeFunc* fn)
                         break;
                 }
                 break;
-            case OPC_PRINT:
-                fprintf(out, "    lumyr_print(__stk[__sp-1]);\n");
+            case OPC_PRINT: {
+                /* 多参数打印：in.a = 参数数量；循环打印后弹出所有参数 */
+                fprintf(out, "    { int __pcnt = %d; if(__pcnt <= 0) __pcnt = 1; int __pbase = __sp - __pcnt;\n", in.a);
+                fprintf(out, "      for(int __pi = 0; __pi < __pcnt; __pi++) { if(__pi > 0) printf(\" \"); lumyr_print_inline(__stk[__pbase + __pi]); }\n");
+                fprintf(out, "      printf(\"\\n\"); __sp -= __pcnt; }\n");
                 break;
+            }
             case OPC_TO_BOOL:
                 fprintf(out, "    __stk[__sp-1] = lumyr_make_bool(lumyr_to_bool(__stk[__sp-1]));\n");
                 break;

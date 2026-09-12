@@ -2028,9 +2028,19 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 sp = vm_exec_builtin(in, stack, sp, frame, ctx);
                 break;
             }
-            case OPC_PRINT:
-                lumyr_print(stack[sp - 1]);
+            case OPC_PRINT: {
+                /* 多参数打印：in.a = 参数数量；从栈底到栈顶依次打印，最后换行并弹出所有参数 */
+                int cnt = in.a;
+                if(cnt <= 0) cnt = 1;  /* 向后兼容：旧代码可能用 0 表示单参数 */
+                int base = sp - cnt;
+                for(int i = 0; i < cnt; i++) {
+                    if(i > 0) printf(" ");  /* 参数之间用空格分隔 */
+                    lumyr_print_inline(stack[base + i]);
+                }
+                printf("\n");
+                sp -= cnt;  /* 弹出所有参数 */
                 break;
+            }
             case OPC_TO_BOOL:
                 stack[sp - 1] = lumyr_make_bool(lumyr_to_bool(stack[sp - 1]));
                 break;

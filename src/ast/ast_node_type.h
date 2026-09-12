@@ -41,7 +41,7 @@ struct AstNode {
             AstNode* expr;
         } assign;
         struct {
-            AstNode* expr;
+            AstNode* args;  /* 参数列表，AST_SEQ 链接；单参数时为单个表达式节点 */
         } print;
         struct {
             AstNode* first;

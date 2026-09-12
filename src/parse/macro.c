@@ -62,7 +62,7 @@ static void set_line_recursive(AstNode* node, int line)
             set_line_recursive(node->u.ret.ret_val, line);
             break;
         case AST_PRINT:
-            set_line_recursive(node->u.print.expr, line);
+            set_line_recursive(node->u.print.args, line);
             break;
         case AST_BLOCK:
             set_line_recursive(node->u.block.stmts, line);
@@ -247,7 +247,7 @@ static AstNode* substitute_params(AstNode* node, AstNode* params, AstNode* args)
             node->u.ret.ret_val = substitute_params(node->u.ret.ret_val, params, args);
             break;
         case AST_PRINT:
-            node->u.print.expr = substitute_params(node->u.print.expr, params, args);
+            node->u.print.args = substitute_params(node->u.print.args, params, args);
             break;
         case AST_BLOCK:
             node->u.block.stmts = substitute_params(node->u.block.stmts, params, args);
