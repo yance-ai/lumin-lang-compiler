@@ -1,6 +1,0 @@
-extern "msvcrt.dll" func malloc(<int>size) <pointer>;
-extern "msvcrt.dll" func free(<pointer>ptr) <void>;
-p = malloc(100);
-print("malloc returned", p);
-free(p);
-print("free done");

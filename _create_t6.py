@@ -1,1 +1,0 @@
-open('t6.lm','w',encoding='utf-8',newline='\n').write('extern "msvcrt.dll" func malloc(<int>size) <pointer>;\nextern "msvcrt.dll" func free(<pointer>ptr) <void>;\np = malloc(100);\nprint("malloc returned", p);\nfree(p);\nprint("free done");\n')

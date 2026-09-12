@@ -1,2 +1,0 @@
-extern <void> func strlen(s);
-print("test");
