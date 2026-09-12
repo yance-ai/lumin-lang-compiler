@@ -718,8 +718,10 @@ void ir_cgen_file(const char* out_c_path, BytecodeFunc* main_fn)
     fprintf(out, "#include <stdio.h>\n");
     fprintf(out, "#include <stdlib.h>\n");
     fprintf(out, "#include <string.h>\n");
+    fprintf(out, "#include <ctype.h>\n");
     fprintf(out, "#include <math.h>\n");
     fprintf(out, "#include <stdint.h>\n");
+    fprintf(out, "#include <stddef.h>\n");
     fprintf(out, "#include \"lm_runtime.h\"\n");
     fprintf(out, "#include \"lm_map.h\"\n");
     fprintf(out, "#include \"lm_thread.h\"\n");

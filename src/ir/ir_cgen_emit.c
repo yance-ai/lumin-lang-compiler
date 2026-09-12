@@ -1067,6 +1067,8 @@ void emit_insns(BytecodeFunc* fn)
                 if(ffi_idx >= 0) {
                     FFIDecl* ffi = ffi_decl_get(ffi_idx);
                     int argc = in.b;
+                    for(int __di = 0; __di < ffi->param_count; __di++) {
+                    }
                     fprintf(out, "    {\n");
                     fprintf(out, "        int __lmin_argc = %d;\n", argc);
                     fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);

@@ -21,16 +21,44 @@
 extern "C" {
 #endif
 
-/* FFI 类型枚举 */
+/* FFI 类型枚举 - 完整 C 类型系统 */
 typedef enum {
     FFI_VOID = 0,
-    FFI_INT,
-    FFI_DOUBLE,
-    FFI_BOOL,
-    FFI_STRING,
-    FFI_PTR,       /* 指针/句柄/数组/结构体指针 */
-    FFI_CALLBACK   /* 回调函数（函数指针） */
+    /* 整数类型（有符号） */
+    FFI_INT,        /* int / int32_t */
+    FFI_INT8,       /* int8_t / signed char */
+    FFI_INT16,      /* int16_t / short */
+    FFI_INT32,      /* int32_t / int */
+    FFI_INT64,      /* int64_t / long long */
+    FFI_LONG,       /* long */
+    FFI_CHAR,       /* char / signed char */
+    /* 整数类型（无符号） */
+    FFI_UINT8,      /* uint8_t / unsigned char */
+    FFI_UINT16,     /* uint16_t / unsigned short */
+    FFI_UINT32,     /* uint32_t / unsigned int */
+    FFI_UINT64,     /* uint64_t / unsigned long long */
+    FFI_ULONG,      /* unsigned long */
+    FFI_UCHAR,      /* unsigned char */
+    /* 平台相关类型 */
+    FFI_SIZE_T,     /* size_t */
+    FFI_SSIZE_T,    /* ssize_t / ptrdiff_t */
+    /* 布尔类型 */
+    FFI_BOOL,       /* bool / _Bool */
+    /* 浮点类型 */
+    FFI_FLOAT,      /* float（单精度） */
+    FFI_DOUBLE,     /* double（双精度） */
+    /* 指针/字符串类型 */
+    FFI_STRING,     /* const char* / char*（字符串） */
+    FFI_PTR,        /* void* / 任意指针 / 句柄 / 数组 / 结构体指针 */
+    /* 回调函数 */
+    FFI_CALLBACK    /* 回调函数（函数指针） */
 } FFIType;
+
+/* 类型分类：判断是否为整数类型（用 long long 传递） */
+#define FFI_IS_INTEGER(t) ((t) >= FFI_INT && (t) <= FFI_BOOL)
+
+/* 类型分类：判断是否为浮点类型（用 double 传递） */
+#define FFI_IS_FLOAT(t) ((t) == FFI_FLOAT || (t) == FFI_DOUBLE)
 
 #define FFI_MAX_ARGS 16
 #define FFI_MAX_CALLBACKS 16

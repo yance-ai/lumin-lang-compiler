@@ -192,19 +192,18 @@ Value lumyr_ffi_call(FFIFunc* func, Value* args, int argc) {
 
     for(int i = 0; i < argc; i++) {
         FFIType ptype = (i < func->param_count) ? func->param_types[i] : FFI_INT;
-        switch(ptype) {
-            case FFI_INT:
+        if(FFI_IS_INTEGER(ptype)) {
+            /* 所有整数类型：x86-64 调用约定自动提升为 64 位，直接传递 long long */
+            cargs[i] = (long long)value_as_number(args[i]);
+        } else if(FFI_IS_FLOAT(ptype)) {
+            /* 所有浮点类型：用 XMM 寄存器传递，按位复制到 long long 数组 */
+            double d = value_as_number(args[i]);
+            if(ptype == FFI_FLOAT) d = (float)d; /* 单精度截断 */
+            memcpy(&cargs[i], &d, sizeof(double));
+        } else switch(ptype) {
             case FFI_PTR:
                 /* 指针/句柄：从 int 值直接传递（Lumyr 中用 int 存储指针） */
                 cargs[i] = (long long)value_as_number(args[i]);
-                break;
-            case FFI_DOUBLE: {
-                double d = value_as_number(args[i]);
-                memcpy(&cargs[i], &d, sizeof(double));
-                break;
-            }
-            case FFI_BOOL:
-                cargs[i] = lumyr_to_bool(args[i]) ? 1 : 0;
                 break;
             case FFI_STRING:
                 if(args[i].type == VAL_STRING) {
@@ -234,9 +233,9 @@ Value lumyr_ffi_call(FFIFunc* func, Value* args, int argc) {
     /* 根据返回类型和参数数量调用函数 */
     long long ret = 0;
     double dret = 0.0;
-    int is_double_ret = (func->ret_type == FFI_DOUBLE);
+    int is_float_ret = FFI_IS_FLOAT(func->ret_type);
 
-    if(is_double_ret) {
+    if(is_float_ret) {
         /* double 返回类型：用 ffi_dfuncN_t 函数指针（返回值在 XMM0） */
         switch(argc) {
             case 0: dret = ((ffi_dfunc0_t)func->func_ptr)(); break;
@@ -287,17 +286,32 @@ Value lumyr_ffi_call(FFIFunc* func, Value* args, int argc) {
     }
 
     /* 转换返回值 */
-    if(is_double_ret) {
+    if(is_float_ret) {
+        if(func->ret_type == FFI_FLOAT) {
+            return val_double((double)(float)dret); /* 单精度截断后再转 double */
+        }
         return val_double(dret);
     }
+    /* 整数类型返回值：根据具体类型进行符号扩展或零扩展 */
+    if(FFI_IS_INTEGER(func->ret_type)) {
+        switch(func->ret_type) {
+            case FFI_INT8:   return val_int((int64_t)(int8_t)ret);
+            case FFI_INT16:  return val_int((int64_t)(int16_t)ret);
+            case FFI_INT32:  return val_int((int64_t)(int32_t)ret);
+            case FFI_CHAR:   return val_int((int64_t)(char)ret);
+            case FFI_UINT8:  return val_int((int64_t)(uint8_t)ret);
+            case FFI_UINT16: return val_int((int64_t)(uint16_t)ret);
+            case FFI_UINT32: return val_int((int64_t)(uint32_t)ret);
+            case FFI_UCHAR:  return val_int((int64_t)(unsigned char)ret);
+            case FFI_BOOL:   return val_bool(ret ? 1 : 0);
+            /* 64 位类型直接返回 */
+            default:         return val_int((int64_t)ret);
+        }
+    }
     switch(func->ret_type) {
-        case FFI_INT:
-            return val_int((int64_t)ret);
         case FFI_PTR:
             /* 指针/句柄返回：用 int 存储指针值 */
             return val_int((int64_t)ret);
-        case FFI_BOOL:
-            return val_bool(ret ? 1 : 0);
         case FFI_STRING:
             if(ret) {
                 return lumyr_make_string((const char*)(size_t)ret);
@@ -378,43 +392,70 @@ void lumyr_ffi_func_free(FFIFunc* func) {
 
 /* ==================== 类型名转换 ==================== */
 
-/* 类型名转换 */
+/* 类型名转换 - 完整 C 类型系统 */
 FFIType lumyr_ffi_type_from_name(const char* name) {
-    if(!name) return FFI_INT; /* 默认按 int/指针处理 */
-    if(strcmp(name, "int") == 0) return FFI_INT;
-    if(strcmp(name, "long") == 0) return FFI_INT;
-    if(strcmp(name, "int64") == 0) return FFI_INT;
-    if(strcmp(name, "double") == 0 || strcmp(name, "float") == 0) return FFI_DOUBLE;
-    if(strcmp(name, "bool") == 0) return FFI_BOOL;
-    if(strcmp(name, "string") == 0 || strcmp(name, "str") == 0) return FFI_STRING;
-    if(strcmp(name, "char*") == 0) return FFI_STRING;
+    if(!name) return FFI_INT; /* 默认按 int 处理 */
+    /* void */
     if(strcmp(name, "void") == 0 || strcmp(name, "none") == 0) return FFI_VOID;
+    /* 有符号整数 */
+    if(strcmp(name, "int") == 0 || strcmp(name, "int32") == 0 || strcmp(name, "int32_t") == 0) return FFI_INT;
+    if(strcmp(name, "int8") == 0 || strcmp(name, "int8_t") == 0 || strcmp(name, "signed char") == 0) return FFI_INT8;
+    if(strcmp(name, "int16") == 0 || strcmp(name, "int16_t") == 0 || strcmp(name, "short") == 0) return FFI_INT16;
+    if(strcmp(name, "int64") == 0 || strcmp(name, "int64_t") == 0 || strcmp(name, "long long") == 0) return FFI_INT64;
+    if(strcmp(name, "long") == 0) return FFI_LONG;
+    if(strcmp(name, "char") == 0) return FFI_CHAR;
+    /* 无符号整数 */
+    if(strcmp(name, "uint8") == 0 || strcmp(name, "uint8_t") == 0 || strcmp(name, "unsigned char") == 0 || strcmp(name, "byte") == 0) return FFI_UINT8;
+    if(strcmp(name, "uint16") == 0 || strcmp(name, "uint16_t") == 0 || strcmp(name, "unsigned short") == 0) return FFI_UINT16;
+    if(strcmp(name, "uint32") == 0 || strcmp(name, "uint32_t") == 0 || strcmp(name, "unsigned int") == 0 || strcmp(name, "uint") == 0) return FFI_UINT32;
+    if(strcmp(name, "uint64") == 0 || strcmp(name, "uint64_t") == 0 || strcmp(name, "unsigned long long") == 0) return FFI_UINT64;
+    if(strcmp(name, "unsigned long") == 0 || strcmp(name, "ulong") == 0) return FFI_ULONG;
+    if(strcmp(name, "unsigned char") == 0 || strcmp(name, "uchar") == 0) return FFI_UCHAR;
+    /* 平台相关类型 */
+    if(strcmp(name, "size_t") == 0 || strcmp(name, "size") == 0) return FFI_SIZE_T;
+    if(strcmp(name, "ssize_t") == 0 || strcmp(name, "ptrdiff_t") == 0 || strcmp(name, "ssize") == 0) return FFI_SSIZE_T;
+    /* 布尔 */
+    if(strcmp(name, "bool") == 0 || strcmp(name, "_Bool") == 0) return FFI_BOOL;
+    /* 浮点 */
+    if(strcmp(name, "float") == 0) return FFI_FLOAT;
+    if(strcmp(name, "double") == 0) return FFI_DOUBLE;
+    /* 字符串 */
+    if(strcmp(name, "string") == 0 || strcmp(name, "str") == 0 || strcmp(name, "char*") == 0 || strcmp(name, "const char*") == 0) return FFI_STRING;
     /* 指针/句柄类型 */
-    if(strcmp(name, "ptr") == 0) return FFI_PTR;
-    if(strcmp(name, "pointer") == 0) return FFI_PTR;
-    if(strcmp(name, "handle") == 0) return FFI_PTR;
-    if(strcmp(name, "void*") == 0) return FFI_PTR;
-    if(strcmp(name, "int*") == 0) return FFI_PTR;
-    if(strcmp(name, "double*") == 0) return FFI_PTR;
+    if(strcmp(name, "ptr") == 0 || strcmp(name, "pointer") == 0 || strcmp(name, "handle") == 0) return FFI_PTR;
+    if(strcmp(name, "void*") == 0 || strcmp(name, "int*") == 0 || strcmp(name, "double*") == 0) return FFI_PTR;
     if(strcmp(name, "array") == 0) return FFI_PTR; /* 数组首地址作为指针 */
     if(strcmp(name, "struct") == 0) return FFI_PTR; /* 结构体指针 */
     if(strcmp(name, "obj") == 0) return FFI_PTR;     /* 对象句柄 */
     /* 回调函数类型 */
-    if(strcmp(name, "callback") == 0) return FFI_CALLBACK;
-    if(strcmp(name, "func_ptr") == 0) return FFI_CALLBACK;
-    if(strcmp(name, "function") == 0) return FFI_CALLBACK;
+    if(strcmp(name, "callback") == 0 || strcmp(name, "func_ptr") == 0 || strcmp(name, "function") == 0) return FFI_CALLBACK;
     return FFI_INT; /* 默认按 int 处理 */
 }
 
 const char* lumyr_ffi_type_to_name(FFIType type) {
     switch(type) {
+        case FFI_VOID: return "void";
         case FFI_INT: return "int";
-        case FFI_DOUBLE: return "double";
+        case FFI_INT8: return "int8";
+        case FFI_INT16: return "int16";
+        case FFI_INT32: return "int32";
+        case FFI_INT64: return "int64";
+        case FFI_LONG: return "long";
+        case FFI_CHAR: return "char";
+        case FFI_UINT8: return "uint8";
+        case FFI_UINT16: return "uint16";
+        case FFI_UINT32: return "uint32";
+        case FFI_UINT64: return "uint64";
+        case FFI_ULONG: return "ulong";
+        case FFI_UCHAR: return "uchar";
+        case FFI_SIZE_T: return "size_t";
+        case FFI_SSIZE_T: return "ssize_t";
         case FFI_BOOL: return "bool";
+        case FFI_FLOAT: return "float";
+        case FFI_DOUBLE: return "double";
         case FFI_STRING: return "string";
         case FFI_PTR: return "ptr";
         case FFI_CALLBACK: return "callback";
-        case FFI_VOID: return "void";
         default: return "int";
     }
 }
@@ -422,13 +463,28 @@ const char* lumyr_ffi_type_to_name(FFIType type) {
 /* 获取 C 类型名字符串（用于编译通道生成代码） */
 const char* lumyr_ffi_type_to_cname(FFIType type) {
     switch(type) {
-        case FFI_INT: return "long long";
-        case FFI_DOUBLE: return "double";
+        case FFI_VOID: return "void";
+        case FFI_INT: return "int";
+        case FFI_INT8: return "int8_t";
+        case FFI_INT16: return "int16_t";
+        case FFI_INT32: return "int32_t";
+        case FFI_INT64: return "int64_t";
+        case FFI_LONG: return "long";
+        case FFI_CHAR: return "char";
+        case FFI_UINT8: return "uint8_t";
+        case FFI_UINT16: return "uint16_t";
+        case FFI_UINT32: return "uint32_t";
+        case FFI_UINT64: return "uint64_t";
+        case FFI_ULONG: return "unsigned long";
+        case FFI_UCHAR: return "unsigned char";
+        case FFI_SIZE_T: return "size_t";
+        case FFI_SSIZE_T: return "ssize_t";
         case FFI_BOOL: return "int";
+        case FFI_FLOAT: return "float";
+        case FFI_DOUBLE: return "double";
         case FFI_STRING: return "const char*";
         case FFI_PTR: return "void*";
         case FFI_CALLBACK: return "void*";
-        case FFI_VOID: return "void";
-        default: return "long long";
+        default: return "int";
     }
 }

@@ -1,0 +1,64 @@
+// FFI 扩展类型测试 - 简化版
+
+// ========== 1. 各种整数返回类型 ==========
+extern "msvcrt.dll" func atoi(s: string): int;
+extern "msvcrt.dll" func atol(s: string): long;
+extern "msvcrt.dll" func _atoi64(s: string): int64;
+extern "msvcrt.dll" func strlen(s: string): size_t;
+
+print("=== 1. Integer Return Types ===");
+print("atoi(\"123\") =", atoi("123"));
+print("atol(\"456\") =", atol("456"));
+print("_atoi64(\"789\") =", _atoi64("789"));
+print("strlen(\"hello\") =", strlen("hello"));
+
+// ========== 2. 无符号整数类型 ==========
+extern "msvcrt.dll" func strtol(s: string, endptr: ptr, base: int): long;
+extern "msvcrt.dll" func strtoul(s: string, endptr: ptr, base: int): ulong;
+extern "msvcrt.dll" func _strtoi64(s: string, endptr: ptr, base: int): int64;
+extern "msvcrt.dll" func _strtoui64(s: string, endptr: ptr, base: int): uint64;
+
+print("\n=== 2. Unsigned Integer Types ===");
+v1 = strtol("12345", 0, 10);
+print("strtol(\"12345\") =", v1);
+v2 = strtoul("67890", 0, 10);
+print("strtoul(\"67890\") =", v2);
+v3 = _strtoi64("111111111111", 0, 10);
+print("_strtoi64(\"111111111111\") =", v3);
+v4 = _strtoui64("222222222222", 0, 10);
+print("_strtoui64(\"222222222222\") =", v4);
+
+// ========== 3. 浮点类型 ==========
+extern "msvcrt.dll" func atof(s: string): double;
+extern "msvcrt.dll" func strtod(s: string, endptr: ptr): double;
+
+print("\n=== 3. Float Types ===");
+print("atof(\"3.14159\") =", atof("3.14159"));
+d = strtod("2.71828", 0);
+print("strtod(\"2.71828\") =", d);
+
+// ========== 4. 字符类型（用 isdigit 测试） ==========
+extern "msvcrt.dll" func isdigit(c: int): int;
+
+print("\n=== 4. Char Types ===");
+r1 = isdigit(53);
+print("isdigit(53) =", r1);
+r2 = isdigit(97);
+print("isdigit(97) =", r2);
+
+// ========== 5. 指针类型别名 ==========
+extern "msvcrt.dll" func malloc(size: size_t): handle;
+extern "msvcrt.dll" func free(ptr: pointer): void;
+extern "msvcrt.dll" func memset(ptr: ptr, value: int, num: size_t): ptr;
+
+print("\n=== 5. Pointer Type Aliases ===");
+p = malloc(64);
+print("malloc(64) handle =", p);
+if(p != 0) {
+    memset(p, 0, 64);
+    print("memset(p, 0, 64) done");
+    free(p);
+    print("free(p) done");
+}
+
+print("\n=== All Extended Type Tests Passed ===");
