@@ -587,6 +587,17 @@ static void c_expr(Ctx* c, AstNode* node)
             } else {
                 /* 无类型标注的赋值：清除之前的类型标记，回退到动态 Value 类型 */
                 c->fn->var_type_tags[var_idx] = -1;
+                /* 检测 struct 构造调用：Point(10, 20) → 变量是 Point 类型 */
+                if(node->u.assign.expr && node->u.assign.expr->type == AST_CALL) {
+                    const char* fname = node->u.assign.expr->u.call.name;
+                    if(fname && struct_lookup(fname)) {
+                        /* 释放旧的 struct 类型名（如果有） */
+                        if(c->fn->var_struct_names[var_idx]) {
+                            free(c->fn->var_struct_names[var_idx]);
+                        }
+                        c->fn->var_struct_names[var_idx] = strdup(fname);
+                    }
+                }
             }
             c_expr(c, node->u.assign.expr);
             emit(c, OPC_STORE_VAR, var_idx, 0);

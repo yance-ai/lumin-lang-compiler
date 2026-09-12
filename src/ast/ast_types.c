@@ -87,6 +87,11 @@ TypeDef* type_get(int idx)
     return &g_types[idx];
 }
 
+int type_count(void)
+{
+    return g_types_n;
+}
+
 ValueType type_name_to_valtype(const char* tname)
 {
     if(!tname) return VAL_NONE;

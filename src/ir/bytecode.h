@@ -191,6 +191,7 @@ typedef struct {
     int has_variadic;
     int is_generator;          // 是否为生成器函数（gen func）
     int* var_type_tags;        // 变量类型标记（CastKind 枚举，-1 表示无标记），与 syms 平行数组
+    char** var_struct_names;    // 变量的 struct 类型名（NULL 表示不是 struct），与 syms 平行数组
 } BytecodeFunc;
 
 BytecodeFunc* bytecode_func_new(const char* name, int is_main);

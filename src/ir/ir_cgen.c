@@ -116,6 +116,15 @@ static int get_var_type_tag(const BytecodeFunc* fn, const char* name) {
     return -1;
 }
 
+/* 检查变量是否是 struct 类型，返回 struct 类型名（NULL 表示不是） */
+static const char* get_var_struct_name(const BytecodeFunc* fn, const char* name) {
+    if(!fn || !fn->var_struct_names) return NULL;
+    for(int i = 0; i < fn->sym_cnt; i++) {
+        if(strcmp(fn->syms[i], name) == 0) return fn->var_struct_names[i];
+    }
+    return NULL;
+}
+
 /* 生成读取精确类型变量并转换为 Value 的代码 */
 static const char* gen_precise_load(int type_tag, const char* var_expr) {
     static char buf[512];

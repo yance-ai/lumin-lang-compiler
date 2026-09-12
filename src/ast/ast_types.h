@@ -28,6 +28,7 @@ typedef struct {
 int type_register(const char* name, char** props, ValueType* ptypes, int nprops, char** generic_params, int generic_param_count, char** interfaces, int ninterfaces);
 int type_lookup(const char* name);
 TypeDef* type_get(int idx);
+int type_count(void);
 
 // 属性类型名（string/int/double/bool/char/ascii/byte）→ ValueType；未知返回 VAL_NONE
 ValueType type_name_to_valtype(const char* tname);
