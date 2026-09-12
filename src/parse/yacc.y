@@ -525,9 +525,23 @@ operator : PLUS  { $$ = strdup("+"); }
          | GE    { $$ = strdup(">="); }
          ;
 
-func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
+func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
+          $$ = ast_func_def($3, $5, $7);
+          $$->u.func_def.annotations = NULL;
+          $$->u.func_def.ret_type_name = strdup(castkind_to_name($2));
+          /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
+          RuntimeFunc* rf = compile_func_from_ast($$);
+          Value func_val = {0};
+          func_val.type = VAL_FUNC;
+          func_val.v.func.func_obj = rf;
+          func_val.v.func.ffi_func = NULL;
+          func_val.v.func.is_ffi = 0;
+          sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+        }
+        | FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($2, $4, $6);
           $$->u.func_def.annotations = NULL;
+          $$->u.func_def.ret_type_name = NULL;
           /* 语义分析阶段：编译这个函数定义，生成RuntimeFunc，注册到全局符号 */
           RuntimeFunc* rf = compile_func_from_ast($$);
           Value func_val = {0};
@@ -600,19 +614,13 @@ func_def : FUNC ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.is_ffi = 0;
           sym_set($3, func_val);
         }
-        /* FFI 外部函数声明：extern func name(params): ret_type */
-        | TOK_EXTERN FUNC ID LPAREN param_list RPAREN COLON ID SEMI {
-          $$ = ast_extern_func($3, $5, $8, NULL);
+        /* FFI 外部函数声明：extern <ret_type> func name(params) */
+        | TOK_EXTERN TOK_TYPE_ANNOT FUNC ID LPAREN param_list RPAREN SEMI {
+          $$ = ast_extern_func($4, $6, castkind_to_name($2), NULL);
         }
-        | TOK_EXTERN FUNC ID LPAREN param_list RPAREN COLON builtin_type_name SEMI {
-          $$ = ast_extern_func($3, $5, castkind_to_name($8), NULL);
-        }
-        /* FFI 外部函数声明（指定库）：extern "libname" func name(params): ret_type */
-        | TOK_EXTERN STRING_LIT FUNC ID LPAREN param_list RPAREN COLON ID SEMI {
-          $$ = ast_extern_func($4, $6, $9, $2);
-        }
-        | TOK_EXTERN STRING_LIT FUNC ID LPAREN param_list RPAREN COLON builtin_type_name SEMI {
-          $$ = ast_extern_func($4, $6, castkind_to_name($9), $2);
+        /* FFI 外部函数声明（指定库）：extern "libname" <ret_type> func name(params) */
+        | TOK_EXTERN STRING_LIT TOK_TYPE_ANNOT FUNC ID LPAREN param_list RPAREN SEMI {
+          $$ = ast_extern_func($5, $7, castkind_to_name($3), $2);
         } ;
 
 /* 函数定义列表：用于扩展方法块 */
@@ -653,7 +661,7 @@ param
     : ID                     { $$ = ast_param($1, 0, NULL); } /*普通参数 is_ellipsis=0 */
     | ID ASSIGN expr         { $$ = ast_param($1, 0, $3); } /*带默认值的参数 */
     | ELLIPSIS ID            { $$ = ast_param($2, 1, NULL); } /* ...args 可变参数 is_ellipsis=1 */
-    | ID COLON type_name_str { $$ = ast_param($1, 0, NULL); $$->u.param.constraint = $3; } /*带类型标注的参数（直接存储原始类型名字符串）*/
+    | TOK_TYPE_ANNOT ID      { $$ = ast_param($2, 0, NULL); $$->u.param.constraint = strdup(castkind_to_name($1)); } /*带类型标注的参数 <int>a */
 ;
 
 /* 注解：@name 或 @name(args) */

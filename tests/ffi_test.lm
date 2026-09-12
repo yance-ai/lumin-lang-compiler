@@ -1,9 +1,9 @@
 // FFI 外部函数接口测试
 
 // 声明 C 标准库函数（带参数类型标注）
-extern "msvcrt.dll" func strlen(s: string): int;
-extern "msvcrt.dll" func atoi(s: string): int;
-extern func abs(n: int): int;
+extern "msvcrt.dll" <int> func strlen(<string>s);
+extern "msvcrt.dll" <int> func atoi(<string>s);
+extern <int> func abs(<int>n);
 
 print("=== FFI Test ===");
 

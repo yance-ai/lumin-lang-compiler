@@ -1,0 +1,2 @@
+extern "msvcrt.dll" <int> func strlen(s);
+print("test");

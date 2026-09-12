@@ -1,4 +1,4 @@
-// 类型系统全面测试 - <>转换 + ()转换 + 普通场景 + FFI场景
+// 类型系统全面测试 - <ptr>转换 + ()转换 + 普通场景 + FFI场景
 print("=== Type System Full Test ===");
 
 // ========== 1. () 类型转换 - 整数类型 ==========
@@ -21,8 +21,8 @@ print("(ssize_t)1000 =", (ssize_t)x);
 print("(long)1000 =", (long)x);
 print("(long long)1000 =", (long long)x);
 
-// ========== 2. <> 类型转换 - 整数类型 ==========
-print("\n--- <> Cast: Integer Types ---");
+// ========== 2. <ptr>类型转换 - 整数类型 ==========
+print("\n--- <ptr>Cast: Integer Types ---");
 print("<int8>1000 =", <int8>x);
 print("<int16>1000 =", <int16>x);
 print("<int32>1000 =", <int32>x);
@@ -47,8 +47,8 @@ print("(float)pi =", (float)d);
 print("(double)pi =", (double)d);
 print("(long double)pi =", (long double)d);
 
-// ========== 4. <> 类型转换 - 浮点类型 ==========
-print("\n--- <> Cast: Float Types ---");
+// ========== 4. <ptr>类型转换 - 浮点类型 ==========
+print("\n--- <ptr>Cast: Float Types ---");
 print("<float>pi =", <float>d);
 print("<double>pi =", <double>d);
 print("<long double>pi =", <long double>d);
@@ -56,7 +56,7 @@ print("<long double>pi =", <long double>d);
 // ========== 5. () 类型转换 - 其他类型 ==========
 print("\n--- () Cast: Other Types ---");
 p = 12345;
-print("(ptr)12345 =", (ptr)p);
+print("()12345 =", ()p);
 print("(pointer)12345 =", (pointer)p);
 print("(handle)12345 =", (handle)p);
 v = (void)x;
@@ -67,9 +67,9 @@ c = 65;
 print("(char)65 =", (char)c);
 print("(byte)65 =", (byte)c);
 
-// ========== 6. <> 类型转换 - 其他类型 ==========
-print("\n--- <> Cast: Other Types ---");
-print("<ptr>12345 =", <ptr>p);
+// ========== 6. <ptr>类型转换 - 其他类型 ==========
+print("\n--- <ptr>Cast: Other Types ---");
+print("<p>12345 =", <ptr>p);
 print("<pointer>12345 =", <pointer>p);
 print("<handle>12345 =", <handle>p);
 v2 = <void>x;
@@ -80,10 +80,10 @@ print("<byte>65 =", <byte>c);
 
 // ========== 7. FFI 场景 - 整数类型声明 ==========
 print("\n--- FFI: Integer Type Declarations ---");
-extern "msvcrt.dll" func atoi(s: string): int;
-extern "msvcrt.dll" func atol(s: string): long;
-extern "msvcrt.dll" func _atoi64(s: string): long long;
-extern "msvcrt.dll" func strlen(s: string): size_t;
+extern "msvcrt.dll" <int> func atoi(<string>s);
+extern "msvcrt.dll" <long> func atol(<string>s);
+extern "msvcrt.dll" <long long> func _atoi64(<string>s);
+extern "msvcrt.dll" <size_t> func strlen(<string>s);
 print("atoi(42) =", atoi("42"));
 print("atol(100000) =", atol("100000"));
 print("_atoi64(9999999999) =", _atoi64("9999999999"));
@@ -91,32 +91,32 @@ print("strlen(hello) =", strlen("hello"));
 
 // ========== 8. FFI 场景 - 无符号整数类型 ==========
 print("\n--- FFI: Unsigned Integer Types ---");
-extern "msvcrt.dll" func strtoul(s: string, end: ptr, base: int): unsigned long;
-extern "msvcrt.dll" func _strtoui64(s: string, end: ptr, base: int): uint64;
+extern "msvcrt.dll" <unsigned long> func strtoul(<string>s, <ptr>end, <int>base);
+extern "msvcrt.dll" <uint64> func _strtoui64(<string>s, <ptr>end, <int>base);
 print("strtoul(255) =", strtoul("255", null, 10));
 print("_strtoui64(4294967295) =", _strtoui64("4294967295", null, 10));
 
 // ========== 9. FFI 场景 - 浮点类型 ==========
 print("\n--- FFI: Float Types ---");
-extern "msvcrt.dll" func atof(s: string): double;
-extern "msvcrt.dll" func floor(x: double): double;
-extern "msvcrt.dll" func fabs(x: double): double;
+extern "msvcrt.dll" <double> func atof(<string>s);
+extern "msvcrt.dll" <double> func floor(<double>x);
+extern "msvcrt.dll" <double> func fabs(<double>x);
 print("atof(3.14) =", atof("3.14"));
 print("floor(3.7) =", floor(3.7));
 print("fabs(-2.5) =", fabs(-2.5));
 
 // ========== 10. FFI 场景 - 字符类型 ==========
 print("\n--- FFI: Char Type ---");
-extern "msvcrt.dll" func isdigit(c: int): int;
-extern "msvcrt.dll" func isalpha(c: int): int;
+extern "msvcrt.dll" <int> func isdigit(<int>c);
+extern "msvcrt.dll" <int> func isalpha(<int>c);
 print("isdigit(57) =", isdigit(57));  // '9' = 57
 print("isalpha(97) =", isalpha(97));  // 'a' is alpha
 
 // ========== 11. FFI 场景 - 指针类型 ==========
 print("\n--- FFI: Pointer Types ---");
-extern "msvcrt.dll" func malloc(size: size_t): ptr;
-extern "msvcrt.dll" func free(p: ptr): void;
-extern "msvcrt.dll" func memset(p: ptr, value: int, size: size_t): ptr;
+extern "msvcrt.dll" <ptr> func malloc(<size_t>size);
+extern "msvcrt.dll" <void> func free(<ptr>p);
+extern "msvcrt.dll" <ptr> func memset(<ptr>p, <int>value, <size_t>size);
 buf = malloc(16);
 print("malloc(16) =", buf);
 memset(buf, 0, 16);

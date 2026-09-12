@@ -1,0 +1,2 @@
+extern <int> func free(ptr);
+print("test");

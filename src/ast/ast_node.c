@@ -502,6 +502,7 @@ AstNode* ast_func_def(char* name, AstNode* params, AstNode* body) {
     n->u.func_def.is_const = 0;
     n->u.func_def.generic_params = NULL;
     n->u.func_def.is_generator = 0;
+    n->u.func_def.ret_type_name = NULL;
     return n;
 }
 

@@ -1,0 +1,4 @@
+func test(ptr) {
+    print("test", ptr);
+}
+test(123);

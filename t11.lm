@@ -1,0 +1,4 @@
+func test(<pointer>p) {
+    print("test", p);
+}
+test(123);

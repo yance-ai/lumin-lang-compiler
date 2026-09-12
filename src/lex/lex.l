@@ -159,6 +159,8 @@ f\"([^"\\]|\\.)*\"   {
 "=="        { LEX_RET(EQ); }
 "!="        { LEX_RET(NE); }
 ">"         { LEX_RET(GT); }
+"<string>"         { yylval.ll = CAST_STRING; LEX_RET(TOK_TYPE_ANNOT); }
+"<ascii>"          { yylval.ll = CAST_ASCII; LEX_RET(TOK_TYPE_ANNOT); }
 "<int>"            { yylval.ll = CAST_INT; LEX_RET(TOK_TYPE_ANNOT); }
 "<double>"         { yylval.ll = CAST_DOUBLE; LEX_RET(TOK_TYPE_ANNOT); }
 "<bool>"           { yylval.ll = CAST_BOOL; LEX_RET(TOK_TYPE_ANNOT); }
@@ -171,6 +173,7 @@ f\"([^"\\]|\\.)*\"   {
 "<uint8>"          { yylval.ll = CAST_UINT8; LEX_RET(TOK_TYPE_ANNOT); }
 "<uint16>"         { yylval.ll = CAST_UINT16; LEX_RET(TOK_TYPE_ANNOT); }
 "<uint32>"         { yylval.ll = CAST_UINT32; LEX_RET(TOK_TYPE_ANNOT); }
+"<uint>"           { yylval.ll = CAST_UINT32; LEX_RET(TOK_TYPE_ANNOT); }
 "<uint64>"         { yylval.ll = CAST_UINT64; LEX_RET(TOK_TYPE_ANNOT); }
 "<long>"           { yylval.ll = CAST_LONG; LEX_RET(TOK_TYPE_ANNOT); }
 "<long long>"      { yylval.ll = CAST_LONGLONG; LEX_RET(TOK_TYPE_ANNOT); }

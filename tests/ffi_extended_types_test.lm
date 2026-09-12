@@ -1,10 +1,10 @@
 // FFI 扩展类型测试 - 简化版
 
 // ========== 1. 各种整数返回类型 ==========
-extern "msvcrt.dll" func atoi(s: string): int;
-extern "msvcrt.dll" func atol(s: string): long;
-extern "msvcrt.dll" func _atoi64(s: string): int64;
-extern "msvcrt.dll" func strlen(s: string): size_t;
+extern "msvcrt.dll" <int> func atoi(<string>s);
+extern "msvcrt.dll" <long> func atol(<string>s);
+extern "msvcrt.dll" <int64> func _atoi64(<string>s);
+extern "msvcrt.dll" <size_t> func strlen(<string>s);
 
 print("=== 1. Integer Return Types ===");
 print("atoi(\"123\") =", atoi("123"));
@@ -13,10 +13,10 @@ print("_atoi64(\"789\") =", _atoi64("789"));
 print("strlen(\"hello\") =", strlen("hello"));
 
 // ========== 2. 无符号整数类型 ==========
-extern "msvcrt.dll" func strtol(s: string, endptr: ptr, base: int): long;
-extern "msvcrt.dll" func strtoul(s: string, endptr: ptr, base: int): ulong;
-extern "msvcrt.dll" func _strtoi64(s: string, endptr: ptr, base: int): int64;
-extern "msvcrt.dll" func _strtoui64(s: string, endptr: ptr, base: int): uint64;
+extern "msvcrt.dll" <long> func strtol(<string>s, <ptr>endptr, <int>base);
+extern "msvcrt.dll" <ulong> func strtoul(<string>s, <ptr>endptr, <int>base);
+extern "msvcrt.dll" <int64> func _strtoi64(<string>s, <ptr>endptr, <int>base);
+extern "msvcrt.dll" <uint64> func _strtoui64(<string>s, <ptr>endptr, <int>base);
 
 print("\n=== 2. Unsigned Integer Types ===");
 v1 = strtol("12345", 0, 10);
@@ -29,8 +29,8 @@ v4 = _strtoui64("222222222222", 0, 10);
 print("_strtoui64(\"222222222222\") =", v4);
 
 // ========== 3. 浮点类型 ==========
-extern "msvcrt.dll" func atof(s: string): double;
-extern "msvcrt.dll" func strtod(s: string, endptr: ptr): double;
+extern "msvcrt.dll" <double> func atof(<string>s);
+extern "msvcrt.dll" <double> func strtod(<string>s, <ptr>endptr);
 
 print("\n=== 3. Float Types ===");
 print("atof(\"3.14159\") =", atof("3.14159"));
@@ -38,7 +38,7 @@ d = strtod("2.71828", 0);
 print("strtod(\"2.71828\") =", d);
 
 // ========== 4. 字符类型（用 isdigit 测试） ==========
-extern "msvcrt.dll" func isdigit(c: int): int;
+extern "msvcrt.dll" <int> func isdigit(<int>c);
 
 print("\n=== 4. Char Types ===");
 r1 = isdigit(53);
@@ -47,9 +47,9 @@ r2 = isdigit(97);
 print("isdigit(97) =", r2);
 
 // ========== 5. 指针类型别名 ==========
-extern "msvcrt.dll" func malloc(size: size_t): handle;
-extern "msvcrt.dll" func free(ptr: pointer): void;
-extern "msvcrt.dll" func memset(ptr: ptr, value: int, num: size_t): ptr;
+extern "msvcrt.dll" <handle> func malloc(<size_t>size);
+extern "msvcrt.dll" <void> func free(<pointer>p);
+extern "msvcrt.dll" <ptr> func memset(<ptr>p, <int>value, <size_t>num);
 
 print("\n=== 5. Pointer Type Aliases ===");
 p = malloc(64);

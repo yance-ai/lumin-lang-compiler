@@ -1,0 +1,2 @@
+extern "msvcrt.dll" func free(<pointer>ptr);
+print("test");

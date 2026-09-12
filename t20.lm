@@ -1,0 +1,4 @@
+func free() {
+    print("test");
+}
+free();

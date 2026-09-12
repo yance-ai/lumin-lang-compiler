@@ -130,6 +130,7 @@ struct AstNode {
             int is_const;  // 编译期计算函数（const fn）
             AstNode* generic_params;  // 泛型参数列表（AST_PARAM链表，NULL=非泛型函数）
             int is_generator;  // generator function (gen func)
+            char* ret_type_name;  // 返回值类型名（如 "int","double","string"），NULL=无类型声明
         } func_def;
 
         struct {

@@ -1,8 +1,8 @@
-extern "msvcrt.dll" func floor(x: double): double;
-extern "msvcrt.dll" func fabs(x: double): double;
-extern "msvcrt.dll" func pow(base: double, exp: double): double;
-extern "msvcrt.dll" func sqrt(x: double): double;
-extern "msvcrt.dll" func ceil(x: double): double;
+extern "msvcrt.dll" <double> func floor(<double>x);
+extern "msvcrt.dll" <double> func fabs(<double>x);
+extern "msvcrt.dll" <double> func pow(<double>base, <double>exp);
+extern "msvcrt.dll" <double> func sqrt(<double>x);
+extern "msvcrt.dll" <double> func ceil(<double>x);
 
 print("=== FFI Float Parameter Test ===");
 
