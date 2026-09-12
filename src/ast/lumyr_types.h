@@ -53,6 +53,7 @@ typedef enum {
     AST_SPREAD,        // 展开运算符 ...expr（数组/map 字面量内）
     AST_YIELD,         // yield 表达式（生成器函数中）
     AST_EXTERN_FUNC,   // FFI 外部函数声明 extern func f(a): ret
+    AST_TYPE_ANNOTATION, // 类型标注 <type>expr：给变量打类型标记（等价 C 的类型声明）
 } AstType;
 
 // 二元运算符

@@ -217,6 +217,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_CHAR_LIT
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT TOK_ULONG TOK_UCHAR TOK_SHORT TOK_USHORT TOK_SIZE_T TOK_SSIZE_T TOK_VOID TOK_LONG_DOUBLE TOK_PTR
+%token<ll> TOK_TYPE_ANNOT   /* 类型标注 <type>：词法层面整体匹配，值为 CastKind 枚举 */
 %token TOK_TYPE TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS TOK_EXTEND TOK_UNPACK
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
@@ -934,10 +935,10 @@ primary
         { $$ = new_cast_node(CAST_BYTE, ast_array_lit($5)); }
     | LPAREN TOK_BYTE RPAREN LBRACE map_items RBRACE
         { $$ = new_cast_node(CAST_BYTE, ast_map_lit($5)); }
-    /* 泛型字面量：<T>value 单值/数组/map 统一走 unary_expr（强转函数已支持数组/map 递归）
+    /* 类型标注：<T>value 给变量打类型标记（等价 C 的类型声明 int a = 8）
        <string,V>{k:v} map 值强转（键固定 string） */
-    | LT builtin_type_name GT unary_expr
-        { $$ = new_cast_node($2, $4); }
+    | TOK_TYPE_ANNOT unary_expr
+        { $$ = ast_type_annotation($1, $2); }
     | LT type_name COMMA type_name GT MAP_OPEN map_items RBRACE
         { $$ = new_cast_node($4, ast_map_lit($7)); }
     | LT ID GT ARRAY_OPEN arg_list RBRACKET {

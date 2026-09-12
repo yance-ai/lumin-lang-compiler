@@ -168,7 +168,6 @@ static Value ast_eval_binop(AstNode* node, EvalCtx* ctx, StackFrame* frame)
 Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
 {
     if(!node) return make_nil();
-
     switch(node->type) {
         case AST_INT:
             return make_int(node->u.inum);
@@ -556,6 +555,45 @@ Value ast_eval_ctx(AstNode* node, EvalCtx* ctx, StackFrame* frame)
                 default: {
                     return make_int(0);
                 }
+            }
+        }
+
+        case AST_TYPE_ANNOTATION: {
+            /* 类型标注 <type>expr：给值打类型标记（等价 C 的类型声明）
+               基础版本：按标注类型转换值，整数统一 VAL_INT，浮点统一 VAL_DOUBLE
+               后续扩展：变量级类型标记传播，编译期零开销优化 */
+            Value subv = ast_eval_ctx(node->u.type_annotation.expr, ctx, frame);
+            int ct = node->u.type_annotation.cast_type;
+            /* 浮点类型标注 */
+            if(ct == CAST_DOUBLE || ct == CAST_FLOAT || ct == CAST_LONG_DOUBLE) {
+                if(subv.type == VAL_DOUBLE) return subv;
+                if(subv.type == VAL_INT) return make_double((double)subv.v.i);
+                return make_double(0);
+            }
+            /* void 标注 */
+            if(ct == CAST_VOID) return make_nil();
+            /* 整数类型标注（统一 VAL_INT，值做 C 风格截断/扩展） */
+            {
+                long long iv;
+                if(subv.type == VAL_INT) iv = subv.v.i;
+                else if(subv.type == VAL_DOUBLE) iv = (long long)subv.v.d;
+                else if(subv.type == VAL_CHAR) iv = (unsigned char)subv.v.c;
+                else if(subv.type == VAL_BOOL) iv = subv.v.b ? 1 : 0;
+                else iv = 0;
+                /* 按标注类型做 C 风格截断/扩展 */
+                switch(ct) {
+                    case CAST_INT8: iv = (long long)(int8_t)iv; break;
+                    case CAST_INT16: case CAST_SHORT: iv = (long long)(int16_t)iv; break;
+                    case CAST_INT32: case CAST_INT: iv = (long long)(int32_t)iv; break;
+                    case CAST_UINT8: case CAST_UCHAR: case CAST_BYTE: iv = (long long)(uint8_t)(unsigned long long)iv; break;
+                    case CAST_UINT16: case CAST_USHORT: iv = (long long)(uint16_t)(unsigned long long)iv; break;
+                    case CAST_UINT32: iv = (long long)(uint32_t)(unsigned long long)iv; break;
+                    case CAST_CHAR: iv = (long long)(unsigned char)iv; break;
+                    case CAST_BOOL: iv = iv ? 1 : 0; break;
+                    /* int64/long/long long/uint64/ulong/size_t/ssize_t/ptr：不截断 */
+                    default: break;
+                }
+                return make_int(iv);
             }
         }
 

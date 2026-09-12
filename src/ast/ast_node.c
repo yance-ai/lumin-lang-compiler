@@ -514,6 +514,14 @@ AstNode* ast_extern_func(char* name, AstNode* params, char* ret_type_name, char*
     return n;
 }
 
+// 类型标注 <type>expr：给变量打类型标记（等价 C 的类型声明）
+AstNode* ast_type_annotation(int cast_type, AstNode* expr) {
+    AstNode* n = ast_new(AST_TYPE_ANNOTATION);
+    n->u.type_annotation.cast_type = cast_type;
+    n->u.type_annotation.expr = expr;
+    return n;
+}
+
 AstNode* ast_yield(AstNode* value) {
     AstNode* n = ast_new(AST_YIELD);
     n->u.yieldnode.value = value;

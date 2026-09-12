@@ -1,6 +1,7 @@
 /* 编译期模块：prev_token/in_case_expr 为单线程词法状态，未来并发编译需实例化。 */
 %{
 #include "yacc.tab.h"
+#include "lumyr_value_type.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -158,7 +159,37 @@ f\"([^"\\]|\\.)*\"   {
 "=="        { LEX_RET(EQ); }
 "!="        { LEX_RET(NE); }
 ">"         { LEX_RET(GT); }
-"<"         { LEX_RET(LT); }
+"<int>"            { yylval.ll = CAST_INT; LEX_RET(TOK_TYPE_ANNOT); }
+"<double>"         { yylval.ll = CAST_DOUBLE; LEX_RET(TOK_TYPE_ANNOT); }
+"<bool>"           { yylval.ll = CAST_BOOL; LEX_RET(TOK_TYPE_ANNOT); }
+"<char>"           { yylval.ll = CAST_CHAR; LEX_RET(TOK_TYPE_ANNOT); }
+"<byte>"           { yylval.ll = CAST_BYTE; LEX_RET(TOK_TYPE_ANNOT); }
+"<int8>"           { yylval.ll = CAST_INT8; LEX_RET(TOK_TYPE_ANNOT); }
+"<int16>"          { yylval.ll = CAST_INT16; LEX_RET(TOK_TYPE_ANNOT); }
+"<int32>"          { yylval.ll = CAST_INT32; LEX_RET(TOK_TYPE_ANNOT); }
+"<int64>"          { yylval.ll = CAST_INT64; LEX_RET(TOK_TYPE_ANNOT); }
+"<uint8>"          { yylval.ll = CAST_UINT8; LEX_RET(TOK_TYPE_ANNOT); }
+"<uint16>"         { yylval.ll = CAST_UINT16; LEX_RET(TOK_TYPE_ANNOT); }
+"<uint32>"         { yylval.ll = CAST_UINT32; LEX_RET(TOK_TYPE_ANNOT); }
+"<uint64>"         { yylval.ll = CAST_UINT64; LEX_RET(TOK_TYPE_ANNOT); }
+"<long>"           { yylval.ll = CAST_LONG; LEX_RET(TOK_TYPE_ANNOT); }
+"<long long>"      { yylval.ll = CAST_LONGLONG; LEX_RET(TOK_TYPE_ANNOT); }
+"<float>"          { yylval.ll = CAST_FLOAT; LEX_RET(TOK_TYPE_ANNOT); }
+"<ulong>"          { yylval.ll = CAST_ULONG; LEX_RET(TOK_TYPE_ANNOT); }
+"<uchar>"          { yylval.ll = CAST_UCHAR; LEX_RET(TOK_TYPE_ANNOT); }
+"<short>"          { yylval.ll = CAST_SHORT; LEX_RET(TOK_TYPE_ANNOT); }
+"<ushort>"         { yylval.ll = CAST_USHORT; LEX_RET(TOK_TYPE_ANNOT); }
+"<unsigned short>" { yylval.ll = CAST_USHORT; LEX_RET(TOK_TYPE_ANNOT); }
+"<unsigned long>"  { yylval.ll = CAST_ULONG; LEX_RET(TOK_TYPE_ANNOT); }
+"<unsigned char>"  { yylval.ll = CAST_UCHAR; LEX_RET(TOK_TYPE_ANNOT); }
+"<size_t>"         { yylval.ll = CAST_SIZE_T; LEX_RET(TOK_TYPE_ANNOT); }
+"<ssize_t>"        { yylval.ll = CAST_SSIZE_T; LEX_RET(TOK_TYPE_ANNOT); }
+"<void>"           { yylval.ll = CAST_VOID; LEX_RET(TOK_TYPE_ANNOT); }
+"<long double>"    { yylval.ll = CAST_LONG_DOUBLE; LEX_RET(TOK_TYPE_ANNOT); }
+"<ptr>"            { yylval.ll = CAST_PTR; LEX_RET(TOK_TYPE_ANNOT); }
+"<pointer>"        { yylval.ll = CAST_PTR; LEX_RET(TOK_TYPE_ANNOT); }
+"<handle>"         { yylval.ll = CAST_PTR; LEX_RET(TOK_TYPE_ANNOT); }
+"<"                { LEX_RET(LT); }
 "&&"        { LEX_RET(AND); }
 "||"        { LEX_RET(OR); }
 "!"         { LEX_RET(NOT); }

@@ -144,6 +144,11 @@ struct AstNode {
         } extern_func;
 
         struct {
+            int cast_type;       // 标注的类型（CastKind枚举），如 CAST_INT/CAST_DOUBLE/CAST_LONG
+            AstNode* expr;       // 被标注的表达式
+        } type_annotation;
+
+        struct {
             char* name;
             int is_ellipsis; // 1=...args可变参数，只能最后一个
             AstNode* default_val; // 默认值表达式，NULL=无默认值

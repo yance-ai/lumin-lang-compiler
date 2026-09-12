@@ -670,6 +670,62 @@ static void c_expr(Ctx* c, AstNode* node)
             }
             break;
         }
+        case AST_TYPE_ANNOTATION: {
+            /* 类型标注 <type>expr：给值打类型标记（等价 C 的类型声明）
+               基础版本：复用 OPC_CAST 指令，按标注类型转换值
+               后续扩展：变量级类型标记传播，编译期零开销优化 */
+            Value fv;
+            if(fold_const(c, node->u.type_annotation.expr, &fv)) {
+                /* 编译期常量：按标注类型折叠，做 C 风格截断/扩展 */
+                int ct = node->u.type_annotation.cast_type;
+                if(ct == CAST_VOID) {
+                    fv = val_none();
+                } else if(ct == CAST_DOUBLE || ct == CAST_FLOAT || ct == CAST_LONG_DOUBLE) {
+                    double dv = (fv.type == VAL_DOUBLE) ? fv.v.d : (double)fv.v.i;
+                    if(ct == CAST_FLOAT) dv = (float)dv;
+                    fv = lumyr_make_double(dv);
+                } else {
+                    long long iv = (fv.type == VAL_INT) ? fv.v.i : (long long)fv.v.d;
+                    switch(ct) {
+                        case CAST_INT8: iv = (long long)(int8_t)iv; break;
+                        case CAST_INT16: case CAST_SHORT: iv = (long long)(int16_t)iv; break;
+                        case CAST_INT32: case CAST_INT: iv = (long long)(int32_t)iv; break;
+                        case CAST_UINT8: case CAST_UCHAR: case CAST_BYTE: iv = (long long)(uint8_t)(unsigned long long)iv; break;
+                        case CAST_UINT16: case CAST_USHORT: iv = (long long)(uint16_t)(unsigned long long)iv; break;
+                        case CAST_UINT32: iv = (long long)(uint32_t)(unsigned long long)iv; break;
+                        case CAST_CHAR: iv = (long long)(unsigned char)iv; break;
+                        case CAST_BOOL: iv = iv ? 1 : 0; break;
+                        /* int64/long/long long/uint64/ulong/size_t/ssize_t/ptr：不截断 */
+                        default: break;
+                    }
+                    fv = lumyr_make_int(iv);
+                }
+                emit(c, OPC_LOAD_CONST, bf_const(c->fn, fv), 0);
+                break;
+            }
+            c_expr(c, node->u.type_annotation.expr);
+            static const OpCode cmap[] = {
+                [CAST_INT] = OPC_CAST_INT, [CAST_DOUBLE] = OPC_CAST_DOUBLE,
+                [CAST_CHAR] = OPC_CAST_CHAR, [CAST_BOOL] = OPC_CAST_BOOL,
+                [CAST_INT8] = OPC_CAST_INT8, [CAST_INT16] = OPC_CAST_INT16,
+                [CAST_INT32] = OPC_CAST_INT32, [CAST_INT64] = OPC_CAST_INT64,
+                [CAST_UINT8] = OPC_CAST_UINT8, [CAST_UINT16] = OPC_CAST_UINT16,
+                [CAST_UINT32] = OPC_CAST_UINT32, [CAST_UINT64] = OPC_CAST_UINT64,
+                [CAST_LONG] = OPC_CAST_INT64, [CAST_LONGLONG] = OPC_CAST_INT64,
+                [CAST_FLOAT] = OPC_CAST_FLOAT,
+                [CAST_ULONG] = OPC_CAST_UINT64, [CAST_UCHAR] = OPC_CAST_UINT8,
+                [CAST_SHORT] = OPC_CAST_INT16, [CAST_USHORT] = OPC_CAST_UINT16,
+                [CAST_SIZE_T] = OPC_CAST_UINT64, [CAST_SSIZE_T] = OPC_CAST_INT64,
+                [CAST_LONG_DOUBLE] = OPC_CAST_DOUBLE, [CAST_PTR] = OPC_CAST_INT64,
+            };
+            if(node->u.type_annotation.cast_type == CAST_VOID) {
+                emit(c, OPC_POP, 0, 0);
+                emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
+            } else {
+                emit(c, cmap[node->u.type_annotation.cast_type], 0, 0);
+            }
+            break;
+        }
         case AST_TERNARY: {
             c_expr(c, node->u.ternary.cond);
             int jf = emit_here(c, OPC_JMP_IF_FALSE, 0, 0);
@@ -892,6 +948,7 @@ static void c_stmt(Ctx* c, AstNode* node)
         case AST_BINOP:
         case AST_UNARY:
         case AST_CAST:
+        case AST_TYPE_ANNOTATION:
         case AST_TERNARY:
         case AST_CALL:
         case AST_DYN_CALL:
