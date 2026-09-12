@@ -1873,6 +1873,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 /* 词法遮蔽：函数内赋值 = 绑定当前帧局部（C 语义：局部变量遮蔽全局同名）；
                    不再沿链更新父帧/全局。顶层（main 帧）赋值仍写入全局帧。 */
                 stackframe_bind(frame, name, v);
+                /* 记录变量类型标记：如果编译阶段记录了类型标记，则传播到 StackFrame */
+                if(bf->var_type_tags && in.a >= 0 && in.a < bf->sym_cnt && bf->var_type_tags[in.a] >= 0) {
+                    stackframe_set_type_tag(frame, name, bf->var_type_tags[in.a]);
+                }
                 stack[sp++] = v;             // 原值压回（表达式值）
                 break;
             }

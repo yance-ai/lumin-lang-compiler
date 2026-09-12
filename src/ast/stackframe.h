@@ -21,6 +21,12 @@ Value stackframe_get(StackFrame* f, const char* name, _Bool* found);
 // 赋值语义：沿链查找，找到则原地更新；找不到则在当前帧新建（绑定当前帧，词法遮蔽）
 void stackframe_set(StackFrame* f, const char* name, Value v);
 
+// 设置变量的类型标记（CastKind 枚举，-1 表示无精确类型）
+void stackframe_set_type_tag(StackFrame* f, const char* name, int type_tag);
+
+// 获取变量的类型标记（-1 表示无精确类型）
+int stackframe_get_type_tag(StackFrame* f, const char* name);
+
 // 绑定语义（参数绑定用）：只在当前帧查找/创建，不向上查找，遮蔽父帧同名变量
 void stackframe_bind(StackFrame* f, const char* name, Value v);
 
