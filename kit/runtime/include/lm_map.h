@@ -12,6 +12,7 @@ Value lumyr_map_del(Value* map, Value key);                  // 原地删键，�
 Value lumyr_map_keys(Value map);                            // keys(d) → 键数组（任意类型）
 Value lumyr_map_values(Value map);                          // values(d) → 值数组
 Value lumyr_map_lit(Value* kv, int n);                      // OPC_MAP_LIT：键值交替构造
+Value lumyr_map_shallow_copy(Value map);                    // 浅拷贝：新 map 共享值（struct 赋值用）
 
 // ===== 迭代器（遍历所有键值对，统一链表/红黑树） =====
 typedef struct {

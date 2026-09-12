@@ -715,3 +715,22 @@ int map_iter_next(MapIter* it, Value* key, Value* val) {
     }
     return 0;
 }
+
+
+// 浅拷贝 map：嵌套 struct 递归浅拷贝（C 语义：memcpy 嵌套 struct 也是值拷贝）
+Value lumyr_map_shallow_copy(Value map) {
+    if(map.type != VAL_MAP) return map;
+    ValueMap* m = map.v.map;
+    Value r = val_map();
+    MapIter it;
+    map_iter_init(&it, m);
+    Value k, v;
+    while(map_iter_next(&it, &k, &v)) {
+        /* 嵌套 struct：值是 map 且包含 __structname__ 键，递归浅拷贝 */
+        if(v.type == VAL_MAP && lumyr_map_has(v, lumyr_make_string("__structname__"))) {
+            v = lumyr_map_shallow_copy(v);
+        }
+        lumyr_map_set(&r, k, v);
+    }
+    return r;
+}

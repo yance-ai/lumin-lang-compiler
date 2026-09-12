@@ -605,6 +605,17 @@ static void c_expr(Ctx* c, AstNode* node)
                         c->fn->var_struct_names[var_idx] = strdup(fname);
                     }
                 }
+                /* 检测右侧是 struct 类型变量：copy = original → 推断 copy 也是 struct 类型 */
+                else if(node->u.assign.expr && node->u.assign.expr->type == AST_VAR) {
+                    const char* rhs_name = node->u.assign.expr->u.varname;
+                    int rhs_idx = bf_sym(c->fn, rhs_name);
+                    if(c->fn->var_struct_names && c->fn->var_struct_names[rhs_idx]) {
+                        if(c->fn->var_struct_names[var_idx]) {
+                            free(c->fn->var_struct_names[var_idx]);
+                        }
+                        c->fn->var_struct_names[var_idx] = strdup(c->fn->var_struct_names[rhs_idx]);
+                    }
+                }
             }
             c_expr(c, node->u.assign.expr);
             emit(c, OPC_STORE_VAR, var_idx, 0);

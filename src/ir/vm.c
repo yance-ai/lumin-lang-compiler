@@ -1873,6 +1873,11 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_STORE_VAR: {
                 const char* name = bf->syms[in.a];
                 Value v = stack[--sp];
+                /* struct 类型变量赋值时进行浅拷贝（C 语义：p2 = p1 是 memcpy，不是引用） */
+                if(bf->var_struct_names && in.a >= 0 && in.a < bf->sym_cnt &&
+                   bf->var_struct_names[in.a] && v.type == VAL_MAP) {
+                    v = lumyr_map_shallow_copy(v);
+                }
                 /* 词法遮蔽：函数内赋值 = 绑定当前帧局部（C 语义：局部变量遮蔽全局同名）；
                    不再沿链更新父帧/全局。顶层（main 帧）赋值仍写入全局帧。 */
                 stackframe_bind(frame, name, v);

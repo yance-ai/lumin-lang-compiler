@@ -34,7 +34,6 @@ SKIP_LIST = {
     "json_type_thread_test.lm", "cond_timeout_test.lm", "lock_test.lm",
     "lock_test2.lm", "threadlocal_test.lm", "gc_return_race.lm",
     "gc_promotion_test.lm", "gc_efficiency_diag.lm", "mem_leak_test.lm",
-    "struct_c_level_test.lm",  # VM 模式 struct 赋值还是引用语义，CC 已修复为值拷贝，待 VM 修复后移除
 }
 
 
