@@ -85,6 +85,28 @@ int is_scalar_replaced_lit(const BytecodeFunc* fn, int i)
     return g_scalar_var[v];
 }
 
+// 将 CastKind 转换为 C 类型名（用于精确类型声明）
+static const char* castkind_to_c_type(int ck) {
+    switch(ck) {
+        case CAST_INT: case CAST_INT32: return "int";
+        case CAST_LONGLONG: case CAST_INT64: return "long long";
+        case CAST_LONG: return "long";
+        case CAST_SHORT: case CAST_INT16: return "short";
+        case CAST_CHAR: case CAST_INT8: return "char";
+        case CAST_UCHAR: case CAST_UINT8: case CAST_BYTE: return "unsigned char";
+        case CAST_USHORT: case CAST_UINT16: return "unsigned short";
+        case CAST_UINT32: return "unsigned int";
+        case CAST_ULONG: case CAST_UINT64: return "unsigned long long";
+        case CAST_FLOAT: return "float";
+        case CAST_DOUBLE: return "double";
+        case CAST_LONG_DOUBLE: return "long double";
+        case CAST_BOOL: return "int";
+        case CAST_SIZE_T: return "size_t";
+        case CAST_SSIZE_T: return "ssize_t";
+        default: return NULL;  // 其他类型保持 Value
+    }
+}
+
 // ---------------- NameSet ----------------
 
 int ns_has(const NameSet* s, const char* name)

@@ -24,6 +24,7 @@ void bytecode_func_free(BytecodeFunc* fn)
     free(fn->consts);
     for(int i = 0; i < fn->param_cnt + fn->has_variadic; i++) free(fn->params[i]);
     free(fn->params);
+    free(fn->var_type_tags);
     free(fn);
 }
 
@@ -33,9 +34,13 @@ int bf_sym(BytecodeFunc* fn, const char* name)
         if(strcmp(fn->syms[i], name) == 0) return i;
     }
     if(fn->sym_cnt >= fn->sym_cap) {
+        int old_cap = fn->sym_cap;
         fn->sym_cap = fn->sym_cap ? fn->sym_cap * 2 : 16;
         fn->syms = (char**)realloc(fn->syms, sizeof(char*) * fn->sym_cap);
         if(!fn->syms) { perror("bf_sym"); exit(EXIT_FAILURE); }
+        fn->var_type_tags = (int*)realloc(fn->var_type_tags, sizeof(int) * fn->sym_cap);
+        if(!fn->var_type_tags) { perror("bf_sym var_type_tags"); exit(EXIT_FAILURE); }
+        for(int i = old_cap; i < fn->sym_cap; i++) fn->var_type_tags[i] = -1;
     }
     fn->syms[fn->sym_cnt] = strdup(name);
     return fn->sym_cnt++;

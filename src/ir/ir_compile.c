@@ -571,10 +571,16 @@ static void c_expr(Ctx* c, AstNode* node)
                 emit(c, OPC_LOAD_CONST, bf_const(c->fn, val_none()), 0);
             }
             break;
-        case AST_ASSIGN:
+        case AST_ASSIGN: {
+            int var_idx = bf_sym(c->fn, node->u.assign.varname);
+            /* 记录变量类型标记：如果赋值是 <type>expr，则记录类型标记 */
+            if(node->u.assign.expr && node->u.assign.expr->type == AST_TYPE_ANNOTATION) {
+                c->fn->var_type_tags[var_idx] = node->u.assign.expr->u.type_annotation.cast_type;
+            }
             c_expr(c, node->u.assign.expr);
-            emit(c, OPC_STORE_VAR, bf_sym(c->fn, node->u.assign.varname), 0);
+            emit(c, OPC_STORE_VAR, var_idx, 0);
             break;
+        }
         case AST_BINOP: {
             Value fv;
             if(fold_const(c, node, &fv)) {
