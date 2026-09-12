@@ -742,6 +742,7 @@ param
     | ID ASSIGN expr         { $$ = ast_param($1, 0, $3); } /*带默认值的参数 */
     | ELLIPSIS ID            { $$ = ast_param($2, 1, NULL); } /* ...args 可变参数 is_ellipsis=1 */
     | TOK_TYPE_ANNOT ID      { $$ = ast_param($2, 0, NULL); $$->u.param.constraint = strdup(castkind_to_name($1)); } /*带类型标注的参数 <int>a */
+    | LT ID GT ID            { $$ = ast_param($4, 0, NULL); $$->u.param.constraint = strdup($2); } /*自定义类型标注的参数 <Point>a */
 ;
 
 /* 注解：@name 或 @name(args) */
