@@ -2290,6 +2290,11 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     for(; i < pcnt; i++) {
                         const char* pname = interp_func_param_name(rf, i);
                         Value bound = (i < argc) ? eval_args[i] : val_none();
+                        /* struct 类型参数值传递：浅拷贝（C 语义）；self 参数除外（方法调用需要引用语义） */
+                        if(strcmp(pname, "self") != 0 && bound.type == VAL_MAP &&
+                           lumyr_map_has(bound, lumyr_make_string("__structname__"))) {
+                            bound = lumyr_map_shallow_copy(bound);
+                        }
                         stackframe_bind(callee, pname, bound);
                     }
                     if(interp_func_has_variadic(rf)) {
@@ -2337,6 +2342,11 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     for(; i < pcnt; i++) {
                         const char* pname = interp_func_param_name(rf, i);
                         Value bound = (i < argc) ? eval_args[i] : val_none();
+                        /* struct 类型参数值传递：浅拷贝（C 语义）；self 参数除外（方法调用需要引用语义） */
+                        if(strcmp(pname, "self") != 0 && bound.type == VAL_MAP &&
+                           lumyr_map_has(bound, lumyr_make_string("__structname__"))) {
+                            bound = lumyr_map_shallow_copy(bound);
+                        }
                         stackframe_bind(callee, pname, bound);
                     }
                     if(interp_func_has_variadic(rf)) {
