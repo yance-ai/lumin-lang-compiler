@@ -1365,7 +1365,12 @@ void emit_insns(BytecodeFunc* fn)
                 if(g_cur_fn) {
                     fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0;\n");
                     fprintf(out, "    if(g_trace_n > 0) g_trace_n--;\n");
-                    fprintf(out, "    { Value __v = __stk[--__sp]; gc_pop_cframe(); gc_protect_push(__v); gc_protect_pop(); return __v; }\n");
+                    if(g_is_generator) {
+                        /* 生成器函数：保存返回值到栈顶，然后 goto __gen_end（由 footer 设置 state=-1 并返回） */
+                        fprintf(out, "    { Value __v = __stk[--__sp]; gc_pop_cframe(); __stk[__sp++] = __v; goto __gen_end; }\n");
+                    } else {
+                        fprintf(out, "    { Value __v = __stk[--__sp]; gc_pop_cframe(); gc_protect_push(__v); gc_protect_pop(); return __v; }\n");
+                    }
                 } else {
                     fprintf(out, "    gc_pop_cframe();\n");
                     fprintf(out, "    return 0;\n");
@@ -1376,7 +1381,12 @@ void emit_insns(BytecodeFunc* fn)
                     fprintf(out, "    __g_depth = __g_d0; g_err_jmp = __g_gj0; __g_fin_n = __g_fin0;\n");
                     fprintf(out, "    if(g_trace_n > 0) g_trace_n--;\n");
                     fprintf(out, "    gc_pop_cframe();\n");
-                    fprintf(out, "    return val_none();\n");
+                    if(g_is_generator) {
+                        /* 生成器函数：goto __gen_end（由 footer 设置 state=-1 并返回 null） */
+                        fprintf(out, "    goto __gen_end;\n");
+                    } else {
+                        fprintf(out, "    return val_none();\n");
+                    }
                 } else {
                     fprintf(out, "    gc_pop_cframe();\n");
                     fprintf(out, "    return 0;\n");

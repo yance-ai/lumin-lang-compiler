@@ -54,18 +54,18 @@ print((long)3.14);       // 3
 print((long long)3.14);  // 3
 print((long)"42");       // 42
 print("== 13. <T>value 单值声明语法 ==");
-a = <int>8;
-b = <long>8;
-c = <int16>127;
-d = <long long>100;
-e = <uint8>200;
-f = <int8>200;
-g = <int32>(100 + 200);
-print(a);  // 8
-print(b);  // 8
-print(c);  // 127
-print(d);  // 100
-print(e);  // 200
-print(f);  // -56（截断）
-print(g);  // 300
+v1 = <int>8;
+v2 = <long>8;
+v3 = <int16>127;
+v4 = <long long>100;
+v5 = <uint8>200;
+v6 = <int8>200;
+v7 = <int32>(100 + 200);
+print(v1);  // 8
+print(v2);  // 8
+print(v3);  // 127
+print(v4);  // 100
+print(v5);  // 200
+print(v6);  // -56（截断）
+print(v7);  // 300
 print("== done ==");

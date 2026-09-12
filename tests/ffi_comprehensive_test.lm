@@ -18,7 +18,7 @@ extern "msvcrt.dll" <ptr> func strchr(<string>s, <int>c);
 print("\n=== 2. Pointer Types ===");
 s = "hello world";
 pos = strchr(s, 119);  // 'w' = 119
-print("strchr('w') ptr =", pos);  // 应该返回非0指针
+print("strchr('w') != null =", pos != null);  // 应该返回非0指针
 
 // ========== 3. 多参数测试（8个参数） ==========
 extern "msvcrt.dll" <int> func _snprintf(<ptr>buf, <int>size, <string>fmt, <int>a1, <int>a2, <int>a3, <int>a4, <int>a5);
@@ -41,7 +41,7 @@ extern "msvcrt.dll" <void> func free(<pointer>p);
 
 print("\n=== 5. Type Aliases (handle/pointer) ===");
 p = malloc(100);
-print("malloc(100) returned handle =", p);
+print("malloc(100) != null =", p != null);
 if(p != 0) {
     free(p);
     print("free(p) called successfully");

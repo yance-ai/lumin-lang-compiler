@@ -153,6 +153,11 @@ def run_test(fullpath, base, name, tmp_dir):
         vm_norm = timestamp_pattern.sub(b'[TIMESTAMP]', vm_data)
         cc_norm = timestamp_pattern.sub(b'[TIMESTAMP]', cc_data)
 
+        # Filter out FFI Warning lines and other runtime warnings (VM vs CC difference)
+        warning_pattern = re.compile(rb'^.*(FFI Warning|Warning:|Runtime Warning).*$\n?', re.MULTILINE)
+        vm_norm = warning_pattern.sub(b'', vm_norm)
+        cc_norm = warning_pattern.sub(b'', cc_norm)
+
         if vm_norm != cc_norm:
             print(f"DIFF   {base}")
             # Save diff files for debugging

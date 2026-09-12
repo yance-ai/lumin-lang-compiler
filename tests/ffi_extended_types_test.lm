@@ -42,9 +42,9 @@ extern "msvcrt.dll" <int> func isdigit(<int>c);
 
 print("\n=== 4. Char Types ===");
 r1 = isdigit(53);
-print("isdigit(53) =", r1);
+print("isdigit(53) != 0 =", r1 != 0);
 r2 = isdigit(97);
-print("isdigit(97) =", r2);
+print("isdigit(97) == 0 =", r2 == 0);
 
 // ========== 5. 指针类型别名 ==========
 extern "msvcrt.dll" <handle> func malloc(<size_t>size);
@@ -53,7 +53,7 @@ extern "msvcrt.dll" <ptr> func memset(<ptr>p, <int>value, <size_t>num);
 
 print("\n=== 5. Pointer Type Aliases ===");
 p = malloc(64);
-print("malloc(64) handle =", p);
+print("malloc(64) != null =", p != null);
 if(p != 0) {
     memset(p, 0, 64);
     print("memset(p, 0, 64) done");

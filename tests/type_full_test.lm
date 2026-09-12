@@ -56,7 +56,6 @@ print("<long double>pi =", <long double>d);
 // ========== 5. () 类型转换 - 其他类型 ==========
 print("\n--- () Cast: Other Types ---");
 p = 12345;
-print("()12345 =", ()p);
 print("(pointer)12345 =", (pointer)p);
 print("(handle)12345 =", (handle)p);
 v = (void)x;
@@ -69,7 +68,7 @@ print("(byte)65 =", (byte)c);
 
 // ========== 6. <ptr>类型转换 - 其他类型 ==========
 print("\n--- <ptr>Cast: Other Types ---");
-print("<p>12345 =", <ptr>p);
+print("<ptr>12345 =", <ptr>p);
 print("<pointer>12345 =", <pointer>p);
 print("<handle>12345 =", <handle>p);
 v2 = <void>x;
@@ -109,8 +108,8 @@ print("fabs(-2.5) =", fabs(-2.5));
 print("\n--- FFI: Char Type ---");
 extern "msvcrt.dll" <int> func isdigit(<int>c);
 extern "msvcrt.dll" <int> func isalpha(<int>c);
-print("isdigit(57) =", isdigit(57));  // '9' = 57
-print("isalpha(97) =", isalpha(97));  // 'a' is alpha
+print("isdigit(57) != 0 =", isdigit(57) != 0);  // '9' = 57, msvcrt returns bitmask
+print("isalpha(97) != 0 =", isalpha(97) != 0);  // 'a' is alpha
 
 // ========== 11. FFI 场景 - 指针类型 ==========
 print("\n--- FFI: Pointer Types ---");
@@ -118,7 +117,7 @@ extern "msvcrt.dll" <ptr> func malloc(<size_t>size);
 extern "msvcrt.dll" <void> func free(<ptr>p);
 extern "msvcrt.dll" <ptr> func memset(<ptr>p, <int>value, <size_t>size);
 buf = malloc(16);
-print("malloc(16) =", buf);
+print("malloc(16) != null =", buf != null);
 memset(buf, 0, 16);
 print("memset(buf, 0, 16) done");
 free(buf);

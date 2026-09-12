@@ -574,8 +574,12 @@ static void c_expr(Ctx* c, AstNode* node)
         case AST_ASSIGN: {
             int var_idx = bf_sym(c->fn, node->u.assign.varname);
             /* 记录变量类型标记：如果赋值是 <type>expr，则记录类型标记 */
+            /* 注意：<type>[...] 和 <type>{...} 中的 type 是元素/值类型，不是变量类型，不设置标记 */
             if(node->u.assign.expr && node->u.assign.expr->type == AST_TYPE_ANNOTATION) {
-                c->fn->var_type_tags[var_idx] = node->u.assign.expr->u.type_annotation.cast_type;
+                AstNode* inner = node->u.assign.expr->u.type_annotation.expr;
+                if(inner && inner->type != AST_ARRAY_LIT && inner->type != AST_MAP_LIT) {
+                    c->fn->var_type_tags[var_idx] = node->u.assign.expr->u.type_annotation.cast_type;
+                }
             }
             c_expr(c, node->u.assign.expr);
             emit(c, OPC_STORE_VAR, var_idx, 0);

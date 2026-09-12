@@ -240,7 +240,10 @@ static GeneratorObject* generator_new(BytecodeFunc* bf, StackFrame* parent_frame
     GeneratorObject* gen = (GeneratorObject*)calloc(1, sizeof(GeneratorObject));
     if(!gen) { fprintf(stderr, "generator_new: 内存不足\n"); exit(EXIT_FAILURE); }
     gen->bf = bf;
-    gen->frame = stackframe_new(parent_frame);
+    /* 生成器使用独立栈帧，不持有父栈帧指针（避免父栈帧被释放后的 UAF）。
+       生成器通过全局符号表访问全局变量和函数；局部变量在生成器自己的栈帧中。 */
+    gen->frame = stackframe_new(NULL);
+    (void)parent_frame;  /* 保留参数兼容性，实际不使用 */
     gen->max_stack = bc_analyze_stack(bf, NULL, 0);
     if(gen->max_stack < 0) gen->max_stack = 64;
     gen->stack = (Value*)malloc(sizeof(Value) * (gen->max_stack + 64));

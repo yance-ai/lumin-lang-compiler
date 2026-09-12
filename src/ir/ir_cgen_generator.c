@@ -171,6 +171,7 @@ void emit_gen_next_header(BytecodeFunc* fn) {
  * 生成生成器 next() 函数的结尾
  */
 void emit_gen_next_footer(BytecodeFunc* fn) {
+    fprintf(out, "__gen_end:\n");
     fprintf(out, "    __g_gen_in_generator = 0;  /* 离开生成器上下文 */\n");
     fprintf(out, "    g->__state = -1;  /* 标记为已结束 */\n");
     fprintf(out, "    return val_none();\n");
