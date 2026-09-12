@@ -2042,6 +2042,26 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp++] = lumyr_array_set(arr, idx, val);
                 break;
             }
+            case OPC_LOAD_FIELD: {
+                const char* vname = bf->syms[in.a];
+                Value fname = bf->consts[in.b];
+                _Bool fnd = 0;
+                Value obj = stackframe_get(frame, vname, &fnd);
+                if(!fnd) runtime_undefined("变量", vname);
+                stack[sp++] = lumyr_index_get(obj, fname);
+                break;
+            }
+            case OPC_STORE_FIELD: {
+                Value val = stack[--sp];
+                const char* vname = bf->syms[in.a];
+                Value fname = bf->consts[in.b];
+                _Bool fnd = 0;
+                Value obj = stackframe_get(frame, vname, &fnd);
+                if(!fnd) runtime_undefined("变量", vname);
+                lumyr_array_set(obj, fname, val);
+                stack[sp++] = val;
+                break;
+            }
             case OPC_BUILTIN: {
                 sp = vm_exec_builtin(in, stack, sp, frame, ctx);
                 break;

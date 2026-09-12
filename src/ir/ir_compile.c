@@ -875,17 +875,64 @@ static void c_expr(Ctx* c, AstNode* node)
             patch_to(c, jend);
             break;
         }
-        case AST_INDEX:
-            c_expr(c, node->u.index.arr);
-            c_expr(c, node->u.index.idx);
+        case AST_INDEX: {
+            AstNode* arr = node->u.index.arr;
+            AstNode* idx = node->u.index.idx;
+            if(arr && arr->type == AST_VAR && idx && idx->type == AST_STRING) {
+                const char* vname = arr->u.varname;
+                const char* fname = idx->u.sval;
+                int var_idx = bf_sym(c->fn, vname);
+                if(c->fn->var_struct_names && c->fn->var_struct_names[var_idx]) {
+                    const char* sname = c->fn->var_struct_names[var_idx];
+                    TypeDef* td = struct_lookup(sname);
+                    int is_field = 0;
+                    if(td) {
+                        for(int fi = 0; fi < td->nprops; fi++) {
+                            if(strcmp(td->props[fi], fname) == 0) { is_field = 1; break; }
+                        }
+                    }
+                    if(is_field) {
+                        int field_idx = bf_const(c->fn, make_string(fname));
+                        emit(c, OPC_LOAD_FIELD, var_idx, field_idx);
+                        break;
+                    }
+                }
+            }
+            c_expr(c, arr);
+            c_expr(c, idx);
             emit(c, OPC_INDEX_GET, 0, 0);
             break;
-        case AST_INDEX_ASSIGN:
-            c_expr(c, node->u.index_assign.arr);
-            c_expr(c, node->u.index_assign.idx);
+        }
+        case AST_INDEX_ASSIGN: {
+            AstNode* arr = node->u.index_assign.arr;
+            AstNode* idx = node->u.index_assign.idx;
+            if(arr && arr->type == AST_VAR && idx && idx->type == AST_STRING) {
+                const char* vname = arr->u.varname;
+                const char* fname = idx->u.sval;
+                int var_idx = bf_sym(c->fn, vname);
+                if(c->fn->var_struct_names && c->fn->var_struct_names[var_idx]) {
+                    const char* sname = c->fn->var_struct_names[var_idx];
+                    TypeDef* td = struct_lookup(sname);
+                    int is_field = 0;
+                    if(td) {
+                        for(int fi = 0; fi < td->nprops; fi++) {
+                            if(strcmp(td->props[fi], fname) == 0) { is_field = 1; break; }
+                        }
+                    }
+                    if(is_field) {
+                        int field_idx = bf_const(c->fn, make_string(fname));
+                        c_expr(c, node->u.index_assign.value);
+                        emit(c, OPC_STORE_FIELD, var_idx, field_idx);
+                        break;
+                    }
+                }
+            }
+            c_expr(c, arr);
+            c_expr(c, idx);
             c_expr(c, node->u.index_assign.value);
             emit(c, OPC_INDEX_SET, 0, 0);
             break;
+        }
         case AST_ARRAY_LIT: {
             if(!has_spread_node(node->u.array_lit.elems)) {
                 int n = 0;

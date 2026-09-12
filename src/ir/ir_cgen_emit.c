@@ -351,21 +351,33 @@ void emit_insns(BytecodeFunc* fn)
                 break;
             }
             case OPC_LOAD_VAR: {
-                int _tag = emit_get_var_tag(fn, nm);
-                if(_tag >= 0 && emit_tag_to_ctype(_tag)) {
-                    fprintf(out, "    __stk[__sp++] = %s;\n", emit_precise_load(_tag, cvar_rw(nm)));
+                const char* _sname = emit_get_var_struct_name(fn, nm);
+                if(_sname) {
+                    emit_struct_to_value(_sname, cvar_rw(nm));
                 } else {
-                    fprintf(out, "    __stk[__sp++] = %s;\n", cvar_rw(nm));
+                    int _tag = emit_get_var_tag(fn, nm);
+                    if(_tag >= 0 && emit_tag_to_ctype(_tag)) {
+                        fprintf(out, "    __stk[__sp++] = %s;\n", emit_precise_load(_tag, cvar_rw(nm)));
+                    } else {
+                        fprintf(out, "    __stk[__sp++] = %s;\n", cvar_rw(nm));
+                    }
                 }
                 break;
             }
             case OPC_STORE_VAR: {
-                int _tag = emit_get_var_tag(fn, nm);
-                if(_tag >= 0 && emit_tag_to_ctype(_tag)) {
-                    fprintf(out, "    { Value __v = __stk[--__sp]; %s = %s; __stk[__sp++] = __v; }\n",
-                            cvar_rw(nm), emit_precise_store(_tag, "__v"));
+                const char* _sname = emit_get_var_struct_name(fn, nm);
+                if(_sname) {
+                    fprintf(out, "    { Value __v = __stk[--__sp];\n");
+                    emit_value_to_struct(_sname, cvar_rw(nm), "__v");
+                    fprintf(out, "        __stk[__sp++] = __v;\n    }\n");
                 } else {
-                    fprintf(out, "    { Value __v = __stk[--__sp]; %s = __v; __stk[__sp++] = __v; }\n", cvar_rw(nm));
+                    int _tag = emit_get_var_tag(fn, nm);
+                    if(_tag >= 0 && emit_tag_to_ctype(_tag)) {
+                        fprintf(out, "    { Value __v = __stk[--__sp]; %s = %s; __stk[__sp++] = __v; }\n",
+                                cvar_rw(nm), emit_precise_store(_tag, "__v"));
+                    } else {
+                        fprintf(out, "    { Value __v = __stk[--__sp]; %s = __v; __stk[__sp++] = __v; }\n", cvar_rw(nm));
+                    }
                 }
                 break;
             }
@@ -469,6 +481,68 @@ void emit_insns(BytecodeFunc* fn)
             case OPC_INDEX_SET:
                 fprintf(out, "    { Value __arr = __stk[__sp-3], __idx = __stk[__sp-2], __val = __stk[__sp-1]; __stk[__sp-3] = lumyr_array_set(__arr, __idx, __val); __sp -= 2; }\n");
                 break;
+            case OPC_LOAD_FIELD: {
+                const char* vname = fn->syms[in.a];
+                const char* fname = lumyr_str_cstr(&fn->consts[in.b]);
+                const char* sname = emit_get_var_struct_name(fn, vname);
+                if(sname) {
+                    TypeDef* td = struct_lookup(sname);
+                    int ck = CAST_LONGLONG;
+                    if(td) {
+                        for(int fi = 0; fi < td->nprops; fi++) {
+                            if(strcmp(td->props[fi], fname) == 0) {
+                                ck = td->field_cast_kinds ? td->field_cast_kinds[fi] : CAST_LONGLONG;
+                                break;
+                            }
+                        }
+                    }
+                    if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_double((double)%s.%s);\n", cvar_rw(vname), fname);
+                    } else if(ck == CAST_STRING) {
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_string(%s.%s);\n", cvar_rw(vname), fname);
+                    } else if(ck == CAST_BOOL) {
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_bool((int)%s.%s);\n", cvar_rw(vname), fname);
+                    } else {
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_int((long long)%s.%s);\n", cvar_rw(vname), fname);
+                    }
+                } else {
+                    fprintf(out, "    { Value __c = %s; __stk[__sp++] = lumyr_index_get(__c, lumyr_make_string(\"%s\")); }\n", cvar_rw(vname), fname);
+                }
+                break;
+            }
+            case OPC_STORE_FIELD: {
+                const char* vname = fn->syms[in.a];
+                const char* fname = lumyr_str_cstr(&fn->consts[in.b]);
+                const char* sname = emit_get_var_struct_name(fn, vname);
+                if(sname) {
+                    TypeDef* td = struct_lookup(sname);
+                    int ck = CAST_LONGLONG;
+                    if(td) {
+                        for(int fi = 0; fi < td->nprops; fi++) {
+                            if(strcmp(td->props[fi], fname) == 0) {
+                                ck = td->field_cast_kinds ? td->field_cast_kinds[fi] : CAST_LONGLONG;
+                                break;
+                            }
+                        }
+                    }
+                    const char* ctype = emit_tag_to_ctype(ck);
+                    if(!ctype) ctype = "int64_t";
+                    fprintf(out, "    { Value __v = __stk[--__sp];\n");
+                    if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
+                        fprintf(out, "        %s.%s = (%s)__v.v.d;\n", cvar_rw(vname), fname, ctype);
+                    } else if(ck == CAST_STRING) {
+                        fprintf(out, "        %s.%s = (%s)lumyr_str_cstr(&__v);\n", cvar_rw(vname), fname, ctype);
+                    } else if(ck == CAST_BOOL) {
+                        fprintf(out, "        %s.%s = (%s)__v.v.b;\n", cvar_rw(vname), fname, ctype);
+                    } else {
+                        fprintf(out, "        %s.%s = (%s)__v.v.i;\n", cvar_rw(vname), fname, ctype);
+                    }
+                    fprintf(out, "        __stk[__sp++] = __v;\n    }\n");
+                } else {
+                    fprintf(out, "    { Value __v = __stk[--__sp]; Value __c = %s; lumyr_array_set(__c, lumyr_make_string(\"%s\"), __v); __stk[__sp++] = __v; }\n", cvar_rw(vname), fname);
+                }
+                break;
+            }
             case OPC_BUILTIN:
                 fprintf(out, "    gc_stw_check_fast();\n");
                 switch(in.a) {

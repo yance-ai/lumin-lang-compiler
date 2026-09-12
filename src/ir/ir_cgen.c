@@ -701,12 +701,17 @@ void emit_main(BytecodeFunc* main_fn)
     memset(&g_globals, 0, sizeof(g_globals));
     scan_var_refs(main_fn, &g_globals, 1);
     for(int i = 0; i < g_globals.count; i++) {
-        int tt = get_var_type_tag(main_fn, g_globals.names[i]);
-        const char* ctype = (tt >= 0) ? castkind_to_c_type(tt) : NULL;
-        if(ctype) {
-            fprintf(out, "static %s lmvar_%s = 0;\n", ctype, g_globals.names[i]);
+        const char* sname = get_var_struct_name(main_fn, g_globals.names[i]);
+        if(sname) {
+            fprintf(out, "static lumyr_struct_%s lmvar_%s;\n", sname, g_globals.names[i]);
         } else {
-            fprintf(out, "static Value lmvar_%s = {0};\n", g_globals.names[i]);
+            int tt = get_var_type_tag(main_fn, g_globals.names[i]);
+            const char* ctype = (tt >= 0) ? castkind_to_c_type(tt) : NULL;
+            if(ctype) {
+                fprintf(out, "static %s lmvar_%s = 0;\n", ctype, g_globals.names[i]);
+            } else {
+                fprintf(out, "static Value lmvar_%s = {0};\n", g_globals.names[i]);
+            }
         }
     }
     fprintf(out, "\n");

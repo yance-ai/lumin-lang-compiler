@@ -166,6 +166,10 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
             return -1;                       // 弹2压1
         case OPC_INDEX_SET:
             return -2;                       // 弹3压1
+        case OPC_LOAD_FIELD:
+            return 1;                        // 压1（字段值）
+        case OPC_STORE_FIELD:
+            return 0;                        // 弹1压1（表达式值）
         case OPC_STORE_VAR:
             return 0;                        // 弹1压1
         case OPC_PRINT:
@@ -200,6 +204,7 @@ static int op_stack_push(OpCode op)
         case OPC_MKCLOSURE:
         case OPC_PRE_INC: case OPC_POST_INC: case OPC_PRE_DEC: case OPC_POST_DEC:
         case OPC_DUP:
+        case OPC_LOAD_FIELD:
             return 1;
         default:
             return 0;

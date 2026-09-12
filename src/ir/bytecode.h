@@ -25,6 +25,8 @@ typedef enum {
     OPC_MAP_LIT,      // b=键值对个数；弹 2b 个值（键、值交替）压字典
     OPC_INDEX_GET,    // 弹 arr,idx 压元素（数组元素 / 字符串字符）
     OPC_INDEX_SET,    // 弹 arr,idx,val 写回；压回 val（表达式值）
+    OPC_LOAD_FIELD,   // a=变量符号下标，b=字段名常量下标；直接加载 struct 字段（零开销）
+    OPC_STORE_FIELD,  // a=变量符号下标，b=字段名常量下标；弹值写入 struct 字段，压回值（零开销）
     OPC_BUILTIN,      // a=内置函数 ID，b=实参个数（见 BuiltinId）
     OPC_PRINT,        // 打印栈顶，不弹出
     OPC_TO_BOOL,      // 弹1压1 bool
