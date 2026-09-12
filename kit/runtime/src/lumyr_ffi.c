@@ -168,6 +168,22 @@ typedef double (*ffi_dfunc14_t)(long long, long long, long long, long long, long
 typedef double (*ffi_dfunc15_t)(long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long);
 typedef double (*ffi_dfunc16_t)(long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long, long long);
 
+/* 全浮点参数的函数指针类型（参数传递到 XMM 寄存器，不是整数寄存器） */
+typedef long long (*ffi_func0_d_t)(void);
+typedef long long (*ffi_func1_d_t)(double);
+typedef long long (*ffi_func2_d_t)(double, double);
+typedef long long (*ffi_func3_d_t)(double, double, double);
+typedef long long (*ffi_func4_d_t)(double, double, double, double);
+typedef long long (*ffi_func5_d_t)(double, double, double, double, double);
+typedef long long (*ffi_func6_d_t)(double, double, double, double, double, double);
+typedef double (*ffi_dfunc0_d_t)(void);
+typedef double (*ffi_dfunc1_d_t)(double);
+typedef double (*ffi_dfunc2_d_t)(double, double);
+typedef double (*ffi_dfunc3_d_t)(double, double, double);
+typedef double (*ffi_dfunc4_d_t)(double, double, double, double);
+typedef double (*ffi_dfunc5_d_t)(double, double, double, double, double);
+typedef double (*ffi_dfunc6_d_t)(double, double, double, double, double, double);
+
 #define FFI_MAX_ARGS 16
 
 /* 调用 FFI 函数 */
@@ -187,20 +203,26 @@ Value lumyr_ffi_call(FFIFunc* func, Value* args, int argc) {
         return val_none();
     }
 
-    /* 转换参数为 C 类型（统一用 long long 数组，double 按位复制） */
+    /* 转换参数为 C 类型 */
     long long cargs[FFI_MAX_ARGS] = {0};
+    double dargs[FFI_MAX_ARGS] = {0.0};
+    int all_float_args = 1; /* 是否所有参数都是浮点类型 */
 
     for(int i = 0; i < argc; i++) {
         FFIType ptype = (i < func->param_count) ? func->param_types[i] : FFI_INT;
-        if(FFI_IS_INTEGER(ptype)) {
-            /* 所有整数类型：x86-64 调用约定自动提升为 64 位，直接传递 long long */
-            cargs[i] = (long long)value_as_number(args[i]);
-        } else if(FFI_IS_FLOAT(ptype)) {
-            /* 所有浮点类型：用 XMM 寄存器传递，按位复制到 long long 数组 */
+        if(FFI_IS_FLOAT(ptype)) {
+            /* 浮点类型：用 XMM 寄存器传递 */
             double d = value_as_number(args[i]);
             if(ptype == FFI_FLOAT) d = (float)d; /* 单精度截断 */
+            dargs[i] = d;
+            /* 同时按位复制到 cargs（用于混合参数的回退） */
             memcpy(&cargs[i], &d, sizeof(double));
-        } else switch(ptype) {
+        } else {
+            all_float_args = 0;
+            if(FFI_IS_INTEGER(ptype)) {
+                /* 所有整数类型：x86-64 调用约定自动提升为 64 位，直接传递 long long */
+                cargs[i] = (long long)value_as_number(args[i]);
+            } else switch(ptype) {
             case FFI_PTR:
                 /* 指针/句柄：从 int 值直接传递（Lumyr 中用 int 存储指针） */
                 cargs[i] = (long long)value_as_number(args[i]);
@@ -227,15 +249,45 @@ Value lumyr_ffi_call(FFIFunc* func, Value* args, int argc) {
             default:
                 cargs[i] = 0;
                 break;
-        }
+            }
+            }
     }
 
-    /* 根据返回类型和参数数量调用函数 */
+    /* 根据返回类型、参数类型和参数数量调用函数 */
     long long ret = 0;
     double dret = 0.0;
     int is_float_ret = FFI_IS_FLOAT(func->ret_type);
 
-    if(is_float_ret) {
+    if(all_float_args && argc <= 6) {
+        /* 全浮点参数：用 ffi_*_d_t 函数指针（参数传递到 XMM 寄存器） */
+        if(is_float_ret) {
+            switch(argc) {
+                case 0: dret = ((ffi_dfunc0_d_t)func->func_ptr)(); break;
+                case 1: dret = ((ffi_dfunc1_d_t)func->func_ptr)(dargs[0]); break;
+                case 2: dret = ((ffi_dfunc2_d_t)func->func_ptr)(dargs[0], dargs[1]); break;
+                case 3: dret = ((ffi_dfunc3_d_t)func->func_ptr)(dargs[0], dargs[1], dargs[2]); break;
+                case 4: dret = ((ffi_dfunc4_d_t)func->func_ptr)(dargs[0], dargs[1], dargs[2], dargs[3]); break;
+                case 5: dret = ((ffi_dfunc5_d_t)func->func_ptr)(dargs[0], dargs[1], dargs[2], dargs[3], dargs[4]); break;
+                case 6: dret = ((ffi_dfunc6_d_t)func->func_ptr)(dargs[0], dargs[1], dargs[2], dargs[3], dargs[4], dargs[5]); break;
+                default:
+                    fprintf(stderr, "FFI Error: invalid argument count %d\n", argc);
+                    return val_none();
+            }
+        } else {
+            switch(argc) {
+                case 0: ret = ((ffi_func0_d_t)func->func_ptr)(); break;
+                case 1: ret = ((ffi_func1_d_t)func->func_ptr)(dargs[0]); break;
+                case 2: ret = ((ffi_func2_d_t)func->func_ptr)(dargs[0], dargs[1]); break;
+                case 3: ret = ((ffi_func3_d_t)func->func_ptr)(dargs[0], dargs[1], dargs[2]); break;
+                case 4: ret = ((ffi_func4_d_t)func->func_ptr)(dargs[0], dargs[1], dargs[2], dargs[3]); break;
+                case 5: ret = ((ffi_func5_d_t)func->func_ptr)(dargs[0], dargs[1], dargs[2], dargs[3], dargs[4]); break;
+                case 6: ret = ((ffi_func6_d_t)func->func_ptr)(dargs[0], dargs[1], dargs[2], dargs[3], dargs[4], dargs[5]); break;
+                default:
+                    fprintf(stderr, "FFI Error: invalid argument count %d\n", argc);
+                    return val_none();
+            }
+        }
+    } else if(is_float_ret) {
         /* double 返回类型：用 ffi_dfuncN_t 函数指针（返回值在 XMM0） */
         switch(argc) {
             case 0: dret = ((ffi_dfunc0_t)func->func_ptr)(); break;

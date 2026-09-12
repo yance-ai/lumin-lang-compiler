@@ -1088,28 +1088,78 @@ void emit_insns(BytecodeFunc* fn)
                         {
                         FFIType ptype = (FFIType)ffi->param_types[k];
                         switch(ptype) {
-                            case FFI_INT:
-                                fprintf(out, "(long long)value_as_number(__args[%d])", k);
+                            /* 有符号整数：精确 C 类型，零转换开销 */
+                            case FFI_INT8:
+                                fprintf(out, "(int8_t)value_as_number(__args[%d])", k);
                                 break;
-                            case FFI_PTR:
-                                /* 指针/句柄：直接传递 int 值 */
-                                fprintf(out, "(void*)(intptr_t)value_as_number(__args[%d])", k);
+                            case FFI_INT16:
+                                fprintf(out, "(int16_t)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_INT32:
+                                fprintf(out, "(int32_t)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_INT64:
+                                fprintf(out, "(int64_t)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_INT:
+                                fprintf(out, "(int)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_LONG:
+                                fprintf(out, "(long)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_CHAR:
+                                fprintf(out, "(char)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_SSIZE_T:
+                                fprintf(out, "(ssize_t)value_as_number(__args[%d])", k);
+                                break;
+                            /* 无符号整数：精确 C 类型 */
+                            case FFI_UINT8:
+                                fprintf(out, "(uint8_t)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_UINT16:
+                                fprintf(out, "(uint16_t)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_UINT32:
+                                fprintf(out, "(uint32_t)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_UINT64:
+                                fprintf(out, "(uint64_t)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_ULONG:
+                                fprintf(out, "(unsigned long)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_UCHAR:
+                                fprintf(out, "(unsigned char)value_as_number(__args[%d])", k);
+                                break;
+                            case FFI_SIZE_T:
+                                fprintf(out, "(size_t)value_as_number(__args[%d])", k);
+                                break;
+                            /* 浮点：精确 C 类型 */
+                            case FFI_FLOAT:
+                                fprintf(out, "(float)value_as_number(__args[%d])", k);
                                 break;
                             case FFI_DOUBLE:
-                                fprintf(out, "value_as_number(__args[%d])", k);
+                                fprintf(out, "(double)value_as_number(__args[%d])", k);
                                 break;
+                            /* 布尔 */
                             case FFI_BOOL:
                                 fprintf(out, "lumyr_to_bool(__args[%d])", k);
                                 break;
+                            /* 字符串：零拷贝转换为 C 字符串 */
                             case FFI_STRING:
                                 fprintf(out, "lumyr_str_cstr(&__args[%d])", k);
                                 break;
+                            /* 指针/句柄：直接传递指针值 */
+                            case FFI_PTR:
+                                fprintf(out, "(void*)(intptr_t)value_as_number(__args[%d])", k);
+                                break;
+                            /* 回调函数：注册 Lumyr 函数，传递槽位 ID 作为函数指针 */
                             case FFI_CALLBACK:
-                                /* 回调函数：注册 Lumyr 函数，传递槽位 ID 作为函数指针 */
                                 fprintf(out, "(void*)(intptr_t)lumyr_ffi_register_callback(__args[%d], 4)", k);
                                 break;
                             default:
-                                fprintf(out, "(long long)value_as_number(__args[%d])", k);
+                                fprintf(out, "(int64_t)value_as_number(__args[%d])", k);
                                 break;
                         }
                         }
