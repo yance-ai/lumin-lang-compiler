@@ -11,6 +11,7 @@ typedef enum {
     OPC_LOAD_CONST,     // a=常量池下标
     OPC_GETFUNC,        // a=函数名符号下标：压入函数值
     OPC_LOAD_VAR,       // a=符号表下标
+    OPC_LOAD_VAR_REF,   // a=符号表下标；加载 ref 参数（struct 不转 Map，直接传递 VAL_STRUCT_PTR）
     OPC_STORE_VAR,      // a=符号表下标；弹值写变量（深拷贝入帧），原值压回（表达式值）
     OPC_ADD, OPC_SUB, OPC_MUL, OPC_DIV, OPC_MOD,
     OPC_GT, OPC_LT, OPC_GE, OPC_LE, OPC_EQ, OPC_NE,

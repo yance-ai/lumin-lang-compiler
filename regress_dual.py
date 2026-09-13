@@ -35,7 +35,6 @@ SKIP_LIST = {
     "lock_test2.lm", "threadlocal_test.lm", "gc_return_race.lm",
     "gc_promotion_test.lm", "gc_efficiency_diag.lm", "mem_leak_test.lm",
     "type_comprehensive_test.lm",  # CC模式struct参数还是引用传递，VM已修复为值传递，待CC修复后移除
-    "ref_param_test.lm",  # CC模式还不支持ref参数，VM已实现，待CC修复后移除
 }
 
 

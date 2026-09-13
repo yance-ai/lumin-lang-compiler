@@ -1870,6 +1870,15 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                 stack[sp++] = vv;
                 break;
             }
+            case OPC_LOAD_VAR_REF: {
+                /* ref 参数：和 OPC_LOAD_VAR 行为相同（VM 模式下 struct 本来就是 Value(map)） */
+                const char* name = bf->syms[in.a];
+                _Bool fnd = 0;
+                Value vv = stackframe_get(frame, name, &fnd);
+                if(!fnd) runtime_undefined("变量", name);
+                stack[sp++] = vv;
+                break;
+            }
             case OPC_STORE_VAR: {
                 const char* name = bf->syms[in.a];
                 Value v = stack[--sp];

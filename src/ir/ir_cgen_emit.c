@@ -399,6 +399,11 @@ void emit_insns(BytecodeFunc* fn)
                 }
                 break;
             }
+            case OPC_LOAD_VAR_REF: {
+                /* ref 参数：直接传递 Value（struct 不转 Map，保持 VAL_STRUCT_PTR） */
+                fprintf(out, "    __stk[__sp++] = %s;\n", cvar_rw(nm));
+                break;
+            }
             case OPC_LOAD_STRUCT_PTR: {
                 /* 加载 struct 变量的指针（用于方法 self 参数），传递指针整数 */
                 const char* _sname = emit_get_var_struct_name(fn, nm);
@@ -556,8 +561,9 @@ void emit_insns(BytecodeFunc* fn)
                     }
                     break;
                 }
-                if(sname && !(in.a < fn->param_cnt && !fn->is_method)) {
-                    /* 只有 struct 局部变量 和 方法 self 参数 用高性能指针访问；
+                if(sname && (!(in.a < fn->param_cnt && !fn->is_method) ||
+                              (in.a < fn->param_cnt && fn->param_is_ref && fn->param_is_ref[in.a]))) {
+                    /* struct 局部变量、方法 self 参数、ref 参数 用高性能指针访问；
                        普通函数参数传递的是 Value(map)，回退到 lumyr_index_get */
                     TypeDef* td = struct_lookup(sname);
                     int ck = CAST_LONGLONG;
@@ -581,15 +587,15 @@ void emit_insns(BytecodeFunc* fn)
                     /* 区分函数参数（Value 类型，指针存在 v.i 中）和 struct 局部变量（指针类型） */
                     const char* _struct_access = NULL;
                     char _struct_access_buf[256];
-                    if(in.a < fn->param_cnt) {
-                        /* 函数参数：Value 类型，指针存在 v.i 中 */
-                        snprintf(_struct_access_buf, sizeof(_struct_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, cvar_rw(vname));
-                        _struct_access = _struct_access_buf;
+                    /* ref 参数：cvar_rw 返回 *lmloc_xxx，需要加括号避免优先级问题 */
+                    int _is_ref_param = (in.a < fn->param_cnt && fn->param_is_ref && fn->param_is_ref[in.a]);
+                    const char* _var_access = cvar_rw(vname);
+                    if(_is_ref_param) {
+                        snprintf(_struct_access_buf, sizeof(_struct_access_buf), "((lumyr_struct_%s*)(%s).v.struct_ptr)", sname, _var_access);
                     } else {
-                        /* struct 局部变量：VAL_STRUCT_PTR，通过 v.struct_ptr 访问 */
-                        snprintf(_struct_access_buf, sizeof(_struct_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, cvar_rw(vname));
-                        _struct_access = _struct_access_buf;
+                        snprintf(_struct_access_buf, sizeof(_struct_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, _var_access);
                     }
+                    _struct_access = _struct_access_buf;
                     if(nested_sname) {
                         /* 嵌套 struct 字段：先把地址赋值给临时指针，再转换为 Value(Map) */
                         static char tmp_ptr[256];
@@ -642,8 +648,9 @@ void emit_insns(BytecodeFunc* fn)
                     fprintf(out, "        __stk[__sp++] = __v;\n    }\n");
                     break;
                 }
-                if(sname && !(in.a < fn->param_cnt && !fn->is_method)) {
-                    /* 只有 struct 局部变量 和 方法 self 参数 用高性能指针访问；
+                if(sname && (!(in.a < fn->param_cnt && !fn->is_method) ||
+                              (in.a < fn->param_cnt && fn->param_is_ref && fn->param_is_ref[in.a]))) {
+                    /* struct 局部变量、方法 self 参数、ref 参数 用高性能指针访问；
                        普通函数参数传递的是 Value(map)，回退到 lumyr_array_set */
                     TypeDef* td = struct_lookup(sname);
                     int ck = CAST_LONGLONG;
@@ -660,14 +667,15 @@ void emit_insns(BytecodeFunc* fn)
                     /* 区分函数参数（Value 类型，指针存在 v.i 中）和 struct 局部变量（指针类型） */
                     const char* _store_access = NULL;
                     char _store_access_buf[256];
-                    if(in.a < fn->param_cnt) {
-                        snprintf(_store_access_buf, sizeof(_store_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, cvar_rw(vname));
-                        _store_access = _store_access_buf;
+                    /* ref 参数：cvar_rw 返回 *lmloc_xxx，需要加括号避免优先级问题 */
+                    int _is_ref_param = (in.a < fn->param_cnt && fn->param_is_ref && fn->param_is_ref[in.a]);
+                    const char* _var_access = cvar_rw(vname);
+                    if(_is_ref_param) {
+                        snprintf(_store_access_buf, sizeof(_store_access_buf), "((lumyr_struct_%s*)(%s).v.struct_ptr)", sname, _var_access);
                     } else {
-                        /* struct 局部变量：VAL_STRUCT_PTR，通过 v.struct_ptr 访问 */
-                        snprintf(_store_access_buf, sizeof(_store_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, cvar_rw(vname));
-                        _store_access = _store_access_buf;
+                        snprintf(_store_access_buf, sizeof(_store_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, _var_access);
                     }
+                    _store_access = _store_access_buf;
                     fprintf(out, "    { Value __v = __stk[--__sp];\n");
                     if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
                         fprintf(out, "        %s->%s = (%s)__v.v.d;\n", _store_access, fname, ctype);
@@ -1666,10 +1674,22 @@ void emit_insns(BytecodeFunc* fn)
                     fprintf(out, "        __stk[__sp++] = lumyr_func_%s(", nm);
                     for(int k = 0; k < fixed; k++) {
                         if(k) fprintf(out, ", ");
-                        if(k < nbind) fprintf(out, "__args[%d]", k);
+                        if(k < nbind) {
+                            /* ref 参数：传递指针（引用传递） */
+                            if(callee->param_is_ref && callee->param_is_ref[k])
+                                fprintf(out, "&__args[%d]", k);
+                            else
+                                fprintf(out, "__args[%d]", k);
+                        }
                         else fprintf(out, "val_none()");
                     }
                     fprintf(out, ");\n");
+                    /* ref 参数：函数返回后把修改写回栈上原来的位置 */
+                    for(int k = 0; k < fixed && k < nbind; k++) {
+                        if(callee->param_is_ref && callee->param_is_ref[k]) {
+                            fprintf(out, "        __stk[__sp - 1 - %d] = __args[%d];\n", nbind - k, k);
+                        }
+                    }
                 }
                 fprintf(out, "    }\n");
                 break;

@@ -130,6 +130,7 @@ static int op_stack_delta(BytecodeFunc* fn, Instruction in)
     switch(in.op) {
         case OPC_LOAD_CONST:
         case OPC_LOAD_VAR:
+        case OPC_LOAD_VAR_REF:
         case OPC_GETFUNC:
         case OPC_MKCLOSURE:
         case OPC_PRE_INC: case OPC_POST_INC: case OPC_PRE_DEC: case OPC_POST_DEC:
@@ -206,6 +207,7 @@ static int op_stack_push(OpCode op)
     switch(op) {
         case OPC_LOAD_CONST:
         case OPC_LOAD_VAR:
+        case OPC_LOAD_VAR_REF:
         case OPC_GETFUNC:
         case OPC_MKCLOSURE:
         case OPC_PRE_INC: case OPC_POST_INC: case OPC_PRE_DEC: case OPC_POST_DEC:

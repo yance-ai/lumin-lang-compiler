@@ -348,16 +348,29 @@ static AstNode* build_type_ctor(AstNode* call, TypeDef* t)
     return ast_map_lit(items);
 }
 
-static void c_args(Ctx* c, AstNode* args, int* argc)
+static void c_args_ref(Ctx* c, AstNode* args, int* argc, int* param_is_ref, int* ref_idx)
 {
     if(!args) return;
     if(args->type != AST_SEQ) {
-        c_expr(c, args);
+        /* ref 参数的变量引用：使用 OPC_LOAD_VAR_REF（struct 不转 Map） */
+        if(args->type == AST_VAR && param_is_ref && *ref_idx >= 0 &&
+           *ref_idx < 1024 && param_is_ref[*ref_idx]) {
+            emit(c, OPC_LOAD_VAR_REF, bf_sym(c->fn, args->u.varname), 0);
+        } else {
+            c_expr(c, args);
+        }
         (*argc)++;
+        (*ref_idx)++;
         return;
     }
-    c_args(c, args->u.seq.first, argc);
-    c_args(c, args->u.seq.second, argc);
+    c_args_ref(c, args->u.seq.first, argc, param_is_ref, ref_idx);
+    c_args_ref(c, args->u.seq.second, argc, param_is_ref, ref_idx);
+}
+
+static void c_args(Ctx* c, AstNode* args, int* argc)
+{
+    int ref_idx = 0;
+    c_args_ref(c, args, argc, NULL, &ref_idx);
 }
 
 // 递归检测 AST_SEQ 树中是否含 AST_SPREAD
@@ -839,7 +852,11 @@ static void c_expr(Ctx* c, AstNode* node)
                     c_args(c, node->u.call.args, &argc);
                 }
             } else {
-                c_args(c, node->u.call.args, &argc);
+                /* 查找被调用函数，获取 param_is_ref 数组 */
+                BytecodeFunc* _callee_fn = ir_func_table_lookup(node->u.call.name);
+                int* _call_param_is_ref = (_callee_fn && _callee_fn->param_is_ref) ? _callee_fn->param_is_ref : NULL;
+                int _call_ref_idx = 0;
+                c_args_ref(c, node->u.call.args, &argc, _call_param_is_ref, &_call_ref_idx);
             }
             // 用户函数优先；否则内置函数（len/type/input/range/substr）
             static const char* bnames[BUILTIN_COUNT] = {"len", "type", "input", "range", "substr", "toupper", "tolower", "split", "del", "insert", "floor", "ceil", "abs", "sqrt", "max", "min", "join", "contains", "repeat", "replace", "sum", "avg", "format", "sort", "reverse", "map", "filter", "reduce", "strip", "startswith", "endswith", "read_file", "write_file", "file_exists", "keys", "values", "thread", "thread_join", "mutex", "rmutex", "rwlock", "spinlock", "lock", "unlock", "trylock", "rdlock", "wrlock", "tryrdlock", "trywrlock", "condvar", "cond_wait", "cond_wait_timeout", "cond_signal", "cond_broadcast", "threadlocal_get", "threadlocal_set", "get", "post", "put", "delete", "head", "patch", "json", "stringify", "add", "remove", "clear", "indexOf", "arr_get", "set", "first", "last", "has", "flat", "qs", "addAll", "bytes", "str", "encode", "decode", "encodeURL", "decodeURL", "md5", "encodeBase64", "decodeBase64", "regex_match", "regex_search", "regex_replace", "now", "timestamp", "timestamp_ms", "sleep", "date", "time", "datetime", "format_time", "debug", "info", "warn", "error", "fatal", "gc_count", "gc_bytes", "gc_collect", "gc_stw_ns", "next", "send", "receive", "close", "GenThrow", "chain", "zip", "skip", "take", "enumerate"};

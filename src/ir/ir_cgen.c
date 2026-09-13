@@ -219,6 +219,15 @@ int fn_has_param(const BytecodeFunc* fn, const char* name)
     return 0;
 }
 
+// 查找参数名在参数数组中的下标；未找到返回 -1
+int fn_param_index(const BytecodeFunc* fn, const char* name)
+{
+    int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
+    for(int i = 0; i < total; i++)
+        if(fn->params[i] && strcmp(fn->params[i], name) == 0) return i;
+    return -1;
+}
+
 // 查找当前 lambda 捕获变量名在 __caps 数组中的下标；非捕获变量返回 -1
 int cap_index_of(const char* name)
 {
@@ -241,7 +250,12 @@ const char* cvar_rw(const char* name)
         return buf;
     }
     if(g_cur_fn && (fn_has_param(g_cur_fn, name) || ns_has(&fn_locals, name))) {
-        if(ns_has(&g_boxed, name))
+        /* ref 参数：通过指针解引用访问 */
+        int _ref_idx = fn_param_index(g_cur_fn, name);
+        if(_ref_idx >= 0 && g_cur_fn->param_is_ref && g_cur_fn->param_is_ref[_ref_idx]) {
+            snprintf(buf, sizeof(buf), g_is_generator ? "*g->lmloc_%s" : "*lmloc_%s", name);
+        }
+        else if(ns_has(&g_boxed, name))
             snprintf(buf, sizeof(buf), g_is_generator ? "*g->lmloc_%s" : "*lmloc_%s", name);
         else
             snprintf(buf, sizeof(buf), g_is_generator ? "g->lmloc_%s" : "lmloc_%s", name);
@@ -406,7 +420,11 @@ void emit_func_proto(BytecodeFunc* fn)
     int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
     for(int i = 0; i < total; i++) {
         if(has_caps || i) fprintf(out, ", ");
-        fprintf(out, "Value");
+        /* ref 参数：声明为 Value* 指针（引用传递） */
+        if(i < fn->param_cnt && fn->param_is_ref && fn->param_is_ref[i])
+            fprintf(out, "Value*");
+        else
+            fprintf(out, "Value");
     }
     fprintf(out, ");\n");
 }
@@ -474,8 +492,12 @@ void emit_func_def(BytecodeFunc* fn)
     int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
     for(int i = 0; i < total; i++) {
         if(has_caps || i) fprintf(out, ", ");
+        /* ref 参数：声明为 Value* 指针（引用传递） */
+        if(i < fn->param_cnt && fn->param_is_ref && fn->param_is_ref[i]) {
+            fprintf(out, "Value* lmloc_%s", fn->params[i]);
+        }
         /* 装箱参数：入参用 _in 后缀，函数入口处再装箱为 lmloc_<name>(Value*) */
-        if(ns_has(&g_boxed, fn->params[i]))
+        else if(ns_has(&g_boxed, fn->params[i]))
             fprintf(out, "Value lmloc_%s_in", fn->params[i]);
         else
             fprintf(out, "Value lmloc_%s", fn->params[i]);
@@ -568,8 +590,11 @@ void emit_func_def(BytecodeFunc* fn)
         int _idx = 0;
         for(int i = 0; i < _total_params; i++) {
             if(_idx) fprintf(out, ", ");
-            /* 装箱参数：lmloc_<name> 已是 Value*（堆 cell）；普通参数取栈地址 */
-            if(ns_has(&g_boxed, fn->params[i]))
+            /* ref 参数：lmloc_<name> 已是 Value*（引用传递）；
+               装箱参数：lmloc_<name> 已是 Value*（堆 cell）；
+               普通参数取栈地址 */
+            if((i < fn->param_cnt && fn->param_is_ref && fn->param_is_ref[i]) ||
+               ns_has(&g_boxed, fn->params[i]))
                 fprintf(out, "lmloc_%s", fn->params[i]);
             else
                 fprintf(out, "&lmloc_%s", fn->params[i]);
@@ -659,18 +684,31 @@ void emit_func_wraps(void)
             fprintf(out, "    Value __gv; __gv.type = VAL_GENERATOR; __gv.v.generator = (void*)__gen;\n");
             fprintf(out, "    return __gv;\n}\n\n");
         } else {
-            fprintf(out, "    return lumyr_func_%s(", fn->name);
+            fprintf(out, "    Value __wrap_ret = lumyr_func_%s(", fn->name);
             int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
             if(has_caps)
                 fprintf(out, "(Value**)__ctx");
             for(int k = 0; k < total; k++) {
                 if(has_caps || k) fprintf(out, ", ");
-                if(k < fn->param_cnt) fprintf(out, "p%d", k);
+                if(k < fn->param_cnt) {
+                    /* ref 参数：传递指针（引用传递） */
+                    if(fn->param_is_ref && fn->param_is_ref[k])
+                        fprintf(out, "&p%d", k);
+                    else
+                        fprintf(out, "p%d", k);
+                }
                 else {
                     fprintf(out, "__rest");
                 }
             }
-            fprintf(out, ");\n}\n\n");
+            fprintf(out, ");\n");
+            /* ref 参数：函数返回后把修改写回 a[] 数组 */
+            for(int k = 0; k < fn->param_cnt; k++) {
+                if(fn->param_is_ref && fn->param_is_ref[k]) {
+                    fprintf(out, "    if(n > %d) a[%d] = p%d;\n", k, k, k);
+                }
+            }
+            fprintf(out, "    return __wrap_ret;\n}\n\n");
         }
         /* 静态 RuntimeFunc 包装：GC 扫描 VAL_FUNC 时读取 captures/capture_count，
          * 直接把 C 函数指针当 RuntimeFunc* 会读到代码字节 → UAF。
