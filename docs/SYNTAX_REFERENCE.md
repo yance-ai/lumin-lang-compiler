@@ -85,18 +85,114 @@ z = (string)42;     // int 转 string
 ```
 
 ### 2.3 支持的基本类型
+
+#### 通用类型
 | 类型 | 说明 | C 对应类型 |
 |------|------|-----------|
 | `int` | 整数 | `int` |
-| `long long` | 长整数 | `long long` |
+| `long` | 长整数 | `long` |
+| `long long` | 长长整数 | `long long` |
+| `uint` | 无符号整数 | `unsigned int` |
 | `float` | 单精度浮点数 | `float` |
 | `double` | 双精度浮点数 | `double` |
 | `char` | 字符 | `char` |
+| `ascii` | ASCII 字符 | `char` |
 | `bool` | 布尔值 | `bool` |
 | `string` | 字符串 | `char*` |
 | `byte` | 字节 | `unsigned char` |
+| `void` | 空类型 | `void` |
 
-### 2.4 默认类型
+#### 固定宽度整数类型
+| 类型 | 说明 | C 对应类型 |
+|------|------|-----------|
+| `int8` | 8 位有符号整数 | `int8_t` |
+| `int16` | 16 位有符号整数 | `int16_t` |
+| `int32` | 32 位有符号整数 | `int32_t` |
+| `int64` | 64 位有符号整数 | `int64_t` |
+| `uint8` | 8 位无符号整数 | `uint8_t` |
+| `uint16` | 16 位无符号整数 | `uint16_t` |
+| `uint32` | 32 位无符号整数 | `uint32_t` |
+| `uint64` | 64 位无符号整数 | `uint64_t` |
+
+#### FFI 特殊类型
+| 类型 | 说明 |
+|------|------|
+| `ptr` | 通用指针 |
+| `pointer` | 指针（同 ptr） |
+| `handle` | 句柄（同 ptr） |
+
+### 2.4 类型标注的使用场景
+
+类型标注（尖括号 `<>`）可以用于以下场景：
+
+#### 变量声明
+```lumyr
+a = <int>8;           // 等价于 C: int a = 8;
+b = <double>3.14;     // 等价于 C: double b = 3.14;
+c = <int8>1000;       // 截断为 int8: -24
+d = <uint8>(-1);      // 转换为 uint8: 255
+```
+
+#### 非常量表达式
+```lumyr
+x = 1000;
+print(<int8>x);        // -24
+print(<uint16>(x * 2)); // 1000
+```
+
+#### 复合表达式
+```lumyr
+print(<int8>(100 + 900));  // -24 (先计算再截断)
+print(<int8>100 + 900);    // 1000 (只截断 100，再加 900)
+```
+
+#### 函数返回值
+```lumyr
+func get_val() { return 1000; }
+print(<int8>get_val());  // -24
+```
+
+### 2.5 数组泛型类型标注
+
+```lumyr
+// 基本类型数组
+ai = <int>[1, 2, 3];
+ad = <double>[1.1, 2.2];
+ab = <bool>[true, false, 1];
+ac = <char>['a', 'b', 99];
+as_ = <string>["x", "y", 123];
+aby = <byte>[200, 256, -1];
+
+// 固定宽度整数数组
+ai8 = <int8>[200, 127, 128];
+au8 = <uint8>[200, 256, -1];
+ai32 = <int32>[2147483648, 100];
+
+// 空数组
+e1 = <int>[];
+e2 = <string>[];
+e3 = <uint8>[];
+e4 = <long long>[];
+```
+
+### 2.6 Map 泛型类型标注
+
+```lumyr
+// 基本值类型 Map
+mi = <string,int>{"a": 1, "b": 2};
+md = <string,double>{"x": 1.5};
+mb = <string,bool>{"t": true, "f": 0};
+mc = <string,char>{"k": 'A', "n": 66};
+ms = <string,string>{"a": "1", "b": 2};
+mby = <string,byte>{"a": 200, "b": 256};
+
+// 固定宽度整数 Map
+mi8 = <string,int8>{"a": 200, "b": 127};
+mu8 = <string,uint8>{"a": 200, "b": -1};
+mi32 = <string,int32>{"big": 2147483648};
+```
+
+### 2.7 默认类型
 - 整数默认 `long long`
 - 浮点数默认 `double`
 - 没有类型标注时，Value 默认给上 `long long` 的类型标记
@@ -179,7 +275,37 @@ func +(other) {
 ```lumyr
 extern <int> func printf(<string> format, ...);
 extern "libcurl" <int> func curl_easy_init();
+extern "msvcrt.dll" <ptr> func strchr(<string>s, <int>c);
+extern "msvcrt.dll" <void> func srand(<int>seed);
+extern "msvcrt.dll" <handle> func malloc(<int>size);
 ```
+
+### 3.11 Lambda 匿名函数
+
+Lambda 是匿名函数，可以直接赋值给变量或作为参数传递。
+
+```lumyr
+// 基本 lambda
+g = func(x) { return x * 2 + 5; };
+print(g(5));  // 15
+
+// 多参数 lambda
+add_fn = func(a, b) { return a + b; };
+print(add_fn(3, 4));  // 7
+
+// 作为高阶参数传递
+arr = [1, 2, 3, 4, 5];
+print(join(map(arr, func(x) { return x * x; }), ","));   // 1,4,9,16,25
+print(join(filter(arr, func(x) { return x % 2 == 0; }), ","));  // 2,4
+print(reduce(arr, func(acc, v) { return acc + v; }, 0));  // 15
+
+// lambda 访问全局变量
+g_multiplier = 3;
+mul_global = func(x) { return x * g_multiplier; };
+print(mul_global(7));  // 21
+```
+
+**注意**：Lumyr 的 lambda 是"无闭包"设计——编译期强制禁止 lambda 体访问外层函数局部变量，只能访问：自身参数、全局变量、以及 lambda 体内赋值产生的局部变量。这从根本上杜绝了 UAF 和悬垂引用。
 
 ---
 
@@ -472,10 +598,24 @@ extend String {
 ## 14. 注解（annotation）
 
 ```lumyr
+// 无参数注解
 @deprecated
 func old_func() {
     // ...
 }
+
+// 带参数注解
+@deprecated("use new_func instead")
+func old_func2() {
+    // ...
+}
+
+// 其他常用注解
+@log
+@test
+@cached
+@optimized
+@performance_critical
 ```
 
 ---
@@ -607,6 +747,49 @@ export func my_func() {
 - `map(g, fn)` — 映射生成器
 - `filter(g, fn)` — 过滤生成器
 
+### 18.3 线程与并发
+
+#### 线程创建
+```lumyr
+// 创建线程，执行函数并传递参数
+t = thread(worker_func, arg);
+t2 = thread(worker_func2);  // 无参数
+
+// 等待线程结束
+join(t);
+```
+
+#### 互斥锁（Mutex）
+```lumyr
+ml = mutex();          // 创建互斥锁
+lock(ml);              // 加锁
+// 临界区代码
+unlock(ml);            // 解锁
+```
+
+#### 条件变量（Condition）
+```lumyr
+cond = cond();         // 创建条件变量
+wait(cond, mutex);     // 等待条件
+signal(cond);          // 唤醒一个等待线程
+broadcast(cond);       // 唤醒所有等待线程
+```
+
+### 18.4 数组与 Map 方法
+
+#### 数组方法
+```lumyr
+arr = [1, 2, 3];
+arr = arr.add(4);           // 添加元素
+arr = arr.addAll([5, 6]);   // 批量添加
+```
+
+#### Map 方法
+```lumyr
+m = {"a": 1};
+m.set("b", 2);              // 设置键值
+```
+
 ---
 
 ## 19. 重要语法规则总结
@@ -652,31 +835,76 @@ export func my_func() {
 
 ### 20.1 忘记分号
 ```lumyr
-// 错误
+// 错误（会报"语法错误(第2行)"）
 print("hello")
 
 // 正确
 print("hello");
 ```
 
-### 20.2 类型声明用错语法
+### 20.2 类型声明用错语法（冒号 vs 尖括号）
 ```lumyr
-// 错误（冒号不是类型声明）
+// 错误（冒号不是类型声明，会报语法错误）
 func f(p: Point) {}
+func modify(ref p: Point) {}
 
 // 正确（尖括号是类型声明）
 func f(<Point> p) {}
+func modify(ref <Point> p) {}
 ```
 
 ### 20.3 类型转换用错语法
 ```lumyr
-// 错误（尖括号不是类型转换）
+// 错误（尖括号不是类型转换，是类型声明）
 x = <int>3.14;
 
 // 正确（括号是类型转换）
 x = (int)3.14;
 ```
 
+### 20.4 ref 参数缺少类型标注时的语法
+```lumyr
+// 正确（ref 参数可以不带类型标注）
+func modify(ref p) {}
+
+// 正确（ref 参数带类型标注）
+func modify(ref <Point> p) {}
+```
+
+### 20.5 复合表达式类型标注的优先级
+```lumyr
+// <int8>(100 + 900)：先计算再截断，结果 -24
+print(<int8>(100 + 900));
+
+// <int8>100 + 900：只截断 100，再加 900，结果 1000
+print(<int8>100 + 900);
+```
+
+### 20.6 lambda 闭包限制
+```lumyr
+// 错误：lambda 不能访问外层函数局部变量（编译期禁止）
+func outer() {
+    x = 10;
+    f = func() { return x; };  // 错误：x 是外层局部变量
+}
+
+// 正确：lambda 只能访问全局变量和自身参数
+g_x = 10;  // 全局变量
+f = func() { return g_x; };  // 正确
+```
+
+### 20.7 函数内赋值总是局部（词法遮蔽）
+```lumyr
+counter = 0;  // 全局变量
+bump = func() {
+    counter = counter + 1;  // 这里的 counter 是局部变量，不是全局
+    return counter;
+};
+print(bump());   // 1（读全局 counter=0，+1=1，但写入为局部）
+print(bump());   // 1（每次调用都读全局 counter=0）
+print(counter);  // 0（全局 counter 从未被修改）
+```
+
 ---
 
-*本文档基于 Lumyr 编译器源码和测试文件整理，如有疑问请参考 `src/parse/yacc.y`。*
+*本文档基于 Lumyr 编译器源码和 90+ 测试文件整理，如有疑问请参考 `src/parse/yacc.y` 和 `tests/` 目录。*
