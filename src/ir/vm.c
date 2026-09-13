@@ -2269,6 +2269,61 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_CALL: {
                 const char* fname = bf->syms[in.a];
                 int argc = in.b;
+                /* super_method_call(method_name, self, args...)：调用父类方法 */
+                if(strcmp(fname, "super_method_call") == 0 && argc >= 2) {
+                    Value method_name_val = stack[sp - argc];
+                    Value self_val = stack[sp - argc + 1];
+                    if(method_name_val.type == VAL_STRING && self_val.type == VAL_MAP &&
+                       lumyr_map_has(self_val, lumyr_make_string("__classname__"))) {
+                        Value cn = lumyr_map_get(self_val, lumyr_make_string("__classname__"));
+                        if(cn.type == VAL_STRING) {
+                            TypeDef* td = class_lookup(lumyr_str_cstr(&cn));
+                            if(td && td->parent) {
+                                void* rf = class_find_method_func(td->parent, lumyr_str_cstr(&method_name_val));
+                                if(rf) {
+                                    /* 调用父类方法：self 作为第一个参数，其他参数跟随 */
+                                    Value func_val;
+                                    func_val.type = VAL_FUNC;
+                                    func_val.v.func.func_obj = (RuntimeFunc*)rf;
+                                    func_val.v.func.ffi_func = NULL;
+                                    func_val.v.func.is_ffi = 0;
+                                    RuntimeFunc* rf_ptr = (RuntimeFunc*)rf;
+                                    Value* eval_args = &stack[sp - argc + 1];  /* 跳过 method_name，从 self 开始 */
+                                    int call_argc = argc - 1;
+                                    StackFrame* callee = stackframe_new(frame);
+                                    if(interp_func_is_payload(rf_ptr)) {
+                                        int pcnt = interp_func_param_cnt(rf_ptr);
+                                        for(int i = 0; i < pcnt; i++) {
+                                            const char* pname = interp_func_param_name(rf_ptr, i);
+                                            Value bound = (i < call_argc) ? eval_args[i] : val_none();
+                                            stackframe_bind(callee, pname, bound);
+                                        }
+                                    }
+                                    closure_bind_cells(rf_ptr, callee);
+                                    RuntimeFunc* prev_rf = interp_set_current_rf(rf_ptr);
+                                    int saved_break = ctx->hit_break;
+                                    int saved_cont = ctx->hit_continue;
+                                    ctx->hit_break = 0;
+                                    ctx->hit_continue = 0;
+                                    g_trace_push(fname);
+                                    Value ret = rf_ptr->entry(call_argc, eval_args, ctx, callee);
+                                    if(g_trace_n > 0) g_trace_n--;
+                                    ctx->hit_break = saved_break;
+                                    ctx->hit_continue = saved_cont;
+                                    interp_set_current_rf(prev_rf);
+                                    stackframe_destroy(callee);
+                                    sp -= argc;
+                                    stack[sp++] = ret;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    /* 如果 super_method_call 失败，报错 */
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), "super 调用失败：无法找到父类方法");
+                    runtime_error(buf);
+                }
                 // 1. 查函数：帧链 VAL_FUNC → 全局函数表 → class 方法表
                 Value func_val;
                 _Bool fnd = 0;

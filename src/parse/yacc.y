@@ -1075,6 +1075,7 @@ primary
     | FSTRING_LIT             { $$ = L(maybe_template($1)); free($1); }
     | char_lit                { $$ = ast_new_char($1); }
     | ID                      { $$ = L(ast_var($1)); }
+    | TOK_SUPER               { $$ = L(ast_var(strdup("super"))); }  /* super 关键字：父类引用 */
     | ID LPAREN arg_list RPAREN {
           /* 宏调用：如果是已注册的宏，则展开；否则作为普通函数调用 */
           if(macro_is_defined($1)) {
@@ -1217,6 +1218,14 @@ postfix_expr
               AstNode* fn = L(ast_index(recv, ast_string(strdup($3))));
               free($3);
               $$ = L(ast_dyn_call(fn, margs));
+          } else if(recv->type == AST_VAR && strcmp(recv->u.varname, "super") == 0) {
+              /* super.method(args)：调用父类方法，转换为 super_method_call("method", self, args) */
+              AstNode* self_arg = L(ast_var(strdup("self")));
+              AstNode* all_args = margs ? ast_seq_front(margs, self_arg) : self_arg;
+              /* 方法名作为第一个参数，self 作为第二个参数 */
+              AstNode* method_name_arg = ast_string(strdup($3));
+              AstNode* call_args = ast_seq(method_name_arg, all_args);
+              $$ = L(ast_call(strdup("super_method_call"), call_args));
           } else {
               $$ = L(ast_call($3, margs ? ast_seq_front(margs, recv) : recv));
           }
