@@ -884,6 +884,19 @@ print(format("a={}, b={}", 1, 2));  // "a=1, b=2"
 print(format("pi={}", 3.14));        // "pi=3.14"
 ```
 
+#### 正则表达式函数
+```lumyr
+// 正则表达式匹配
+result = regex_match("hello123", "\\d+");  // 匹配数字
+
+// 正则表达式搜索
+result = regex_search("hello123world", "\\d+");  // 搜索数字
+
+// 正则表达式替换
+result = regex_replace("2026-09-07", "(\\d+)-(\\d+)-(\\d+)", "\\3/\\2/\\1");  // 07/09/2026
+result = regex_replace("aaa", "a", "b");  // bbb
+```
+
 ### 15.4 字符串插值（f-string）
 
 #### 基本用法
@@ -1055,11 +1068,20 @@ sleep(30);    // 睡眠 30 毫秒
 
 #### 时间函数
 ```lumyr
-// 当前时间（毫秒级时间戳）
+// 当前时间（毫秒级时间戳，返回时间对象）
 n = now();
+print(n.year);    // 年
+print(n.month);   // 月（1-12）
+print(n.day);     // 日（1-31）
+print(n.hour);    // 时（0-23）
+print(n.minute);  // 分（0-59）
+print(n.second);  // 秒（0-59）
 
 // Unix 时间戳（秒）
 ts = timestamp();
+
+// Unix 时间戳（毫秒）
+ts_ms = timestamp_ms();
 
 // 当前日期（YYYY-MM-DD）
 d = date();
@@ -1068,6 +1090,13 @@ print(len(d) == 10);  // true
 // 当前时间（HH:MM:SS）
 t = time();
 print(len(t) == 8);   // true
+
+// 当前日期时间（YYYY-MM-DD HH:MM:SS）
+dt = datetime();
+print(len(dt) == 19); // true
+
+// 格式化时间
+formatted = format_time("%Y/%m/%d");
 ```
 
 ### 18.3 HTTP 请求库（requests）
