@@ -41,6 +41,50 @@ static int* g_struct_cast_kinds = NULL;
 static char** g_struct_prop_struct_names = NULL;
 static int g_struct_prop_n = 0, g_struct_prop_cap = 0;
 static char* g_current_struct_name = NULL; /* 当前正在解析的 struct 名，用于方法注册 */
+
+/* class 声明属性收集器 */
+static char** g_class_prop_names = NULL;
+static ValueType* g_class_prop_types = NULL;
+static int g_class_prop_n = 0, g_class_prop_cap = 0;
+static char* g_current_class_name = NULL; /* 当前正在解析的 class 名，用于方法注册 */
+static char* g_current_class_parent = NULL; /* 当前 class 的父类名 */
+static AstNode** g_class_methods = NULL; /* 当前 class 的方法定义临时列表 */
+static int g_class_method_n = 0, g_class_method_cap = 0;
+
+static void g_class_method_push(AstNode* m) {
+    if(g_class_method_n >= g_class_method_cap) {
+        int nc = g_class_method_cap > 0 ? g_class_method_cap * 2 : 8;
+        g_class_methods = (AstNode**)realloc(g_class_methods, (size_t)nc * sizeof(AstNode*));
+        g_class_method_cap = nc;
+    }
+    g_class_methods[g_class_method_n++] = m;
+}
+
+static void g_class_method_clear(void) {
+    free(g_class_methods);
+    g_class_methods = NULL;
+    g_class_method_n = 0;
+    g_class_method_cap = 0;
+}
+
+static void class_prop_push(char* name, ValueType vt) {
+    if(g_class_prop_n >= g_class_prop_cap) {
+        int nc = g_class_prop_cap > 0 ? g_class_prop_cap * 2 : 8;
+        g_class_prop_names = (char**)realloc(g_class_prop_names, (size_t)nc * sizeof(char*));
+        g_class_prop_types = (ValueType*)realloc(g_class_prop_types, (size_t)nc * sizeof(ValueType));
+        g_class_prop_cap = nc;
+    }
+    g_class_prop_names[g_class_prop_n] = name;
+    g_class_prop_types[g_class_prop_n] = vt;
+    g_class_prop_n++;
+}
+
+static void class_prop_clear(void) {
+    for(int i = 0; i < g_class_prop_n; i++) free(g_class_prop_names[i]);
+    free(g_class_prop_names); g_class_prop_names = NULL;
+    free(g_class_prop_types); g_class_prop_types = NULL;
+    g_class_prop_n = 0; g_class_prop_cap = 0;
+}
 /* 辅助：如果在 struct 定义内部，给 self 参数加上 struct 类型标注 */
 static void annotate_self_if_in_struct(AstNode* func_def) {
     if(!func_def || func_def->type != AST_FUNC_DEF) return;
@@ -281,7 +325,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token TOK_INT TOK_DOUBLE TOK_CHAR TOK_STRING TOK_BOOL TOK_ASCII TOK_BYTE
 %token TOK_INT8 TOK_INT16 TOK_INT32 TOK_INT64 TOK_UINT8 TOK_UINT16 TOK_UINT32 TOK_UINT64 TOK_UINT TOK_LONG TOK_LONGLONG TOK_FLOAT TOK_ULONG TOK_UCHAR TOK_SHORT TOK_USHORT TOK_SIZE_T TOK_SSIZE_T TOK_VOID TOK_LONG_DOUBLE TOK_PTR
 %token<ll> TOK_TYPE_ANNOT   /* 类型标注 <type>：词法层面整体匹配，值为 CastKind 枚举 */
-%token TOK_TYPE TOK_STRUCT TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS TOK_EXTEND TOK_UNPACK
+%token TOK_TYPE TOK_STRUCT TOK_ENUM TOK_INTERFACE TOK_IMPLEMENTS TOK_EXTENDS TOK_EXTEND TOK_UNPACK TOK_CLASS TOK_SUPER
 %token PLUSPLUS MINUSMINUS
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
@@ -313,7 +357,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt yield_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop struct_prop_list struct_prop enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list struct_header
+%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop struct_prop_list struct_prop class_prop_list class_prop class_header class_header_inherit enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list struct_header
 %type<ll> type_name builtin_type_name type_keyword
 %type<s> type_name_str
 %type <ch> char_lit
@@ -547,6 +591,49 @@ closed_stmt
           struct_prop_clear();
           g_current_struct_name = NULL;
           /* 返回方法定义的 AST 节点，让它们作为独立函数定义被正常处理一次 */
+          $$ = method_list ? L(method_list) : L(ast_none());
+      }
+    | class_header class_prop_list RBRACE {
+          /* class Point { x: int, y: int, func dist(): int {...} }：编译期注册 class 类型（无继承） */
+          class_register(g_current_class_name, g_prop_names, g_prop_types, g_prop_n, NULL, NULL);
+          /* 添加方法到 class 方法表 */
+          for(int mi = 0; mi < g_class_method_n; mi++) {
+              AstNode* mnode = g_class_methods[mi];
+              if(mnode && mnode->type == AST_FUNC_DEF) {
+                  class_add_method(g_current_class_name, mnode->u.func_def.name, mnode);
+              }
+          }
+          /* 把方法定义的 AST 节点保存到临时列表 */
+          AstNode* method_list = NULL;
+          for(int mi = 0; mi < g_class_method_n; mi++) {
+              AstNode* mnode = g_class_methods[mi];
+              method_list = method_list ? ast_seq(method_list, mnode) : mnode;
+          }
+          g_class_method_clear();
+          type_prop_clear();
+          g_current_class_name = NULL;
+          $$ = method_list ? L(method_list) : L(ast_none());
+      }
+    | class_header_inherit class_prop_list RBRACE {
+          /* class Point extends Shape { ... }：编译期注册 class 类型（带继承） */
+          class_register(g_current_class_name, g_prop_names, g_prop_types, g_prop_n, g_current_class_parent, NULL);
+          /* 添加方法到 class 方法表 */
+          for(int mi = 0; mi < g_class_method_n; mi++) {
+              AstNode* mnode = g_class_methods[mi];
+              if(mnode && mnode->type == AST_FUNC_DEF) {
+                  class_add_method(g_current_class_name, mnode->u.func_def.name, mnode);
+              }
+          }
+          /* 把方法定义的 AST 节点保存到临时列表 */
+          AstNode* method_list = NULL;
+          for(int mi = 0; mi < g_class_method_n; mi++) {
+              AstNode* mnode = g_class_methods[mi];
+              method_list = method_list ? ast_seq(method_list, mnode) : mnode;
+          }
+          g_class_method_clear();
+          type_prop_clear();
+          g_current_class_name = NULL;
+          g_current_class_parent = NULL;
           $$ = method_list ? L(method_list) : L(ast_none());
       }
     | TOK_ENUM ID LBRACE enum_members RBRACE {
@@ -1220,6 +1307,33 @@ struct_prop
         $$ = ast_none();
       }
     ;
+/* class 声明属性清单（支持属性和方法定义） */
+class_prop_list
+    : %empty                     { $$ = NULL; }
+    | class_prop                 { $$ = $1; }
+    | class_prop_list COMMA class_prop { $$ = ast_seq($1, $3); }
+    | class_prop_list func_def  {
+        /* class 方法定义：保存到临时列表，class 注册后再统一处理 */
+        if($2 && $2->type == AST_FUNC_DEF) {
+            /* 给 self 参数加上 class 类型标注 */
+            AstNode* _p = $2->u.func_def.params;
+            while(_p) {
+                if(_p->u.param.name && strcmp(_p->u.param.name, "self") == 0) {
+                    if(!_p->u.param.constraint && g_current_class_name) {
+                        _p->u.param.constraint = strdup(g_current_class_name);
+                    }
+                    break;
+                }
+                _p = _p->u.param.next;
+            }
+            g_class_method_push($2);
+        }
+        $$ = ast_seq($1, $2);
+      }
+    ;
+class_prop
+    : ID COLON type_name         { type_prop_push($1, $3); $$ = ast_none(); }
+    ;
 builtin_type_name
     : TOK_STRING                 { $$ = CAST_STRING; }
     | TOK_INT                    { $$ = CAST_INT; }
@@ -1350,6 +1464,19 @@ expr
 struct_header: TOK_STRUCT ID LBRACE {
           /* 在 LBRACE 时就设置 g_current_struct_name，这样方法定义时就能获取到 */
           g_current_struct_name = $2;
+          $$ = NULL;
+      }
+    ;
+class_header: TOK_CLASS ID LBRACE {
+          /* 在 LBRACE 时就设置 g_current_class_name，这样方法定义时就能获取到 */
+          g_current_class_name = $2;
+          $$ = NULL;
+      }
+    ;
+class_header_inherit: TOK_CLASS ID TOK_EXTENDS ID LBRACE {
+          /* 在 LBRACE 时就设置 g_current_class_name 和 g_current_class_parent */
+          g_current_class_name = $2;
+          g_current_class_parent = $4;
           $$ = NULL;
       }
     ;

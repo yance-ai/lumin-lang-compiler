@@ -36,6 +36,8 @@ static int is_expr_end(int t)
 %%
 "type"          { LEX_RET(TOK_TYPE); }
 "struct"        { LEX_RET(TOK_STRUCT); }
+"class"         { LEX_RET(TOK_CLASS); }
+"super"         { LEX_RET(TOK_SUPER); }
 "enum"          { LEX_RET(TOK_ENUM); }
 "interface"     { LEX_RET(TOK_INTERFACE); }
 "implements"    { LEX_RET(TOK_IMPLEMENTS); }

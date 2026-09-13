@@ -31,6 +31,8 @@ int type_register(const char* name, char** props, ValueType* ptypes, int nprops,
         g_types[i].interfaces = NULL;
         g_types[i].ninterfaces = 0;
         g_types[i].is_struct = 0;
+        g_types[i].is_class = 0;
+        g_types[i].parent = NULL;
         g_types[i].field_cast_kinds = NULL;
         g_types[i].field_struct_names = NULL;
         g_types[i].field_offsets = NULL;
@@ -338,6 +340,74 @@ TypeDef* struct_lookup(const char* name)
     if(idx < 0) return NULL;
     if(!g_types[idx].is_struct) return NULL;
     return &g_types[idx];
+}
+
+/* ===== class 注册 ===== */
+int class_register(const char* name, char** props, ValueType* ptypes, int nprops, const char* parent, char** interfaces)
+{
+    // 先注册为普通 type
+    int nifaces = 0;
+    if(interfaces) {
+        while(interfaces[nifaces]) nifaces++;
+    }
+    int idx = type_register(name, props, ptypes, nprops, NULL, 0, interfaces, nifaces);
+
+    // 标记为 class 并保存父类
+    g_types[idx].is_class = 1;
+    g_types[idx].parent = parent ? strdup(parent) : NULL;
+    g_types[idx].method_names = NULL;
+    g_types[idx].method_nodes = NULL;
+    g_types[idx].nmethods = 0;
+    return idx;
+}
+
+// 查找是否是 class（返回 TypeDef* 或 NULL）
+TypeDef* class_lookup(const char* name)
+{
+    int idx = type_lookup(name);
+    if(idx < 0) return NULL;
+    if(!g_types[idx].is_class) return NULL;
+    return &g_types[idx];
+}
+
+// 添加 class 方法
+void class_add_method(const char* class_name, const char* method_name, struct AstNode* method_node)
+{
+    TypeDef* td = class_lookup(class_name);
+    if(!td) return;
+    // 检查是否已有同名方法（方法重写）
+    for(int i = 0; i < td->nmethods; i++) {
+        if(strcmp(td->method_names[i], method_name) == 0) {
+            // 方法重写：替换旧方法
+            td->method_nodes[i] = method_node;
+            return;
+        }
+    }
+    // 新方法：添加到方法表
+    int n = td->nmethods + 1;
+    td->method_names = (char**)realloc(td->method_names, (size_t)n * sizeof(char*));
+    td->method_nodes = (struct AstNode**)realloc(td->method_nodes, (size_t)n * sizeof(struct AstNode*));
+    td->method_names[td->nmethods] = strdup(method_name);
+    td->method_nodes[td->nmethods] = method_node;
+    td->nmethods = n;
+}
+
+// 查找 class 方法（返回 AST 节点或 NULL，包含继承的方法）
+struct AstNode* class_find_method(const char* class_name, const char* method_name)
+{
+    TypeDef* td = class_lookup(class_name);
+    if(!td) return NULL;
+    // 先在当前类中查找
+    for(int i = 0; i < td->nmethods; i++) {
+        if(strcmp(td->method_names[i], method_name) == 0) {
+            return td->method_nodes[i];
+        }
+    }
+    // 如果有父类，递归查找父类的方法
+    if(td->parent) {
+        return class_find_method(td->parent, method_name);
+    }
+    return NULL;
 }
 
 int type_implements_interface(const char* type_name, const char* interface_name) {

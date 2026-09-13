@@ -20,14 +20,25 @@ typedef struct {
     char** interfaces;   // 实现的接口名列表（NULL=未实现接口）
     int ninterfaces;     // 实现的接口数量
     int is_struct;       // 是否是 struct（1=struct，0=普通 type/动态 Map）
+    int is_class;        // 是否是 class（1=class，0=非 class）
+    char* parent;        // 父类名（NULL=无父类，仅 class 使用）
     int* field_cast_kinds; // struct 字段的精确 CastKind 类型（NULL=非 struct，CAST_NONE=嵌套struct）
     char** field_struct_names; // struct 字段的嵌套 struct 类型名（NULL=非嵌套struct字段）
     int* field_offsets;    // struct 字段偏移量（编译通道用，NULL=未计算）
-    /* struct 方法 */
+    /* struct/class 方法 */
     char** method_names;   // 方法名列表（NULL=无方法）
     struct AstNode** method_nodes; // 方法的 AST 节点（func_def）
     int nmethods;          // 方法数量
 } TypeDef;
+
+/* class 注册（属性用 ValueType 类型） */
+int class_register(const char* name, char** props, ValueType* ptypes, int nprops, const char* parent, char** interfaces);
+/* 查找是否是 class（返回 TypeDef* 或 NULL） */
+TypeDef* class_lookup(const char* name);
+/* 添加 class 方法 */
+void class_add_method(const char* class_name, const char* method_name, struct AstNode* method_node);
+/* 查找 class 方法（返回 AST 节点或 NULL，包含继承的方法） */
+struct AstNode* class_find_method(const char* class_name, const char* method_name);
 
 /* 前向声明 AstNode */
 struct AstNode;
