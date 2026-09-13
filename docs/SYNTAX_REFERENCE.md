@@ -808,8 +808,43 @@ print(s.contains("World"));  // 是否包含
 print(s.replace("World", "Lumyr"));  // 替换
 print(s.split(" "));         // 分割
 
+// 编码/解码（UTF-8/GBK）
+b = "中文".encode();         // UTF-8 编码
+print(b.decode());            // 解码为字符串
+bg = "中文".encode("gbk");   // GBK 编码
+print(bg.decode("gbk"));     // GBK 解码
+
+// URL 编码/解码
+print("a b&c=d".encodeURL());       // a%20b%26c%3Dd
+print("a%20b%26c%3Dd".decodeURL()); // a b&c=d
+
+// Base64 编码/解码
+print("abc".encodeBase64());        // YWJj
+print("YWJj".decodeBase64());       // abc
+
 // 加密哈希
 print("hello".md5());        // MD5 哈希
+```
+
+#### 字符串函数（函数形式）
+```lumyr
+// 分割
+parts = split("a,b,c", ",");    // ["a", "b", "c"]
+
+// 替换
+result = replace("banana", "na", "NA");  // baNANA
+
+// 合并
+result = join(["a", "b", "c"], "-");  // "a-b-c"
+
+// 反转
+result = reverse([1, 2, 3]);  // [3, 2, 1]
+
+// 排序
+result = sort([3, 1, 2]);  // [1, 2, 3]
+
+// 重复
+result = repeat("ab", 3);  // "ababab"
 ```
 
 #### format 函数
@@ -953,7 +988,9 @@ export func sub(a, b) { return a - b; }
 
 ## 18. 标准库
 
-### 18.1 write 语句（写文件）
+### 18.1 文件读写语句
+
+#### write 语句（写文件）
 ```lumyr
 // 写文件：write "path" content
 write "/tmp/output.txt" "hello world";
@@ -967,7 +1004,43 @@ idx = 1;
 write f"/tmp/data_{idx}.txt" "x";
 ```
 
-### 18.2 HTTP 请求库（requests）
+#### read 语句（读文件）
+```lumyr
+// 读文件：read "path" 返回文件内容
+content = read "/tmp/output.txt";
+print(content);
+
+// 方法链
+lines = split((read "/tmp/ft_io.txt").strip(), "\n");
+```
+
+### 18.2 时间与睡眠
+
+#### sleep（睡眠）
+```lumyr
+// 睡眠指定毫秒数
+sleep(1000);  // 睡眠 1 秒
+sleep(30);    // 睡眠 30 毫秒
+```
+
+#### 时间函数
+```lumyr
+// 当前时间（毫秒级时间戳）
+n = now();
+
+// Unix 时间戳（秒）
+ts = timestamp();
+
+// 当前日期（YYYY-MM-DD）
+d = date();
+print(len(d) == 10);  // true
+
+// 当前时间（HH:MM:SS）
+t = time();
+print(len(t) == 8);   // true
+```
+
+### 18.3 HTTP 请求库（requests）
 ```lumyr
 // GET 请求
 resp = requests.get("http://example.com/api");
@@ -1017,7 +1090,7 @@ print(json_str);
 
 ## 19. 内置函数
 
-### 18.1 常用函数
+### 19.1 常用函数
 - `print(...)` — 打印
 - `len(x)` — 长度
 - `type(x)` — 类型
@@ -1027,7 +1100,34 @@ print(json_str);
 - `int(x)` — 转整数
 - `double(x)` — 转浮点数
 
-### 18.2 生成器函数
+### 19.2 数组与集合函数
+
+#### range（生成范围数组）
+```lumyr
+arr = range(5);      // [0, 1, 2, 3, 4]
+arr = range(20);     // 预分配 20 槽
+```
+
+#### map（映射）
+```lumyr
+// 函数形式
+result = map([1, 2, 3], func(v) { return v * 2; });  // [2, 4, 6]
+
+// 方法形式
+result = [1, 2, 3].map(func(v) { return v * v; });    // [1, 4, 9]
+```
+
+#### reduce（归约）
+```lumyr
+result = reduce([1, 2, 3, 4], func(a, b) { return a + b; }, 0);  // 10
+```
+
+#### filter（过滤）
+```lumyr
+result = filter([1, 2, 3, 4, 5], func(v) { return v % 2 == 0; });  // [2, 4]
+```
+
+### 19.3 生成器函数
 - `GenThrow(gen, err)` — 向生成器抛出异常
 - `chain(g1, g2)` — 连接生成器
 - `zip(g1, g2)` — 合并生成器
@@ -1130,7 +1230,7 @@ threadlocal_set("key", value);
 val = threadlocal_get("key");
 ```
 
-### 18.4 数组与 Map 方法
+### 19.4 数组与 Map 方法
 
 #### 数组方法
 ```lumyr
@@ -1138,7 +1238,7 @@ arr = [1, 2, 3];
 
 // 添加与删除
 arr = arr.add(4);              // 添加元素 → [1,2,3,4]
-arr = arr.addAll([5, 6]);      // 批量添加
+arr = arr.addAll([5, 6]);      // 批量添加（引用语义：原地修改）
 arr = arr.remove(1);            // 删除下标 1 的元素
 arr = arr.del(1);               // 同 remove
 arr = arr.insert(1, 99);        // 在下标 1 插入 99
@@ -1151,12 +1251,21 @@ sum_val = arr.sum();             // 求和
 avg_val = arr.avg();             // 求平均值
 has_2 = arr.contains(2);         // 是否包含
 
+// 扁平化
+nested = [[1], [2], [3, 4]];
+flat = nested.flat(2);           // 扁平化 2 层 → [1,2,3,4]
+
+// 映射与过滤
+result = arr.map(func(v) { return v * 2; });   // 映射
+result = arr.filter(func(v) { return v > 1; }); // 过滤
+
 // 方法链
 x = [].add(1).add(2).add(3).add(4);
 print(join([3, 1, 2].sort(), ","));  // "1,2,3"
+print([1].addAll([2, 3]).map(dbl).join(","));  // "2,4,6"
 ```
 
-**注意**：数组方法是引用语义，`add` 会原地修改原数组。
+**注意**：数组方法是引用语义，`add`/`addAll` 会原地修改原数组。
 
 #### Map 方法
 ```lumyr
@@ -1166,6 +1275,15 @@ m = {"a": 1, "b": 2};
 m.set("c", 3);                  // 设置键值
 keys = m.keys();                 // 获取键列表
 values = m.values();             // 获取值列表
+val = m.get("a");                // 获取值（方法形式）
+
+// 批量合并（引用语义：原地修改）
+m1 = {"a": 1, "b": 2};
+m2 = {"c": 3, "d": 4};
+m1.addAll(m2);                   // 合并 m2 到 m1
+
+// 转查询字符串
+qs = {"n": 1, "m": 2}.qs();     // "n=1&m=2"
 ```
 
 #### Map 点属性访问
@@ -1193,15 +1311,15 @@ print(cfg.data.remove(0)[0]);   // 2
 
 ---
 
-## 19. 重要语法规则总结
+## 20. 重要语法规则总结
 
-### 19.1 类型声明 vs 类型转换
+### 20.1 类型声明 vs 类型转换
 | 语法 | 用途 | 示例 |
 |------|------|------|
 | `<>` | 类型声明/标注 | `a = <int>8;` `func f(<int> x)` |
 | `()` | 类型转换（强转） | `a = (int)3.14;` |
 
-### 19.2 参数类型
+### 20.2 参数类型
 | 语法 | 说明 |
 |------|------|
 | `p` | 普通参数（值传递） |
@@ -1211,7 +1329,7 @@ print(cfg.data.remove(0)[0]);   // 2
 | `p = 10` | 带默认值的参数 |
 | `...args` | 可变参数 |
 
-### 19.3 函数类型
+### 20.3 函数类型
 | 语法 | 说明 |
 |------|------|
 | `func name() {}` | 普通函数 |
@@ -1220,7 +1338,7 @@ print(cfg.data.remove(0)[0]);   // 2
 | `func<T> name() {}` | 泛型函数 |
 | `extern func name();` | FFI 外部函数声明 |
 
-### 19.4 循环类型
+### 20.4 循环类型
 | 语法 | 说明 |
 |------|------|
 | `while (cond) {}` | while 循环 |
@@ -1232,9 +1350,9 @@ print(cfg.data.remove(0)[0]);   // 2
 
 ---
 
-## 20. 常见错误
+## 21. 常见错误
 
-### 20.1 忘记分号
+### 21.1 忘记分号
 ```lumyr
 // 错误（会报"语法错误(第2行)"）
 print("hello")
