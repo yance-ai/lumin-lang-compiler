@@ -1350,17 +1350,6 @@ class_prop_list
         if($2 && $2->type == AST_FUNC_DEF) {
             /* 标记为 class 方法，跳过顶层重复定义检查 */
             $2->u.func_def.is_class_method = 1;
-            /* 给 self 参数加上 class 类型标注 */
-            AstNode* _p = $2->u.func_def.params;
-            while(_p) {
-                if(_p->u.param.name && strcmp(_p->u.param.name, "self") == 0) {
-                    if(!_p->u.param.constraint && g_current_class_name) {
-                        _p->u.param.constraint = strdup(g_current_class_name);
-                    }
-                    break;
-                }
-                _p = _p->u.param.next;
-            }
             /* __init__ 方法作为构造函数，不加入方法表，单独保存 */
             if(strcmp($2->u.func_def.name, "__init__") == 0) {
                 g_class_constructor = $2;
