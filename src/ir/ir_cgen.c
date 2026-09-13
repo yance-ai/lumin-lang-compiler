@@ -9,6 +9,7 @@
 
 FILE* out;
 NameSet g_globals;      // 全局变量（main 指令流引用）
+BytecodeFunc* g_main_fn = NULL;  // main 函数（用于全局变量类型查找）
 NameSet fn_locals;      // 当前函数局部变量（非参数、非全局）
 BytecodeFunc* g_cur_fn; // 当前生成所在函数（NULL=main）
 
@@ -121,6 +122,12 @@ static const char* get_var_struct_name(const BytecodeFunc* fn, const char* name)
     if(!fn || !fn->var_struct_names) return NULL;
     for(int i = 0; i < fn->sym_cnt; i++) {
         if(strcmp(fn->syms[i], name) == 0) return fn->var_struct_names[i];
+    }
+    /* 如果当前函数中找不到，尝试在 main 函数中查找（全局变量） */
+    if(g_main_fn && g_main_fn != fn && g_main_fn->var_struct_names) {
+        for(int i = 0; i < g_main_fn->sym_cnt; i++) {
+            if(strcmp(g_main_fn->syms[i], name) == 0) return g_main_fn->var_struct_names[i];
+        }
     }
     return NULL;
 }
@@ -724,6 +731,7 @@ void emit_func_wraps(void)
 
 void emit_main(BytecodeFunc* main_fn)
 {
+    g_main_fn = main_fn;  // 保存 main 函数，用于全局变量类型查找
     // 生成器组合操作（包装生成器）运行时支持
     emit_gen_wrapper_support();
 

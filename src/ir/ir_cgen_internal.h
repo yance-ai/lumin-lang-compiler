@@ -28,6 +28,7 @@ typedef struct { char** names; int count; int cap; } NameSet;
 extern NameSet g_globals;
 extern NameSet fn_locals;
 extern BytecodeFunc* g_cur_fn;
+extern BytecodeFunc* g_main_fn;  // main 函数（用于全局变量类型查找）
 
 /* 逃逸分析结果 */
 extern uint8_t* g_stack_alloc;

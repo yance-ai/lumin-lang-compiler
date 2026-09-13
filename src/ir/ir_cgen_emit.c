@@ -24,6 +24,12 @@ static const char* emit_get_var_struct_name(const BytecodeFunc* fn, const char* 
     for(int i = 0; i < fn->sym_cnt; i++) {
         if(fn->syms[i] && strcmp(fn->syms[i], name) == 0) return fn->var_struct_names[i];
     }
+    /* 如果当前函数中找不到，尝试在 main 函数中查找（全局变量） */
+    if(g_main_fn && g_main_fn != fn && g_main_fn->var_struct_names) {
+        for(int i = 0; i < g_main_fn->sym_cnt; i++) {
+            if(g_main_fn->syms[i] && strcmp(g_main_fn->syms[i], name) == 0) return g_main_fn->var_struct_names[i];
+        }
+    }
     return NULL;
 }
 
@@ -1656,6 +1662,15 @@ void emit_insns(BytecodeFunc* fn)
                 fprintf(out, "        Value __args[%d];\n", argc > 0 ? argc : 1);
                 fprintf(out, "        for (int __k = 0; __k < __lmin_argc; __k++) __args[__k] = __stk[__sp - __lmin_argc + __k];\n");
                 fprintf(out, "        __sp -= __lmin_argc;\n");
+                /* type 类型参数值传递：运行时检查并浅拷贝（方法调用的 self 除外，self 引用传递） */
+                {
+                    int _self_skip = (callee->is_method) ? 1 : 0;
+                    for(int _tk = _self_skip; _tk < nbind; _tk++) {
+                        fprintf(out, "        if(__args[%d].type == VAL_MAP && lumyr_map_has(__args[%d], lumyr_make_string(\"__mapname__\"))) {\n", _tk, _tk);
+                        fprintf(out, "            __args[%d] = lumyr_map_shallow_copy(__args[%d]);\n", _tk, _tk);
+                        fprintf(out, "        }\n");
+                    }
+                }
                 if(callee->has_variadic) {
                     fprintf(out, "        Value __rest = val_array(%d);\n", restn);
                     for(int k = 0; k < restn; k++) {
