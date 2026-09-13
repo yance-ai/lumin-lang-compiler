@@ -2269,25 +2269,24 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_CALL: {
                 const char* fname = bf->syms[in.a];
                 int argc = in.b;
-                /* super_method_call(method_name, self, args...)：调用父类方法 */
-                if(strcmp(fname, "super_method_call") == 0 && argc >= 2) {
+                /* super_method_call(method_name, current_class, self, args...)：调用父类方法 */
+                if(strcmp(fname, "super_method_call") == 0 && argc >= 3) {
                     Value method_name_val = stack[sp - argc];
-                    Value self_val = stack[sp - argc + 1];
-                    if(method_name_val.type == VAL_STRING && self_val.type == VAL_MAP &&
-                       lumyr_map_has(self_val, lumyr_make_string("__classname__"))) {
-                        Value cn = lumyr_map_get(self_val, lumyr_make_string("__classname__"));
-                        if(cn.type == VAL_STRING) {
-                            TypeDef* td = class_lookup(lumyr_str_cstr(&cn));
-                            if(td && td->parent) {
-                                TypeDef* parent_td = class_lookup(td->parent);
-                                if(parent_td) {
-                                    void* rf = NULL;
-                                    if(strcmp(lumyr_str_cstr(&method_name_val), "__init__") == 0) {
-                                        rf = parent_td->constructor_func;
-                                    } else {
-                                        rf = class_find_method_func(parent_td->name, lumyr_str_cstr(&method_name_val));
-                                    }
-                                    if(rf) {
+                    Value current_class_val = stack[sp - argc + 1];
+                    Value self_val = stack[sp - argc + 2];
+                    if(method_name_val.type == VAL_STRING && current_class_val.type == VAL_STRING &&
+                       self_val.type == VAL_MAP) {
+                        TypeDef* td = class_lookup(lumyr_str_cstr(&current_class_val));
+                        if(td && td->parent) {
+                            TypeDef* parent_td = class_lookup(td->parent);
+                            if(parent_td) {
+                                void* rf = NULL;
+                                if(strcmp(lumyr_str_cstr(&method_name_val), "__init__") == 0) {
+                                    rf = parent_td->constructor_func;
+                                } else {
+                                    rf = class_find_method_func(parent_td->name, lumyr_str_cstr(&method_name_val));
+                                }
+                                if(rf) {
                                     /* 调用父类方法：self 作为第一个参数，其他参数跟随 */
                                     Value func_val;
                                     func_val.type = VAL_FUNC;
@@ -2295,8 +2294,8 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                                     func_val.v.func.ffi_func = NULL;
                                     func_val.v.func.is_ffi = 0;
                                     RuntimeFunc* rf_ptr = (RuntimeFunc*)rf;
-                                    Value* eval_args = &stack[sp - argc + 1];  /* 跳过 method_name，从 self 开始 */
-                                    int call_argc = argc - 1;
+                                    Value* eval_args = &stack[sp - argc + 2];  /* 跳过 method_name 和 current_class，从 self 开始 */
+                                    int call_argc = argc - 2;
                                     StackFrame* callee = stackframe_new(frame);
                                     if(interp_func_is_payload(rf_ptr)) {
                                         int pcnt = interp_func_param_cnt(rf_ptr);
@@ -2323,10 +2322,10 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                                     stack[sp++] = ret;
                                     break;
                                 }
-                                }
                             }
                         }
                     }
+                    /* 如果 super_method_call 失败，报错 */
                     /* 如果 super_method_call 失败，报错 */
                     char buf[256];
                     snprintf(buf, sizeof(buf), "super 调用失败：无法找到父类方法");

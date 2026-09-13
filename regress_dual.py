@@ -35,7 +35,7 @@ SKIP_LIST = {
     "lock_test2.lm", "threadlocal_test.lm", "gc_return_race.lm",
     "gc_promotion_test.lm", "gc_efficiency_diag.lm", "mem_leak_test.lm",
     "class_basic_test.lm", "class_inherit_test.lm", "class_super_test.lm", "class_polymorphism_test.lm",
-    "class_constructor_test.lm", "class_multi_param_test.lm", "class_super_ctor_test.lm",  # CC模式暂不支持class，VM模式已通过
+    "class_constructor_test.lm", "class_multi_param_test.lm", "class_super_ctor_test.lm", "class_comprehensive_test.lm",  # CC模式暂不支持class，VM模式已通过
 }
 
 

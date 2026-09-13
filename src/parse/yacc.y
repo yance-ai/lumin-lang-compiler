@@ -1218,12 +1218,13 @@ postfix_expr
     | postfix_expr MINUSMINUS { $$ = ast_unary(OP_POST_DEC, $1); }
     /* 调用链 f(1)(2)：callee 为表达式（函数值），动态调用 */
     | postfix_expr LPAREN arg_list RPAREN {
-          /* super(args)：调用父类构造函数，转换为 super_method_call("__init__", self, args) */
+          /* super(args)：调用父类构造函数，转换为 super_method_call("__init__", current_class, self, args) */
           if($1->type == AST_VAR && strcmp($1->u.varname, "super") == 0) {
               AstNode* self_arg = L(ast_var(strdup("self")));
               AstNode* all_args = $3 ? ast_seq_front($3, self_arg) : self_arg;
+              AstNode* class_name_arg = ast_string(strdup(g_current_class_name ? g_current_class_name : ""));
               AstNode* method_name_arg = ast_string(strdup("__init__"));
-              AstNode* call_args = ast_seq(method_name_arg, all_args);
+              AstNode* call_args = ast_seq(method_name_arg, ast_seq(class_name_arg, all_args));
               $$ = L(ast_call(strdup("super_method_call"), call_args));
           } else {
               $$ = L(ast_dyn_call($1, $3));
@@ -1248,12 +1249,13 @@ postfix_expr
               free($3);
               $$ = L(ast_dyn_call(fn, margs));
           } else if(recv->type == AST_VAR && strcmp(recv->u.varname, "super") == 0) {
-              /* super.method(args)：调用父类方法，转换为 super_method_call("method", self, args) */
+              /* super.method(args)：调用父类方法，转换为 super_method_call("method", current_class, self, args) */
               AstNode* self_arg = L(ast_var(strdup("self")));
               AstNode* all_args = margs ? ast_seq_front(margs, self_arg) : self_arg;
-              /* 方法名作为第一个参数，self 作为第二个参数 */
+              /* 方法名作为第一个参数，当前类名作为第二个参数，self 作为第三个参数 */
               AstNode* method_name_arg = ast_string(strdup($3));
-              AstNode* call_args = ast_seq(method_name_arg, all_args);
+              AstNode* class_name_arg = ast_string(strdup(g_current_class_name ? g_current_class_name : ""));
+              AstNode* call_args = ast_seq(method_name_arg, ast_seq(class_name_arg, all_args));
               $$ = L(ast_call(strdup("super_method_call"), call_args));
           } else {
               $$ = L(ast_call($3, margs ? ast_seq_front(margs, recv) : recv));
