@@ -602,7 +602,26 @@ print(next(g));  // 1
 - `.throw(err)` — 向生成器抛出异常
 - `.close()` — 关闭生成器
 
-### 10.4 生成器组合操作
+### 10.4 生成器双向通信（send/receive）
+
+生成器支持双向通信：外部通过 `send()` 向生成器发送值，生成器内部通过 `receive()` 接收值。
+
+```lumyr
+gen func echo() {
+    while (true) {
+        val = receive();      // 接收外部发送的值
+        yield val;            // 返回接收到的值
+    }
+}
+
+ge = echo();
+r1 = send(ge, "hello");      // 发送 "hello"，receive() 返回 "hello"，yield "hello"
+print(r1);                    // hello
+r2 = send(ge, 42);           // 发送 42
+print(r2);                    // 42
+```
+
+### 10.5 生成器组合操作
 - `chain(g1, g2)` — 连接两个生成器
 - `zip(g1, g2)` — 合并两个生成器
 - `map(g, fn)` — 映射生成器
@@ -740,6 +759,34 @@ m["c"] = 3;
 print(keys(m));     // ["a", "b", "c"]
 ```
 
+#### 多种键类型
+Map 的键可以是字符串、整数、字符、浮点数、布尔值等多种类型。
+
+```lumyr
+m = {
+    "str": 1,       // 字符串键
+    42: "int",      // 整数键
+    'c': true,      // 字符键
+    3.14: "pi",     // 浮点数键
+    false: "no"     // 布尔值键
+};
+print(m["str"]);    // 1
+print(m[42]);        // "int"
+```
+
+#### 计算键（Computed Keys）
+使用 `[expr]` 作为键，键的值在运行时计算。
+
+```lumyr
+p1 = "key1";
+p2 = "key2";
+m = {
+    [p1]: {"name": "origin"},
+    [p2]: {"name": "far"}
+};
+print(m["key1"]["name"]);  // origin
+```
+
 ### 15.3 字符串
 ```lumyr
 s = "hello";
@@ -748,10 +795,64 @@ print(len(s));      // 5
 print(s + " world"); // "hello world"
 ```
 
-### 15.4 字符串插值
+#### 字符串方法
+```lumyr
+s = "  Hello World  ";
+
+// 常用方法
+print(s.len());              // 长度
+print(s.strip());            // 去除首尾空白
+print(s.toupper());          // 转大写
+print(s.tolower());          // 转小写
+print(s.contains("World"));  // 是否包含
+print(s.replace("World", "Lumyr"));  // 替换
+print(s.split(" "));         // 分割
+
+// 加密哈希
+print("hello".md5());        // MD5 哈希
+```
+
+#### format 函数
+```lumyr
+// 格式化字符串
+print(format("a={}, b={}", 1, 2));  // "a=1, b=2"
+print(format("pi={}", 3.14));        // "pi=3.14"
+```
+
+### 15.4 字符串插值（f-string）
+
+#### 基本用法
 ```lumyr
 name = "World";
 print(f"Hello, {name}!");  // "Hello, World!"
+```
+
+#### 高级用法
+```lumyr
+n = 42;
+
+// 表达式内插
+print(f"val={n} sq={n * n} even={n % 2 == 0}");
+
+// 方法调用内插
+nm = "lumyr";
+print(f"[{nm.strip().toupper()}]");  // [LUMYR]
+
+// 函数调用内插
+print(f"sq2={squares(3)[1]}");
+
+// 转义花括号（{{ 和 }}）
+print(f"{{literal}} n={n}");  // {literal} n=42
+
+// 原样输出（不二次解析）
+server = "hello {{name}}";
+print(f"{server}");  // hello {{name}}
+
+// 内插表达式内字符串（用 \" 转义）
+print(f"v={\"a{b}c\".len()}");  // v=5
+
+// 三元运算符内插
+print(f"t={n > 5 ? \"yes\" : \"no\"}");
 ```
 
 ---
@@ -850,7 +951,71 @@ export func sub(a, b) { return a - b; }
 
 ---
 
-## 18. 内置函数
+## 18. 标准库
+
+### 18.1 write 语句（写文件）
+```lumyr
+// 写文件：write "path" content
+write "/tmp/output.txt" "hello world";
+
+// 支持 f-string 内容
+n = 42;
+write "/tmp/data.txt" f"n={n}";
+
+// 支持 f-string 路径
+idx = 1;
+write f"/tmp/data_{idx}.txt" "x";
+```
+
+### 18.2 HTTP 请求库（requests）
+```lumyr
+// GET 请求
+resp = requests.get("http://example.com/api");
+print(resp["body"]);
+print(resp["status"]);
+
+// 带参数和请求头的 GET
+resp = requests.get("http://example.com/api", {"q": 1}, {"headers": "text/plain"});
+
+// POST 请求
+resp = requests.post("http://example.com/api", {"a": 1}, {"body": 42});
+
+// DELETE 请求
+resp = requests.delete("http://example.com/api/resource");
+```
+
+### 18.3 日志库（log）
+```lumyr
+log.info("information message");
+log.warn("warning message");
+log.error("error message");
+log.debug("debug message");
+```
+
+### 18.4 加密库（crypto）
+```lumyr
+// MD5 哈希
+hash = md5("hello world");
+print(hash);
+
+// 字符串方法形式
+print("hello".md5());
+```
+
+### 18.5 JSON 库
+```lumyr
+// 解析 JSON
+obj = json_parse('{"name": "lumyr", "version": 1}');
+print(obj["name"]);
+
+// 序列化 JSON
+json_str = json_stringify({"name": "lumyr", "version": 1});
+print(json_str);
+```
+
+---
+
+## 19. 内置函数
 
 ### 18.1 常用函数
 - `print(...)` — 打印
@@ -912,6 +1077,29 @@ lock(sp);              // 加锁
 unlock(sp);            // 解锁
 ```
 
+#### 递归锁（Recursive Mutex）
+```lumyr
+rm = rmutex();         // 创建递归互斥锁
+lock(rm);              // 外层加锁
+lock(rm);              // 递归可重入（不会死锁）
+unlock(rm);            // 释放内层
+unlock(rm);            // 释放外层
+```
+
+#### 非阻塞尝试加锁（trylock）
+```lumyr
+// 互斥锁尝试加锁
+ok = trylock(ml);      // 成功返回 true，失败返回 false
+if (ok) {
+    // 临界区
+    unlock(ml);
+}
+
+// 读写锁尝试加锁
+tryrdlock(rw);         // 尝试加读锁
+trywrlock(rw);         // 尝试加写锁
+```
+
 #### 条件变量（Condition）
 ```lumyr
 cond = cond();         // 创建条件变量
@@ -921,6 +1109,25 @@ broadcast(cond);       // 唤醒所有等待线程
 
 // 带超时等待
 cond_wait_timeout(cond, mutex, timeout_ms);
+```
+
+#### 线程返回值（thread_join）
+```lumyr
+func worker(n) {
+    return n * 2;
+}
+t = thread(worker, 21);
+result = thread_join(t);   // 等待线程结束并获取返回值
+print(result);              // 42
+```
+
+#### 线程本地存储（ThreadLocal）
+```lumyr
+// 设置线程本地变量
+threadlocal_set("key", value);
+
+// 获取线程本地变量
+val = threadlocal_get("key");
 ```
 
 ### 18.4 数组与 Map 方法
