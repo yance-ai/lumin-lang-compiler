@@ -89,6 +89,14 @@ int interp_func_param_has_default(const RuntimeFunc* rf, int idx)
     return pl->has_default[idx];
 }
 
+int interp_func_param_is_ref(const RuntimeFunc* rf, int idx)
+{
+    if(!interp_func_is_payload(rf)) return 0;
+    InterpFuncPayload* pl = (InterpFuncPayload*)rf->captures;
+    if(idx < 0 || idx >= pl->param_cnt) return 0;
+    return pl->param_is_ref[idx];
+}
+
 AstNode* interp_func_param_default(const RuntimeFunc* rf, int idx)
 {
     if(!interp_func_is_payload(rf)) return NULL;
@@ -262,6 +270,7 @@ RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast)
     payload->param_names = malloc(sizeof(char*)*(normal_cnt + (has_var?1:0)));
     payload->default_vals = calloc(normal_cnt, sizeof(AstNode*));
     payload->has_default = calloc(normal_cnt, sizeof(int));
+    payload->param_is_ref = calloc(normal_cnt, sizeof(int));
     payload->is_generator = func_def_ast->u.func_def.is_generator;
 
     // 拷贝参数名字
@@ -272,6 +281,9 @@ RuntimeFunc* compile_func_from_ast(AstNode* func_def_ast)
         if(!p->u.param.is_ellipsis && p->u.param.default_val) {
             payload->default_vals[idx] = p->u.param.default_val;
             payload->has_default[idx] = 1;
+        }
+        if(!p->u.param.is_ellipsis && p->u.param.is_ref) {
+            payload->param_is_ref[idx] = 1;
         }
         idx++;
         p = p->u.param.next;

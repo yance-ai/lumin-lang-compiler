@@ -13,6 +13,7 @@ typedef struct InterpFuncPayload {
     int has_variadic;
     AstNode** default_vals;   // 默认值表达式数组（普通参数，NULL=无默认值），长度 param_cnt
     int* has_default;          // 是否有默认值（1/0），长度 param_cnt
+    int* param_is_ref;         // 参数是否是引用传递（1=ref，0=值传递），长度 param_cnt
     /* 闭包捕获：仅闭包实例（capture_count==-1 且 captured_cell_count>0）使用。
      * captured_names[i] 为捕获变量名，captured_cells[i] 为对应的堆 Value* 单元指针。
      * 共享模板 payload（parse 期创建）此两字段为 NULL/0。 */
@@ -46,6 +47,7 @@ _Bool interp_func_has_variadic(const RuntimeFunc* rf);
 const char* interp_func_param_name(const RuntimeFunc* rf, int idx);
 // 参数是否有默认值（普通参数索引），越界返回 0
 int interp_func_param_has_default(const RuntimeFunc* rf, int idx);
+int interp_func_param_is_ref(const RuntimeFunc* rf, int idx);  // 参数是否是 ref 引用传递
 // 参数默认值表达式 AST（普通参数索引），越界或无默认值返回 NULL
 AstNode* interp_func_param_default(const RuntimeFunc* rf, int idx);
 

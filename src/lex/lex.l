@@ -44,6 +44,7 @@ static int is_expr_end(int t)
 "unpack"        { LEX_RET(TOK_UNPACK); }
 "func"          { LEX_RET(FUNC); }
 "gen"           { LEX_RET(TOK_GEN); }
+"ref"           { LEX_RET(TOK_REF); }
 "yield"         { LEX_RET(TOK_YIELD); }
 "const"         { LEX_RET(CONST); }
 "macro"         { LEX_RET(MACRO); }

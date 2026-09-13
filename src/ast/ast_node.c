@@ -537,6 +537,7 @@ AstNode* ast_param(char* name, int is_ellipsis, AstNode* default_val) {
     n->u.param.default_val = default_val;
     n->u.param.next = NULL;
     n->u.param.constraint = NULL;
+    n->u.param.is_ref = 0;
     return n;
 }
 
@@ -547,6 +548,7 @@ AstNode* ast_param_constraint(char* name, char* constraint) {
     n->u.param.default_val = NULL;
     n->u.param.next = NULL;
     n->u.param.constraint = constraint ? strdup(constraint) : NULL;
+    n->u.param.is_ref = 0;
     return n;
 }
 

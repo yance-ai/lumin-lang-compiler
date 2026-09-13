@@ -155,6 +155,7 @@ struct AstNode {
             AstNode* default_val; // 默认值表达式，NULL=无默认值
             AstNode* next;   // 参数链表
             char* constraint; // 泛型参数类型约束（如 "Comparable"），NULL=无约束/普通函数参数
+            int is_ref;      // 1=引用传递参数（ref p），0=值传递（默认）
         } param;
 
         struct {

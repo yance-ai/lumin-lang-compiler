@@ -286,7 +286,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %token QMARK COLON CASE_COLON
 %token SWITCH CASE DEFAULT BREAK RETURN TRY CATCH THROW FINALLY
 %token CONTINUE
-%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE CONST MACRO TOK_GEN TOK_YIELD TOK_EXTERN
+%token FUNC ELLIPSIS TOK_AT SAFE_CALL NULL_COALESCE CONST MACRO TOK_GEN TOK_YIELD TOK_EXTERN TOK_REF
 %token READ WRITE
 %token COMMA
 %token AND OR NOT MOD
@@ -757,6 +757,7 @@ param
     | ELLIPSIS ID            { $$ = ast_param($2, 1, NULL); } /* ...args 可变参数 is_ellipsis=1 */
     | TOK_TYPE_ANNOT ID      { $$ = ast_param($2, 0, NULL); $$->u.param.constraint = strdup(castkind_to_name($1)); } /*带类型标注的参数 <int>a */
     | LT ID GT ID            { $$ = ast_param($4, 0, NULL); $$->u.param.constraint = strdup($2); } /*自定义类型标注的参数 <Point>a */
+    | TOK_REF ID             { $$ = ast_param($2, 0, NULL); $$->u.param.is_ref = 1; } /*引用传递参数 ref p */
 ;
 
 /* 注解：@name 或 @name(args) */
