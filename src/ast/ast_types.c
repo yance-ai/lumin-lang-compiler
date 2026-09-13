@@ -1,5 +1,6 @@
 // ast_types.c —— type 声明类型表（编译期全局注册）
 #include "ast_types.h"
+#include "ir/ir_compile.h"
 #include "ast_node.h"
 #include <stdlib.h>
 #include <string.h>
@@ -414,11 +415,10 @@ void class_add_method(const char* class_name, const char* method_name, struct As
     // 编译方法为 RuntimeFunc
     RuntimeFunc* rf = compile_func_from_ast(method_node);
     // 设置 class_name 字段（用于 CC 模式方法命名，避免命名冲突）
-    if(rf && rf->capture_count == -1) {
-        InterpFuncPayload* pl = (InterpFuncPayload*)rf->captures;
-        if(pl && pl->bytecode) {
-            pl->bytecode->class_name = strdup(class_name);
-        }
+    // 直接通过 ir_func_table_lookup 函数查找 BytecodeFunc，然后设置 class_name 字段
+    BytecodeFunc* bf = ir_func_table_lookup(method_name);
+    if(bf) {
+        bf->class_name = strdup(class_name);
     }
     // 检查是否已有同名方法（方法重写）
     for(int i = 0; i < td->nmethods; i++) {

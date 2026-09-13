@@ -1701,11 +1701,15 @@ BytecodeFunc* ir_func_table_recompile(const char* name, AstNode* params, AstNode
     /* 先保存旧函数的方法标记（recompile 可能会丢失参数 constraint） */
     int old_is_method = 0;
     char* old_method_self_struct = NULL;
+    char* old_class_name = NULL;
     for(int i = 0; i < ir_func_count; i++) {
         if(ir_func_table[i]->name && strcmp(ir_func_table[i]->name, name) == 0) {
             old_is_method = ir_func_table[i]->is_method;
             if(ir_func_table[i]->method_self_struct) {
                 old_method_self_struct = strdup(ir_func_table[i]->method_self_struct);
+            }
+            if(ir_func_table[i]->class_name) {
+                old_class_name = strdup(ir_func_table[i]->class_name);
             }
             break;
         }
@@ -1719,7 +1723,14 @@ BytecodeFunc* ir_func_table_recompile(const char* name, AstNode* params, AstNode
             old_method_self_struct = NULL; /* 所有权转移 */
         }
     }
+    /* 恢复 class_name 字段（用于 CC 模式方法命名） */
+    if(old_class_name) {
+        if(nb->class_name) free(nb->class_name);
+        nb->class_name = old_class_name;
+        old_class_name = NULL; /* 所有权转移 */
+    }
     free(old_method_self_struct);
+    free(old_class_name);
     int old = -1;
     for(int i = 0; i < ir_func_count - 1; i++) {
         if(ir_func_table[i]->name && strcmp(ir_func_table[i]->name, name) == 0) { old = i; break; }
