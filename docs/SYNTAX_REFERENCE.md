@@ -90,17 +90,24 @@ z = (string)42;     // int 转 string
 | 类型 | 说明 | C 对应类型 |
 |------|------|-----------|
 | `int` | 整数 | `int` |
+| `short` | 短整数 | `short` |
 | `long` | 长整数 | `long` |
 | `long long` | 长长整数 | `long long` |
 | `uint` | 无符号整数 | `unsigned int` |
+| `unsigned short` | 无符号短整数 | `unsigned short` |
+| `unsigned long` | 无符号长整数 | `unsigned long` |
+| `unsigned char` | 无符号字符 | `unsigned char` |
 | `float` | 单精度浮点数 | `float` |
 | `double` | 双精度浮点数 | `double` |
+| `long double` | 长双精度浮点数 | `long double` |
 | `char` | 字符 | `char` |
 | `ascii` | ASCII 字符 | `char` |
 | `bool` | 布尔值 | `bool` |
 | `string` | 字符串 | `char*` |
 | `byte` | 字节 | `unsigned char` |
 | `void` | 空类型 | `void` |
+| `size_t` | 大小类型 | `size_t` |
+| `ssize_t` | 有符号大小类型 | `ssize_t` |
 
 #### 固定宽度整数类型
 | 类型 | 说明 | C 对应类型 |
@@ -485,6 +492,50 @@ switch (x) {
 }
 ```
 
+### 8.8.1 match（switch 别名）
+
+`match` 是 `switch` 的别名，语法完全相同，支持字面量匹配和 default 通配符。
+
+```lumyr
+// 整数匹配
+x = 2;
+match (x) {
+    case 1:
+        print("one");
+        break;
+    case 2:
+        print("two");
+        break;
+    default:
+        print("other");
+}
+
+// 字符串匹配
+s = "hello";
+match (s) {
+    case "hello":
+        print("greeting");
+        break;
+    case "bye":
+        print("farewell");
+        break;
+    default:
+        print("unknown");
+}
+
+// 无 break 的 fallthrough（C 风格）
+n = 1;
+match (n) {
+    case 1:
+        print("case1");
+    case 2:
+        print("case2");
+        break;
+    default:
+        print("default");
+}
+```
+
 ### 8.9 break / continue
 ```lumyr
 break;     // 跳出循环
@@ -569,16 +620,61 @@ DEBUG("hello");  // 编译期展开
 
 ---
 
-## 12. 解构（unpack）
+## 12. 解构与展开
 
-### 12.1 对象解构
+### 12.1 解构赋值（不需要 unpack 关键字）
+
+直接用逗号分隔的变量列表从数组或函数返回值中解构。
+
 ```lumyr
-unpack { x, y } = point;
+// 数组解构
+a, b = [1, 2];
+print(a);  // 1
+print(b);  // 2
+
+// 多类型解构
+x, y, z = ["hello", 3.14, true];
+
+// 函数返回值解构
+func mkarr() { return [10, 20, 30]; }
+p, q, r = mkarr();
 ```
 
-### 12.2 数组解构
+### 12.2 unpack 关键字解构
+
 ```lumyr
+// 对象解构
+unpack { x, y } = point;
+
+// 数组解构
 unpack [a, b, c] = arr;
+```
+
+### 12.3 展开运算符（...）
+
+#### 数组展开
+```lumyr
+arr = [3, 4];
+r1 = [1, 2, ...arr, 5];      // [1, 2, 3, 4, 5]
+r2 = [...arr, ...arr];        // [3, 4, 3, 4]
+r3 = [...[100, 200], 300];   // [100, 200, 300]
+```
+
+#### Map 展开
+```lumyr
+m1 = {"a": 1, "b": 2};
+m2 = {...m1, "c": 3};         // {"a": 1, "b": 2, "c": 3}
+
+// 后面的键覆盖前面的
+m3 = {"x": 10};
+m4 = {...m3, "x": 20, "y": 30};  // {"x": 20, "y": 30}
+```
+
+#### 解构 + 展开组合
+```lumyr
+data = [1, [2, 3], 4];
+first, inner, last = data;
+combined = [...inner, first, last];  // [2, 3, 1, 4]
 ```
 
 ---
@@ -780,14 +876,60 @@ broadcast(cond);       // 唤醒所有等待线程
 #### 数组方法
 ```lumyr
 arr = [1, 2, 3];
-arr = arr.add(4);           // 添加元素
-arr = arr.addAll([5, 6]);   // 批量添加
+
+// 添加与删除
+arr = arr.add(4);              // 添加元素 → [1,2,3,4]
+arr = arr.addAll([5, 6]);      // 批量添加
+arr = arr.remove(1);            // 删除下标 1 的元素
+arr = arr.del(1);               // 同 remove
+arr = arr.insert(1, 99);        // 在下标 1 插入 99
+arr = arr.clear();              // 清空数组
+
+// 变换与查询
+sorted = arr.sort();             // 排序
+reversed = arr.reverse();        // 反转
+sum_val = arr.sum();             // 求和
+avg_val = arr.avg();             // 求平均值
+has_2 = arr.contains(2);         // 是否包含
+
+// 方法链
+x = [].add(1).add(2).add(3).add(4);
+print(join([3, 1, 2].sort(), ","));  // "1,2,3"
 ```
+
+**注意**：数组方法是引用语义，`add` 会原地修改原数组。
 
 #### Map 方法
 ```lumyr
-m = {"a": 1};
-m.set("b", 2);              // 设置键值
+m = {"a": 1, "b": 2};
+
+// 方法调用
+m.set("c", 3);                  // 设置键值
+keys = m.keys();                 // 获取键列表
+values = m.values();             // 获取值列表
+```
+
+#### Map 点属性访问
+
+Map 支持点语法访问和赋值属性（等价于下标访问）。
+
+```lumyr
+m = {"a": 1, "b": "x", "c": [1, 2]};
+
+// 点属性读
+print(m.a);                      // 1（等价 m["a"]）
+print(m.b);                      // "x"
+print(m.c[1]);                   // 2（属性取到数组再下标）
+
+// 点属性赋值
+m.d = 42;                        // 新增键
+m.a = 100;                       // 覆盖已有键
+m.e = [7, 8];
+
+// 嵌套组合
+cfg = {"data": [1, 2, 3], "opts": {"flag": true}};
+cfg.data = cfg.data.add(4);     // 属性读+数组方法+属性赋值
+print(cfg.data.remove(0)[0]);   // 2
 ```
 
 ---
