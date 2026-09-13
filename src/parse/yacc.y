@@ -686,6 +686,10 @@ closed_stmt
           if(g_class_constructor) {
               method_list2 = method_list2 ? ast_seq(method_list2, g_class_constructor) : g_class_constructor;
           }
+          /* 接口方法检查：检查 class 是否实现了接口中定义的所有方法 */
+          for(int ii = 0; ii < g_class_ninterfaces; ii++) {
+              class_check_interface_implementation(g_current_class_name, g_class_interfaces[ii]);
+          }
           g_class_method_clear();
           type_prop_clear();
           g_current_class_name = NULL;
@@ -720,6 +724,10 @@ closed_stmt
           }
           if(g_class_constructor) {
               method_list3 = method_list3 ? ast_seq(method_list3, g_class_constructor) : g_class_constructor;
+          }
+          /* 接口方法检查：检查 class 是否实现了接口中定义的所有方法 */
+          for(int ii = 0; ii < g_class_ninterfaces; ii++) {
+              class_check_interface_implementation(g_current_class_name, g_class_interfaces[ii]);
           }
           g_class_method_clear();
           type_prop_clear();

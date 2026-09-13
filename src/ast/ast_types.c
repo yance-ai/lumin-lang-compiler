@@ -521,3 +521,29 @@ int type_implements_interface(const char* type_name, const char* interface_name)
 
     return 1; /* 实现了所有方法 */
 }
+
+/* 检查 class 是否实现了接口中定义的所有方法（包括继承的方法）
+   返回 1=实现了所有方法，0=缺少方法，-1=接口不存在或class不存在 */
+int class_check_interface_implementation(const char* class_name, const char* interface_name) {
+    int iidx = interface_lookup(interface_name);
+    if(iidx < 0) return -1; /* 接口不存在 */
+
+    InterfaceDef* idef = interface_get(iidx);
+    if(!idef) return -1;
+
+    TypeDef* td = class_lookup(class_name);
+    if(!td) return -1; /* class不存在 */
+
+    /* 检查 class 是否有接口要求的所有方法（包括继承的方法） */
+    for(int i = 0; i < idef->nmethods; i++) {
+        struct AstNode* method = class_find_method(class_name, idef->methods[i].name);
+        if(!method) {
+            /* 缺少方法，打印警告 */
+            fprintf(stderr, "警告：class \"%s\" 未实现接口 \"%s\" 要求的方法 \"%s\"\n",
+                    class_name, interface_name, idef->methods[i].name);
+            return 0;
+        }
+    }
+
+    return 1; /* 实现了所有方法 */
+}

@@ -99,4 +99,8 @@ struct AstNode* struct_find_method(const char* struct_name, const char* method_n
 // 检查类型是否实现了接口（鸭子类型：检查类型是否有接口要求的所有方法）
 int type_implements_interface(const char* type_name, const char* interface_name);
 
+// 检查 class 是否实现了接口中定义的所有方法（包括继承的方法）
+// 返回 1=实现了所有方法，0=缺少方法，-1=接口不存在或class不存在
+int class_check_interface_implementation(const char* class_name, const char* interface_name);
+
 #endif //AST_TYPES_H
