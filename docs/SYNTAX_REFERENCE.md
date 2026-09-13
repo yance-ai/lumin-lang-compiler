@@ -1339,6 +1339,7 @@ arr = arr.addAll([5, 6]);      // 批量添加（引用语义：原地修改）
 arr = arr.remove(1);            // 删除下标 1 的元素
 arr = arr.del(1);               // 同 remove
 arr = arr.insert(1, 99);        // 在下标 1 插入 99
+arr = arr.set(0, 99);           // 设置下标 0 的元素为 99 → [99,2,3]
 arr = arr.clear();              // 清空数组
 
 // 变换与查询
@@ -1355,6 +1356,7 @@ last_val = arr.last();           // 最后一个元素（空数组返回 null）
 // 扁平化
 nested = [[1], [2], [3, 4]];
 flat = nested.flat(2);           // 扁平化 2 层 → [1,2,3,4]
+flat_all = nested.flat(-1);      // 扁平化无限深度（-1 表示全展开）
 
 // 映射与过滤
 result = arr.map(func(v) { return v * 2; });   // 映射
@@ -1366,7 +1368,7 @@ print(join([3, 1, 2].sort(), ","));  // "1,2,3"
 print([1].addAll([2, 3]).map(dbl).join(","));  // "2,4,6"
 ```
 
-**注意**：数组方法是引用语义，`add`/`addAll` 会原地修改原数组。
+**注意**：数组方法是引用语义，`add`/`addAll`/`set`/`remove`/`del`/`clear` 会原地修改原数组。
 
 #### Map 方法
 ```lumyr
