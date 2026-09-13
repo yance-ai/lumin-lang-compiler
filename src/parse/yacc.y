@@ -1217,7 +1217,18 @@ postfix_expr
     | postfix_expr PLUSPLUS   { $$ = ast_unary(OP_POST_INC, $1); }
     | postfix_expr MINUSMINUS { $$ = ast_unary(OP_POST_DEC, $1); }
     /* 调用链 f(1)(2)：callee 为表达式（函数值），动态调用 */
-    | postfix_expr LPAREN arg_list RPAREN { $$ = L(ast_dyn_call($1, $3)); }
+    | postfix_expr LPAREN arg_list RPAREN {
+          /* super(args)：调用父类构造函数，转换为 super_method_call("__init__", self, args) */
+          if($1->type == AST_VAR && strcmp($1->u.varname, "super") == 0) {
+              AstNode* self_arg = L(ast_var(strdup("self")));
+              AstNode* all_args = $3 ? ast_seq_front($3, self_arg) : self_arg;
+              AstNode* method_name_arg = ast_string(strdup("__init__"));
+              AstNode* call_args = ast_seq(method_name_arg, all_args);
+              $$ = L(ast_call(strdup("super_method_call"), call_args));
+          } else {
+              $$ = L(ast_dyn_call($1, $3));
+          }
+      }
     /* 方法链 a.b(x,y) → b(a,x,y)（语法糖，接收者作为首参） */
     | postfix_expr DOT ID LPAREN arg_list RPAREN {
           AstNode* recv = $1;

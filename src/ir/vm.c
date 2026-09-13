@@ -2279,8 +2279,15 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                         if(cn.type == VAL_STRING) {
                             TypeDef* td = class_lookup(lumyr_str_cstr(&cn));
                             if(td && td->parent) {
-                                void* rf = class_find_method_func(td->parent, lumyr_str_cstr(&method_name_val));
-                                if(rf) {
+                                TypeDef* parent_td = class_lookup(td->parent);
+                                if(parent_td) {
+                                    void* rf = NULL;
+                                    if(strcmp(lumyr_str_cstr(&method_name_val), "__init__") == 0) {
+                                        rf = parent_td->constructor_func;
+                                    } else {
+                                        rf = class_find_method_func(parent_td->name, lumyr_str_cstr(&method_name_val));
+                                    }
+                                    if(rf) {
                                     /* 调用父类方法：self 作为第一个参数，其他参数跟随 */
                                     Value func_val;
                                     func_val.type = VAL_FUNC;
@@ -2315,6 +2322,7 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                                     sp -= argc;
                                     stack[sp++] = ret;
                                     break;
+                                }
                                 }
                             }
                         }
