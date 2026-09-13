@@ -50,6 +50,8 @@ static char* g_current_class_name = NULL; /* 当前正在解析的 class 名，�
 static char* g_current_class_parent = NULL; /* 当前 class 的父类名 */
 static AstNode** g_class_methods = NULL; /* 当前 class 的方法定义临时列表 */
 static AstNode* g_class_constructor = NULL; /* 当前 class 的构造函数（__init__ 方法） */
+static char** g_class_interfaces = NULL; /* 当前 class 实现的接口名列表 */
+static int g_class_ninterfaces = 0; /* 当前 class 实现的接口数量 */
 
 /* 辅助：如果在 class 内部，不注册到全局符号表（方法注册到 class 方法表） */
 static void try_register_global_func(const char* name, Value func_val) {
@@ -365,7 +367,7 @@ static inline AstNode* l_set_line(AstNode* __n) { if(__n) __n->line = yylineno; 
 %type<node> switch_stmt case_list case_item break_stmt continue_stmt const_expr return_stmt yield_stmt
 %type<node> catch_clause_list catch_clause
 %type<s> opt_catch_type
-%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop struct_prop_list struct_prop class_prop_list class_prop class_header class_header_inherit enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list struct_header
+%type<node> func_def func_def_list param_list param arg_list arg destruct_lhs type_prop_list type_prop struct_prop_list struct_prop class_prop_list class_prop class_header class_header_inherit class_header_implements class_header_inherit_implements enum_members enum_member annotation annotation_list macro_def generic_param_list generic_param_items opt_generic_param_list interface_methods interface_method interface_list unpack_obj_pattern unpack_arr_pattern unpack_name_list struct_header
 %type<ll> type_name builtin_type_name type_keyword
 %type<s> type_name_str
 %type <ch> char_lit
@@ -659,6 +661,76 @@ closed_stmt
           g_current_class_name = NULL;
           g_current_class_parent = NULL;
           $$ = method_list ? L(method_list) : L(ast_none());
+      }
+    | class_header_implements class_prop_list RBRACE {
+          /* class Point implements Printable { ... }：编译期注册 class 类型（带接口实现） */
+          class_register(g_current_class_name, g_prop_names, g_prop_types, g_prop_n, NULL, g_class_interfaces);
+          /* 添加方法到 class 方法表 */
+          for(int mi = 0; mi < g_class_method_n; mi++) {
+              AstNode* mnode = g_class_methods[mi];
+              if(mnode && mnode->type == AST_FUNC_DEF) {
+                  class_add_method(g_current_class_name, mnode->u.func_def.name, mnode);
+              }
+          }
+          /* 保存构造函数（__init__ 方法）到 TypeDef */
+          if(g_class_constructor && g_class_constructor->type == AST_FUNC_DEF) {
+              RuntimeFunc* ctor_rf = compile_func_from_ast(g_class_constructor);
+              class_set_constructor(g_current_class_name, g_class_constructor, ctor_rf);
+          }
+          /* 把方法定义的 AST 节点保存到临时列表（包括构造函数） */
+          AstNode* method_list2 = NULL;
+          for(int mi = 0; mi < g_class_method_n; mi++) {
+              AstNode* mnode = g_class_methods[mi];
+              method_list2 = method_list2 ? ast_seq(method_list2, mnode) : mnode;
+          }
+          if(g_class_constructor) {
+              method_list2 = method_list2 ? ast_seq(method_list2, g_class_constructor) : g_class_constructor;
+          }
+          g_class_method_clear();
+          type_prop_clear();
+          g_current_class_name = NULL;
+          g_current_class_parent = NULL;
+          /* 释放接口名列表 */
+          for(int ii = 0; ii < g_class_ninterfaces; ii++) free(g_class_interfaces[ii]);
+          free(g_class_interfaces);
+          g_class_interfaces = NULL;
+          g_class_ninterfaces = 0;
+          $$ = method_list2 ? L(method_list2) : L(ast_none());
+      }
+    | class_header_inherit_implements class_prop_list RBRACE {
+          /* class Point extends Shape implements Printable { ... }：编译期注册 class 类型（带继承和接口实现） */
+          class_register(g_current_class_name, g_prop_names, g_prop_types, g_prop_n, g_current_class_parent, g_class_interfaces);
+          /* 添加方法到 class 方法表 */
+          for(int mi = 0; mi < g_class_method_n; mi++) {
+              AstNode* mnode = g_class_methods[mi];
+              if(mnode && mnode->type == AST_FUNC_DEF) {
+                  class_add_method(g_current_class_name, mnode->u.func_def.name, mnode);
+              }
+          }
+          /* 保存构造函数（__init__ 方法）到 TypeDef */
+          if(g_class_constructor && g_class_constructor->type == AST_FUNC_DEF) {
+              RuntimeFunc* ctor_rf = compile_func_from_ast(g_class_constructor);
+              class_set_constructor(g_current_class_name, g_class_constructor, ctor_rf);
+          }
+          /* 把方法定义的 AST 节点保存到临时列表（包括构造函数） */
+          AstNode* method_list3 = NULL;
+          for(int mi = 0; mi < g_class_method_n; mi++) {
+              AstNode* mnode = g_class_methods[mi];
+              method_list3 = method_list3 ? ast_seq(method_list3, mnode) : mnode;
+          }
+          if(g_class_constructor) {
+              method_list3 = method_list3 ? ast_seq(method_list3, g_class_constructor) : g_class_constructor;
+          }
+          g_class_method_clear();
+          type_prop_clear();
+          g_current_class_name = NULL;
+          g_current_class_parent = NULL;
+          /* 释放接口名列表 */
+          for(int ii = 0; ii < g_class_ninterfaces; ii++) free(g_class_interfaces[ii]);
+          free(g_class_interfaces);
+          g_class_interfaces = NULL;
+          g_class_ninterfaces = 0;
+          $$ = method_list3 ? L(method_list3) : L(ast_none());
       }
     | TOK_ENUM ID LBRACE enum_members RBRACE {
           /* enum Color { RED, GREEN } → Color = {"RED":"RED","GREEN":"GREEN"} */
@@ -1519,6 +1591,42 @@ class_header_inherit: TOK_CLASS ID TOK_EXTENDS ID LBRACE {
           /* 在 LBRACE 时就设置 g_current_class_name 和 g_current_class_parent */
           g_current_class_name = $2;
           g_current_class_parent = $4;
+          $$ = NULL;
+      }
+    ;
+class_header_implements: TOK_CLASS ID TOK_IMPLEMENTS interface_list LBRACE {
+          /* class 实现接口：设置 g_current_class_name 和接口列表 */
+          g_current_class_name = $2;
+          g_current_class_parent = NULL;
+          /* 从 interface_list 中提取接口名 */
+          g_class_interfaces = NULL;
+          g_class_ninterfaces = 0;
+          AstNode* _iface = $4;
+          while(_iface) {
+              if(_iface->u.param.name) {
+                  g_class_interfaces = (char**)realloc(g_class_interfaces, (size_t)(g_class_ninterfaces + 1) * sizeof(char*));
+                  g_class_interfaces[g_class_ninterfaces++] = strdup(_iface->u.param.name);
+              }
+              _iface = _iface->u.param.next;
+          }
+          $$ = NULL;
+      }
+    ;
+class_header_inherit_implements: TOK_CLASS ID TOK_EXTENDS ID TOK_IMPLEMENTS interface_list LBRACE {
+          /* class 继承并实现接口：设置 g_current_class_name、g_current_class_parent 和接口列表 */
+          g_current_class_name = $2;
+          g_current_class_parent = $4;
+          /* 从 interface_list 中提取接口名 */
+          g_class_interfaces = NULL;
+          g_class_ninterfaces = 0;
+          AstNode* _iface = $6;
+          while(_iface) {
+              if(_iface->u.param.name) {
+                  g_class_interfaces = (char**)realloc(g_class_interfaces, (size_t)(g_class_ninterfaces + 1) * sizeof(char*));
+                  g_class_interfaces[g_class_ninterfaces++] = strdup(_iface->u.param.name);
+              }
+              _iface = _iface->u.param.next;
+          }
           $$ = NULL;
       }
     ;
