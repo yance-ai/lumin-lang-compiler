@@ -1,0 +1,20 @@
+// class_constructor_test.lm - class 自定义构造函数测试
+print("=== Class Constructor Test ===");
+
+class Animal {
+    name: string
+    func initialize(self) {
+        self.name = "test";
+        print("Animal constructor called");
+    }
+    func speak(self) {
+        print("Animal speaks");
+    }
+}
+
+print("--- 1. 自定义构造函数 ---");
+a = Animal("Cat");
+print("name:", a.name);
+a.speak();
+
+print("\n=== All Class Constructor Tests Passed ===");

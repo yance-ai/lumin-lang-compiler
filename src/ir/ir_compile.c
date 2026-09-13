@@ -327,6 +327,25 @@ static AstNode* build_type_ctor(AstNode* call, TypeDef* t)
         call->u.call.args = NULL;
         return m;
     }
+    /* class 有自定义构造函数（__init__）：创建空对象后调用构造函数 */
+    if(t->is_class && t->constructor) {
+        /* 1. 创建带有 __mapname__/__structname__/__classname__ 属性的空 map 对象 */
+        items = ast_seq(items, ast_map_entry(ast_string(strdup("__mapname__")),
+                                             ast_string(strdup(t->name))));
+        items = ast_seq(items, ast_map_entry(ast_string(strdup("__structname__")),
+                                             ast_string(strdup(t->name))));
+        items = ast_seq(items, ast_map_entry(ast_string(strdup("__classname__")),
+                                             ast_string(strdup(t->name))));
+        AstNode* obj = ast_map_lit(items);
+        /* 2. 调用 __init__(obj, args...)：构造函数名作为函数名，obj 作为第一个参数 */
+        AstNode* ctor_args = ast_seq(obj, args);
+        AstNode* ctor_call = ast_call(strdup("__init__"), ctor_args);
+        call->u.call.args = NULL;
+        /* 3. 用一个临时变量保存对象，调用构造函数后返回对象 */
+        /* 简化处理：直接返回构造函数调用（构造函数修改 self 后返回 self） */
+        return ctor_call;
+    }
+    /* 默认构造函数：生成 map 字面量初始化所有属性 */
     /* 首项注入只读类名属性：__mapname__ / __structname__ / __classname__ = 类型名 */
     items = ast_seq(items, ast_map_entry(ast_string(strdup("__mapname__")),
                                          ast_string(strdup(t->name))));

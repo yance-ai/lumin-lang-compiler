@@ -2324,6 +2324,62 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
                     snprintf(buf, sizeof(buf), "super 调用失败：无法找到父类方法");
                     runtime_error(buf);
                 }
+                /* __init__(obj, args...)：调用 class 构造函数 */
+                if(strcmp(fname, "__init__") == 0 && argc >= 1) {
+                    Value self_val = stack[sp - argc];
+                    if(self_val.type == VAL_MAP &&
+                       lumyr_map_has(self_val, lumyr_make_string("__classname__"))) {
+                        Value cn = lumyr_map_get(self_val, lumyr_make_string("__classname__"));
+                        if(cn.type == VAL_STRING) {
+                            void* rf = class_get_constructor_func(lumyr_str_cstr(&cn));
+                            if(rf) {
+                                /* 调用构造函数：self 作为第一个参数 */
+                                Value func_val;
+                                func_val.type = VAL_FUNC;
+                                func_val.v.func.func_obj = (RuntimeFunc*)rf;
+                                func_val.v.func.ffi_func = NULL;
+                                func_val.v.func.is_ffi = 0;
+                                RuntimeFunc* rf_ptr = (RuntimeFunc*)rf;
+                                Value* eval_args = &stack[sp - argc];
+                                int call_argc = argc;
+                                StackFrame* callee = stackframe_new(frame);
+                                if(interp_func_is_payload(rf_ptr)) {
+                                    int pcnt = interp_func_param_cnt(rf_ptr);
+                                    for(int i = 0; i < pcnt; i++) {
+                                        const char* pname = interp_func_param_name(rf_ptr, i);
+                                        Value bound = (i < call_argc) ? eval_args[i] : val_none();
+                                        stackframe_bind(callee, pname, bound);
+                                    }
+                                }
+                                closure_bind_cells(rf_ptr, callee);
+                                RuntimeFunc* prev_rf = interp_set_current_rf(rf_ptr);
+                                int saved_break = ctx->hit_break;
+                                int saved_cont = ctx->hit_continue;
+                                ctx->hit_break = 0;
+                                ctx->hit_continue = 0;
+                                g_trace_push(fname);
+                                Value ret = rf_ptr->entry(call_argc, eval_args, ctx, callee);
+                                if(g_trace_n > 0) g_trace_n--;
+                                ctx->hit_break = saved_break;
+                                ctx->hit_continue = saved_cont;
+                                interp_set_current_rf(prev_rf);
+                                stackframe_destroy(callee);
+                                sp -= argc;
+                                /* 构造函数返回 self（如果返回 none，则返回 self） */
+                                if(ret.type == VAL_NONE) {
+                                    stack[sp++] = self_val;
+                                } else {
+                                    stack[sp++] = ret;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    /* 如果 __init__ 调用失败，报错 */
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), "__init__ 调用失败：无法找到构造函数");
+                    runtime_error(buf);
+                }
                 // 1. 查函数：帧链 VAL_FUNC → 全局函数表 → class 方法表
                 Value func_val;
                 _Bool fnd = 0;
