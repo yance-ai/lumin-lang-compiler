@@ -49,6 +49,7 @@ static int g_class_prop_n = 0, g_class_prop_cap = 0;
 static char* g_current_class_name = NULL; /* 当前正在解析的 class 名，用于方法注册 */
 static char* g_current_class_parent = NULL; /* 当前 class 的父类名 */
 static AstNode** g_class_methods = NULL; /* 当前 class 的方法定义临时列表 */
+static AstNode* g_class_constructor = NULL; /* 当前 class 的构造函数（__init__ 方法） */
 
 /* 辅助：如果在 class 内部，不注册到全局符号表（方法注册到 class 方法表） */
 static void try_register_global_func(const char* name, Value func_val) {
@@ -71,6 +72,7 @@ static void g_class_method_clear(void) {
     g_class_methods = NULL;
     g_class_method_n = 0;
     g_class_method_cap = 0;
+    g_class_constructor = NULL;
 }
 
 static void class_prop_push(char* name, ValueType vt) {
@@ -609,11 +611,19 @@ closed_stmt
                   class_add_method(g_current_class_name, mnode->u.func_def.name, mnode);
               }
           }
-          /* 把方法定义的 AST 节点保存到临时列表 */
+          /* 保存构造函数（__init__ 方法）到 TypeDef */
+          if(g_class_constructor && g_class_constructor->type == AST_FUNC_DEF) {
+              RuntimeFunc* ctor_rf = compile_func_from_ast(g_class_constructor);
+              class_set_constructor(g_current_class_name, g_class_constructor, ctor_rf);
+          }
+          /* 把方法定义的 AST 节点保存到临时列表（包括构造函数） */
           AstNode* method_list = NULL;
           for(int mi = 0; mi < g_class_method_n; mi++) {
               AstNode* mnode = g_class_methods[mi];
               method_list = method_list ? ast_seq(method_list, mnode) : mnode;
+          }
+          if(g_class_constructor) {
+              method_list = method_list ? ast_seq(method_list, g_class_constructor) : g_class_constructor;
           }
           g_class_method_clear();
           type_prop_clear();
@@ -630,11 +640,19 @@ closed_stmt
                   class_add_method(g_current_class_name, mnode->u.func_def.name, mnode);
               }
           }
-          /* 把方法定义的 AST 节点保存到临时列表 */
+          /* 保存构造函数（__init__ 方法）到 TypeDef */
+          if(g_class_constructor && g_class_constructor->type == AST_FUNC_DEF) {
+              RuntimeFunc* ctor_rf = compile_func_from_ast(g_class_constructor);
+              class_set_constructor(g_current_class_name, g_class_constructor, ctor_rf);
+          }
+          /* 把方法定义的 AST 节点保存到临时列表（包括构造函数） */
           AstNode* method_list = NULL;
           for(int mi = 0; mi < g_class_method_n; mi++) {
               AstNode* mnode = g_class_methods[mi];
               method_list = method_list ? ast_seq(method_list, mnode) : mnode;
+          }
+          if(g_class_constructor) {
+              method_list = method_list ? ast_seq(method_list, g_class_constructor) : g_class_constructor;
           }
           g_class_method_clear();
           type_prop_clear();
@@ -1343,7 +1361,12 @@ class_prop_list
                 }
                 _p = _p->u.param.next;
             }
-            g_class_method_push($2);
+            /* __init__ 方法作为构造函数，不加入方法表，单独保存 */
+            if(strcmp($2->u.func_def.name, "__init__") == 0) {
+                g_class_constructor = $2;
+            } else {
+                g_class_method_push($2);
+            }
         }
         $$ = ast_seq($1, $2);
       }

@@ -30,6 +30,9 @@ typedef struct {
     struct AstNode** method_nodes; // 方法的 AST 节点（func_def）
     void** method_funcs;   // 方法 RuntimeFunc* 数组（编译后存储，避免重复编译）
     int nmethods;          // 方法数量
+    /* class 构造函数（__init__ 方法，NULL=使用默认构造函数） */
+    struct AstNode* constructor;  // 构造函数 AST 节点
+    void* constructor_func;       // 构造函数 RuntimeFunc*
 } TypeDef;
 
 /* class 注册（属性用 ValueType 类型） */
@@ -42,6 +45,10 @@ void class_add_method(const char* class_name, const char* method_name, struct As
 struct AstNode* class_find_method(const char* class_name, const char* method_name);
 /* 查找 class 方法的 RuntimeFunc（支持继承链查找） */
 void* class_find_method_func(const char* class_name, const char* method_name);
+/* 设置 class 构造函数（__init__ 方法） */
+void class_set_constructor(const char* class_name, struct AstNode* constructor_node, void* constructor_func);
+/* 获取 class 构造函数的 RuntimeFunc（支持继承链查找） */
+void* class_get_constructor_func(const char* class_name);
 
 /* 前向声明 AstNode */
 struct AstNode;

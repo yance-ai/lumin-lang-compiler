@@ -306,6 +306,8 @@ int struct_register(const char* name, char** props, int* cast_kinds, char** stru
     g_types[idx].method_nodes = NULL;
     g_types[idx].method_funcs = NULL;
     g_types[idx].nmethods = 0;
+    g_types[idx].constructor = NULL;
+    g_types[idx].constructor_func = NULL;
     return idx;
 }
 
@@ -390,6 +392,8 @@ int class_register(const char* name, char** props, ValueType* ptypes, int nprops
     g_types[idx].method_nodes = NULL;
     g_types[idx].method_funcs = NULL;
     g_types[idx].nmethods = 0;
+    g_types[idx].constructor = NULL;
+    g_types[idx].constructor_func = NULL;
     return idx;
 }
 
@@ -443,6 +447,29 @@ void* class_find_method_func(const char* class_name, const char* method_name)
     // 再查父类（递归）
     if(td->parent) {
         return class_find_method_func(td->parent, method_name);
+    }
+    return NULL;
+}
+
+// 设置 class 构造函数（__init__ 方法）
+void class_set_constructor(const char* class_name, struct AstNode* constructor_node, void* constructor_func)
+{
+    TypeDef* td = class_lookup(class_name);
+    if(!td) return;
+    td->constructor = constructor_node;
+    td->constructor_func = constructor_func;
+}
+
+// 获取 class 构造函数的 RuntimeFunc（支持继承链查找）
+void* class_get_constructor_func(const char* class_name)
+{
+    TypeDef* td = class_lookup(class_name);
+    if(!td) return NULL;
+    // 先查当前类
+    if(td->constructor_func) return td->constructor_func;
+    // 再查父类（递归）
+    if(td->parent) {
+        return class_get_constructor_func(td->parent);
     }
     return NULL;
 }
