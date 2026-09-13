@@ -2,13 +2,13 @@
 struct Point { x: int, y: int }
 
 // 值传递：函数内修改不影响外部
-func modify_by_value(p) {
+func modify_by_value(<Point> p) {
     p.x = 999;
     print("inside value: p.x =", p.x);
 }
 
 // 引用传递：函数内修改影响外部
-func modify_by_ref(ref p) {
+func modify_by_ref(ref <Point> p) {
     p.x = 888;
     print("inside ref: p.x =", p.x);
 }

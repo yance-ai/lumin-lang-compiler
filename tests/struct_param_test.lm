@@ -1,7 +1,7 @@
 // struct_param_test.lm — 测试 struct 作为函数参数的值传递
 struct Point { x: int, y: int }
 
-func modify_point(p) {
+func modify_point(<Point> p) {
     p.x = 999;
     p.y = 888;
     print("inside: p.x =", p.x, "p.y =", p.y);

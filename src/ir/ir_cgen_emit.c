@@ -723,15 +723,18 @@ void emit_insns(BytecodeFunc* fn)
                     }
                     const char* ctype = emit_tag_to_ctype(ck);
                     if(!ctype) ctype = "int64_t";
+                    /* struct 变量通过 v.struct_ptr 访问，支持全局变量和局部变量 */
+                    char _nested_access[256];
+                    snprintf(_nested_access, sizeof(_nested_access), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, cvar_rw(vname));
                     fprintf(out, "    { Value __v = __stk[--__sp];\n");
                     if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-                        fprintf(out, "        %s->%s.%s = (%s)__v.v.d;\n", cvar_rw(vname), nested_fname, field_name, ctype);
+                        fprintf(out, "        %s->%s.%s = (%s)__v.v.d;\n", _nested_access, nested_fname, field_name, ctype);
                     } else if(ck == CAST_STRING) {
-                        fprintf(out, "        %s->%s.%s = (%s)lumyr_str_cstr(&__v);\n", cvar_rw(vname), nested_fname, field_name, ctype);
+                        fprintf(out, "        %s->%s.%s = (%s)lumyr_str_cstr(&__v);\n", _nested_access, nested_fname, field_name, ctype);
                     } else if(ck == CAST_BOOL) {
-                        fprintf(out, "        %s->%s.%s = (%s)__v.v.b;\n", cvar_rw(vname), nested_fname, field_name, ctype);
+                        fprintf(out, "        %s->%s.%s = (%s)__v.v.b;\n", _nested_access, nested_fname, field_name, ctype);
                     } else {
-                        fprintf(out, "        %s->%s.%s = (%s)__v.v.i;\n", cvar_rw(vname), nested_fname, field_name, ctype);
+                        fprintf(out, "        %s->%s.%s = (%s)__v.v.i;\n", _nested_access, nested_fname, field_name, ctype);
                     }
                     fprintf(out, "        __stk[__sp++] = __v;\n    }\n");
                 } else {

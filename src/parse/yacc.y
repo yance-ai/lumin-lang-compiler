@@ -758,6 +758,8 @@ param
     | TOK_TYPE_ANNOT ID      { $$ = ast_param($2, 0, NULL); $$->u.param.constraint = strdup(castkind_to_name($1)); } /*带类型标注的参数 <int>a */
     | LT ID GT ID            { $$ = ast_param($4, 0, NULL); $$->u.param.constraint = strdup($2); } /*自定义类型标注的参数 <Point>a */
     | TOK_REF ID             { $$ = ast_param($2, 0, NULL); $$->u.param.is_ref = 1; } /*引用传递参数 ref p */
+    | TOK_REF TOK_TYPE_ANNOT ID { $$ = ast_param($3, 0, NULL); $$->u.param.is_ref = 1; $$->u.param.constraint = strdup(castkind_to_name($2)); } /*带基本类型标注的ref参数 ref <int> p */
+    | TOK_REF LT ID GT ID    { $$ = ast_param($5, 0, NULL); $$->u.param.is_ref = 1; $$->u.param.constraint = strdup($3); } /*带自定义类型标注的ref参数 ref <Point> p */
 ;
 
 /* 注解：@name 或 @name(args) */
