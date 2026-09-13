@@ -622,10 +622,32 @@ print(r2);                    // 42
 ```
 
 ### 10.5 生成器组合操作
+
+#### 函数形式
 - `chain(g1, g2)` — 连接两个生成器
 - `zip(g1, g2)` — 合并两个生成器
 - `map(g, fn)` — 映射生成器
 - `filter(g, fn)` — 过滤生成器
+
+#### 方法链形式
+生成器支持方法链调用，可以链式组合多个操作。
+
+```lumyr
+// 跳过前 2 个元素
+for x in range1(6).skip(2) { ... }
+
+// 只取前 3 个元素
+for x in range1(100).take(3) { ... }
+
+// 连接两个生成器
+for x in range1(2).chain(range1(3)) { ... }
+
+// 枚举（带索引）
+for x in range1(3).enumerate() { ... }
+
+// 复杂方法链
+for x in range1(10).filter(even).map(sq).skip(1).take(2) { ... }
+```
 
 ---
 
@@ -808,6 +830,9 @@ print(s.contains("World"));  // 是否包含
 print(s.replace("World", "Lumyr"));  // 替换
 print(s.split(" "));         // 分割
 
+// 子字符串
+print(s.strip().substr(0, 5));  // "Hello"（从下标 0 开始，长度 5）
+
 // 编码/解码（UTF-8/GBK）
 b = "中文".encode();         // UTF-8 编码
 print(b.decode());            // 解码为字符串
@@ -821,6 +846,11 @@ print("a%20b%26c%3Dd".decodeURL()); // a b&c=d
 // Base64 编码/解码
 print("abc".encodeBase64());        // YWJj
 print("YWJj".decodeBase64());       // abc
+
+// 字节转换（支持编码参数）
+b = "hello".bytes("big5");          // 字符串转字节（指定编码）
+s = str(b, "big5");                  // 字节转字符串（指定编码）
+print(str("hello".bytes("big5"), "big5"));  // hello
 
 // 加密哈希
 print("hello".md5());        // MD5 哈希
@@ -1058,11 +1088,23 @@ resp = requests.delete("http://example.com/api/resource");
 ```
 
 ### 18.3 日志库（log）
+
+#### 全局日志函数
 ```lumyr
-log.info("information message");
+debug("debug message");
+info("info message");
+warn("warning message");
+error("error message");
+fatal("fatal message");
+```
+
+#### log 对象方法
+```lumyr
+log.debug("debug message");
+log.info("info message");
 log.warn("warning message");
 log.error("error message");
-log.debug("debug message");
+log.fatal("fatal message");
 ```
 
 ### 18.4 加密库（crypto）
@@ -1076,6 +1118,8 @@ print("hello".md5());
 ```
 
 ### 18.5 JSON 库
+
+#### json_parse / json_stringify
 ```lumyr
 // 解析 JSON
 obj = json_parse('{"name": "lumyr", "version": 1}');
@@ -1084,6 +1128,51 @@ print(obj["name"]);
 // 序列化 JSON
 json_str = json_stringify({"name": "lumyr", "version": 1});
 print(json_str);
+```
+
+#### json / stringify（简写形式，支持编码参数）
+```lumyr
+// 解析 JSON（默认 UTF-8）
+obj = json('{"name": "张三"}');
+print(obj.name);
+
+// 解析 JSON（指定编码）
+obj = json(jg, "gbk");
+
+// 序列化 JSON（默认 UTF-8）
+json_str = stringify({"name": "张三"});
+
+// 序列化 JSON（指定编码）
+json_str = stringify(o, "gbk");
+```
+
+### 18.6 查询字符串（qs）
+
+#### qs 函数（Map 转查询字符串）
+```lumyr
+m = {"name": "张三", "age": 25, "ok": true};
+
+// 默认 UTF-8（中文原样输出）
+print(qs(m));  // name=张三&age=25&ok=true
+
+// 指定编码（中文 %XX 编码）
+print(qs(m, "gbk"));  // name=%D5%C5%C8%FD&age=25&ok=true
+```
+
+#### qs 解析（查询字符串转 Map）
+```lumyr
+// 默认 UTF-8
+r = qs("name=%E5%BC%A0%E4%B8%89&age=25");
+print(r.name);  // 张三
+
+// 指定编码
+r = qs("name=%D5%C5%C8%FD&age=25", "gbk");
+print(r.name);  // 张三
+```
+
+#### Map 方法形式
+```lumyr
+qs = {"n": 1, "m": 2}.qs();  // "n=1&m=2"
 ```
 
 ---
@@ -1099,6 +1188,14 @@ print(json_str);
 - `string(x)` — 转字符串
 - `int(x)` — 转整数
 - `double(x)` — 转浮点数
+
+### 19.2 GC 与内存统计
+- `gc_count()` — 当前活跃对象数量
+- `gc_bytes()` — 当前活跃对象占用的字节数
+
+```lumyr
+print("count=" + gc_count() + " bytes=" + gc_bytes());
+```
 
 ### 19.2 数组与集合函数
 
@@ -1251,6 +1348,10 @@ sum_val = arr.sum();             // 求和
 avg_val = arr.avg();             // 求平均值
 has_2 = arr.contains(2);         // 是否包含
 
+// 获取首尾元素
+first_val = arr.first();         // 第一个元素（空数组返回 null）
+last_val = arr.last();           // 最后一个元素（空数组返回 null）
+
 // 扁平化
 nested = [[1], [2], [3, 4]];
 flat = nested.flat(2);           // 扁平化 2 层 → [1,2,3,4]
@@ -1273,9 +1374,19 @@ m = {"a": 1, "b": 2};
 
 // 方法调用
 m.set("c", 3);                  // 设置键值
+m.add("d", 4);                  // 添加键值（同 set）
 keys = m.keys();                 // 获取键列表
 values = m.values();             // 获取值列表
 val = m.get("a");                // 获取值（方法形式）
+has_a = m.has("a");              // 是否包含键
+
+// 删除与清空
+m.del("a");                      // 删除键（引用语义：原地修改）
+m.clear();                       // 清空 Map
+
+// 获取首尾键值（按插入序）
+first_val = m.first();           // 首键值
+last_val = m.last();             // 尾键值
 
 // 批量合并（引用语义：原地修改）
 m1 = {"a": 1, "b": 2};
@@ -1284,6 +1395,11 @@ m1.addAll(m2);                   // 合并 m2 到 m1
 
 // 转查询字符串
 qs = {"n": 1, "m": 2}.qs();     // "n=1&m=2"
+
+// 方法链
+print(m.add("z", 3).len());      // 添加后获取长度
+print(m.set("w", 4).len());      // 设置后获取长度
+print(m.del("x").len());          // 删除后获取长度
 ```
 
 #### Map 点属性访问
