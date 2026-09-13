@@ -98,6 +98,10 @@ extern void analyze_scalar_replacement(BytecodeFunc* fn);
 /* ---------------- 闭包装箱分析 ---------------- */
 extern void analyze_boxing(BytecodeFunc* fn);
 
+/* ---------------- struct 转换 ---------------- */
+extern void emit_struct_to_value(const char* struct_name, const char* var_expr);
+extern void emit_value_to_struct(const char* struct_name, const char* var_expr, const char* value_expr);
+
 /* ---------------- 指令发射 ---------------- */
 extern void emit_insns(BytecodeFunc* fn);
 

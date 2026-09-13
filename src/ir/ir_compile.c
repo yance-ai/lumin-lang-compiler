@@ -1597,10 +1597,24 @@ static void compile_params(BytecodeFunc* fn, AstNode* params)
 {
     int idx = 0;
     AstNode* p = params;
+    /* 先统计普通参数个数，分配 param_is_ref 数组 */
+    int normal_cnt = 0;
+    AstNode* pp = params;
+    while(pp) {
+        if(!pp->u.param.is_ellipsis) normal_cnt++;
+        pp = pp->u.param.next;
+    }
+    fn->param_is_ref = (int*)calloc(normal_cnt, sizeof(int));
+    int normal_idx = 0;
     while(p) {
         if(p->u.param.is_ellipsis) fn->has_variadic = 1;
         fn->params = (char**)realloc(fn->params, sizeof(char*) * (idx + 1));
         fn->params[idx++] = strdup(p->u.param.name);
+        /* 记录 ref 参数（只记录普通参数，可变参数不记录） */
+        if(!p->u.param.is_ellipsis && p->u.param.is_ref) {
+            fn->param_is_ref[normal_idx] = 1;
+        }
+        if(!p->u.param.is_ellipsis) normal_idx++;
         /* 参数有类型标注时，添加到 var_struct_names（不检查是否已注册，parse 期可能还没注册） */
         if(p->u.param.name && p->u.param.constraint) {
             int pidx = bf_sym(fn, p->u.param.name);

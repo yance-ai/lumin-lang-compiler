@@ -24,6 +24,7 @@ void bytecode_func_free(BytecodeFunc* fn)
     free(fn->consts);
     for(int i = 0; i < fn->param_cnt + fn->has_variadic; i++) free(fn->params[i]);
     free(fn->params);
+    free(fn->param_is_ref);
     free(fn->method_self_struct);
     free(fn->var_type_tags);
     if(fn->var_struct_names) {

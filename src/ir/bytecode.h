@@ -193,6 +193,7 @@ typedef struct {
     char** params;             // 参数名（普通参数在前，可变参数最后）
     int param_cnt;             // 普通参数个数
     int has_variadic;
+    int* param_is_ref;         // 参数是否是 ref 引用传递（1=ref，0=值传递），长度 param_cnt
     int is_generator;          // 是否为生成器函数（gen func）
     int* var_type_tags;        // 变量类型标记（CastKind 枚举，-1 表示无标记），与 syms 平行数组
     char** var_struct_names;    // 变量的 struct 类型名（NULL 表示不是 struct），与 syms 平行数组

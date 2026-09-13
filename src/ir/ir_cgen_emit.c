@@ -28,7 +28,7 @@ static const char* emit_get_var_struct_name(const BytecodeFunc* fn, const char* 
 }
 
 /* 生成把 C struct 转换为 Value(Map) 的代码 */
-static void emit_struct_to_value(const char* struct_name, const char* var_expr) {
+void emit_struct_to_value(const char* struct_name, const char* var_expr) {
     TypeDef* td = struct_lookup(struct_name);
     if(!td || td->nprops <= 0) {
         fprintf(out, "    { Value __v = {0}; __stk[__sp++] = __v; }\n");
@@ -72,7 +72,7 @@ static void emit_struct_to_value(const char* struct_name, const char* var_expr) 
 }
 
 /* 生成把 Value(Map) 转换为 C struct 的代码 */
-static void emit_value_to_struct(const char* struct_name, const char* var_expr, const char* value_expr) {
+void emit_value_to_struct(const char* struct_name, const char* var_expr, const char* value_expr) {
     TypeDef* td = struct_lookup(struct_name);
     if(!td || td->nprops <= 0) return;
     for(int i = 0; i < td->nprops; i++) {
