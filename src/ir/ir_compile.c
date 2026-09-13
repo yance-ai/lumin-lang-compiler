@@ -327,11 +327,15 @@ static AstNode* build_type_ctor(AstNode* call, TypeDef* t)
         call->u.call.args = NULL;
         return m;
     }
-    /* 首项注入只读类名属性：__mapname__ / __structname__ = 类型名 */
+    /* 首项注入只读类名属性：__mapname__ / __structname__ / __classname__ = 类型名 */
     items = ast_seq(items, ast_map_entry(ast_string(strdup("__mapname__")),
                                          ast_string(strdup(t->name))));
     items = ast_seq(items, ast_map_entry(ast_string(strdup("__structname__")),
                                          ast_string(strdup(t->name))));
+    if(t->is_class) {
+        items = ast_seq(items, ast_map_entry(ast_string(strdup("__classname__")),
+                                             ast_string(strdup(t->name))));
+    }
     int n = argc < t->nprops ? argc : t->nprops;
     for(int k = 0; k < n; k++) {
         int cur = 0;

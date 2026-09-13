@@ -140,7 +140,8 @@ static void collect_top_level(AstNode* node) {
         case AST_FUNC_DEF: {
             // 函数重复定义：与 C 语义一致，编译期报错（双通道一致；
             // 避免 VM 静默覆盖与 C 生成端重复 static 定义导致 gcc 失败的分歧）
-            if(strncmp(node->u.func_def.name, "_lambda_", 8) != 0) {
+            // class 方法跳过重复定义检查（方法注册到 class 方法表，不注册到全局符号表）
+            if(strncmp(node->u.func_def.name, "_lambda_", 8) != 0 && !node->u.func_def.is_class_method) {
                 ValueType ty;
                 if(static_sym_get(node->u.func_def.name, &ty) && ty == VAL_FUNC) {
                     fprintf(stderr, "语义错误(第%d行)：函数 \"%s\" 重复定义\n",
@@ -148,8 +149,10 @@ static void collect_top_level(AstNode* node) {
                     g_collect_err = 1;
                 }
             }
-            // 登记函数名（支持前向引用）；不深入函数体
-            static_sym_put(node->u.func_def.name, VAL_FUNC);
+            // 登记函数名（支持前向引用）；不深入函数体；class 方法也登记（用于方法调用查找）
+            if(!node->u.func_def.is_class_method) {
+                static_sym_put(node->u.func_def.name, VAL_FUNC);
+            }
             break;
         }
         case AST_EXTERN_FUNC: {
@@ -445,8 +448,15 @@ static int typecheck_call(AstNode* node)
                     }
                 }
                 if(!found) {
-                    fprintf(stderr,"语义错误(第%d行)：调用未定义函数 %s\n", node->line, node->u.call.name);
-                    err = 1;
+                    /* 方法调用（如 a.speak() 转换为 speak(a)）可能是 class 方法，
+                       不在全局符号表中，运行时根据对象类型动态查找，所以编译期不报错 */
+                    int nargs = typecheck_arg_count(node->u.call.args);
+                    if(nargs == 0) {
+                        /* 无参数的函数调用，不可能是方法调用，报错 */
+                        fprintf(stderr,"语义错误(第%d行)：调用未定义函数 %s\n", node->line, node->u.call.name);
+                        err = 1;
+                    }
+                    /* 有参数的函数调用，可能是方法调用，不报错，运行时查找 */
                 }
             } else if(t != VAL_NONE && t != VAL_FUNC) {
                 fprintf(stderr,"语义错误(第%d行)：%s 不是函数\n", node->line, node->u.call.name);

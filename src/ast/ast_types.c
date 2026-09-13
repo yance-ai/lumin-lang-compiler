@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "func_compile.h"
 
 static TypeDef* g_types = NULL;
 static int g_types_n = 0;
@@ -303,6 +304,7 @@ int struct_register(const char* name, char** props, int* cast_kinds, char** stru
     g_types[idx].field_offsets = NULL; // 编译通道计算偏移时填充
     g_types[idx].method_names = NULL;
     g_types[idx].method_nodes = NULL;
+    g_types[idx].method_funcs = NULL;
     g_types[idx].nmethods = 0;
     return idx;
 }
@@ -345,18 +347,48 @@ TypeDef* struct_lookup(const char* name)
 /* ===== class 注册 ===== */
 int class_register(const char* name, char** props, ValueType* ptypes, int nprops, const char* parent, char** interfaces)
 {
-    // 先注册为普通 type
+    // 合并父类和子类的属性（父类属性在前，子类属性在后）
+    char** merged_props = props;
+    ValueType* merged_ptypes = ptypes;
+    int merged_nprops = nprops;
+
+    if(parent) {
+        int parent_idx = type_lookup(parent);
+        if(parent_idx >= 0) {
+            TypeDef* parent_td = &g_types[parent_idx];
+            int parent_nprops = parent_td->nprops;
+            if(parent_nprops > 0) {
+                // 分配合并后的数组
+                merged_nprops = parent_nprops + nprops;
+                merged_props = (char**)malloc((size_t)merged_nprops * sizeof(char*));
+                merged_ptypes = (ValueType*)malloc((size_t)merged_nprops * sizeof(ValueType));
+                // 父类属性在前
+                for(int i = 0; i < parent_nprops; i++) {
+                    merged_props[i] = strdup(parent_td->props[i]);
+                    merged_ptypes[i] = parent_td->ptypes[i];
+                }
+                // 子类属性在后
+                for(int i = 0; i < nprops; i++) {
+                    merged_props[parent_nprops + i] = strdup(props[i]);
+                    merged_ptypes[parent_nprops + i] = ptypes[i];
+                }
+            }
+        }
+    }
+
+    // 先注册为普通 type（使用合并后的属性）
     int nifaces = 0;
     if(interfaces) {
         while(interfaces[nifaces]) nifaces++;
     }
-    int idx = type_register(name, props, ptypes, nprops, NULL, 0, interfaces, nifaces);
+    int idx = type_register(name, merged_props, merged_ptypes, merged_nprops, NULL, 0, interfaces, nifaces);
 
     // 标记为 class 并保存父类
     g_types[idx].is_class = 1;
     g_types[idx].parent = parent ? strdup(parent) : NULL;
     g_types[idx].method_names = NULL;
     g_types[idx].method_nodes = NULL;
+    g_types[idx].method_funcs = NULL;
     g_types[idx].nmethods = 0;
     return idx;
 }
@@ -370,16 +402,19 @@ TypeDef* class_lookup(const char* name)
     return &g_types[idx];
 }
 
-// 添加 class 方法
+// 添加 class 方法（同时编译为 RuntimeFunc 存储）
 void class_add_method(const char* class_name, const char* method_name, struct AstNode* method_node)
 {
     TypeDef* td = class_lookup(class_name);
     if(!td) return;
+    // 编译方法为 RuntimeFunc
+    RuntimeFunc* rf = compile_func_from_ast(method_node);
     // 检查是否已有同名方法（方法重写）
     for(int i = 0; i < td->nmethods; i++) {
         if(strcmp(td->method_names[i], method_name) == 0) {
             // 方法重写：替换旧方法
             td->method_nodes[i] = method_node;
+            td->method_funcs[i] = rf;
             return;
         }
     }
@@ -387,9 +422,29 @@ void class_add_method(const char* class_name, const char* method_name, struct As
     int n = td->nmethods + 1;
     td->method_names = (char**)realloc(td->method_names, (size_t)n * sizeof(char*));
     td->method_nodes = (struct AstNode**)realloc(td->method_nodes, (size_t)n * sizeof(struct AstNode*));
+    td->method_funcs = (void**)realloc(td->method_funcs, (size_t)n * sizeof(void*));
     td->method_names[td->nmethods] = strdup(method_name);
     td->method_nodes[td->nmethods] = method_node;
+    td->method_funcs[td->nmethods] = rf;
     td->nmethods = n;
+}
+
+// 查找 class 方法的 RuntimeFunc（支持继承链查找）
+void* class_find_method_func(const char* class_name, const char* method_name)
+{
+    TypeDef* td = class_lookup(class_name);
+    if(!td) return NULL;
+    // 先查当前类
+    for(int i = 0; i < td->nmethods; i++) {
+        if(strcmp(td->method_names[i], method_name) == 0) {
+            return td->method_funcs[i];
+        }
+    }
+    // 再查父类（递归）
+    if(td->parent) {
+        return class_find_method_func(td->parent, method_name);
+    }
+    return NULL;
 }
 
 // 查找 class 方法（返回 AST 节点或 NULL，包含继承的方法）

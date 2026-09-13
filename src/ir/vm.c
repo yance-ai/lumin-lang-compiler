@@ -9,6 +9,7 @@
 #include "lm_runtime.h"
 #include "gc_runtime.h"
 #include "lm_thread.h"
+#include "ast/ast_types.h"
 
 /* 线程模式：最外层 vm_run 不自行 unregister，由 vm_thread_body 在 set_result 后统一注销。
  * 深度计数器确保嵌套 vm_run 正常 register/unregister，skip 标志只影响最外层。 */
@@ -2268,13 +2269,36 @@ static Value vm_run(BytecodeFunc* bf, StackFrame* frame, EvalCtx* ctx)
             case OPC_CALL: {
                 const char* fname = bf->syms[in.a];
                 int argc = in.b;
-                // 1. 查函数：帧链 VAL_FUNC → 全局函数表
+                // 1. 查函数：帧链 VAL_FUNC → 全局函数表 → class 方法表
                 Value func_val;
                 _Bool fnd = 0;
                 Value gv = stackframe_get(frame, fname, &fnd);
                 if(fnd && gv.type == VAL_FUNC) func_val = gv;
                 else if(sym_has(fname)) func_val = sym_get(fname);
-                else runtime_undefined("函数", fname);
+                else if(argc > 0) {
+                    /* 可能是 class 方法调用：检查第一个参数是否有 __classname__ 属性 */
+                    Value obj = stack[sp - argc];
+                    if(obj.type == VAL_MAP && lumyr_map_has(obj, lumyr_make_string("__classname__"))) {
+                        Value cn = lumyr_map_get(obj, lumyr_make_string("__classname__"));
+                        if(cn.type == VAL_STRING) {
+                            void* rf = class_find_method_func(lumyr_str_cstr(&cn), fname);
+                            if(rf) {
+                                func_val.type = VAL_FUNC;
+                                func_val.v.func.func_obj = (RuntimeFunc*)rf;
+                                func_val.v.func.ffi_func = NULL;
+                                func_val.v.func.is_ffi = 0;
+                            } else {
+                                runtime_undefined("函数", fname);
+                            }
+                        } else {
+                            runtime_undefined("函数", fname);
+                        }
+                    } else {
+                        runtime_undefined("函数", fname);
+                    }
+                } else {
+                    runtime_undefined("函数", fname);
+                }
                 if(func_val.type != VAL_FUNC) {
                     char buf[256];
                     snprintf(buf, sizeof(buf), "尝试调用非函数: %s", fname);

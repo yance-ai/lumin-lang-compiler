@@ -28,6 +28,7 @@ typedef struct {
     /* struct/class 方法 */
     char** method_names;   // 方法名列表（NULL=无方法）
     struct AstNode** method_nodes; // 方法的 AST 节点（func_def）
+    void** method_funcs;   // 方法 RuntimeFunc* 数组（编译后存储，避免重复编译）
     int nmethods;          // 方法数量
 } TypeDef;
 
@@ -39,6 +40,8 @@ TypeDef* class_lookup(const char* name);
 void class_add_method(const char* class_name, const char* method_name, struct AstNode* method_node);
 /* 查找 class 方法（返回 AST 节点或 NULL，包含继承的方法） */
 struct AstNode* class_find_method(const char* class_name, const char* method_name);
+/* 查找 class 方法的 RuntimeFunc（支持继承链查找） */
+void* class_find_method_func(const char* class_name, const char* method_name);
 
 /* 前向声明 AstNode */
 struct AstNode;

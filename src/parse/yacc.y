@@ -49,6 +49,12 @@ static int g_class_prop_n = 0, g_class_prop_cap = 0;
 static char* g_current_class_name = NULL; /* 当前正在解析的 class 名，用于方法注册 */
 static char* g_current_class_parent = NULL; /* 当前 class 的父类名 */
 static AstNode** g_class_methods = NULL; /* 当前 class 的方法定义临时列表 */
+
+/* 辅助：如果在 class 内部，不注册到全局符号表（方法注册到 class 方法表） */
+static void try_register_global_func(const char* name, Value func_val) {
+    if(g_current_class_name) return;
+    sym_set(name, func_val);
+}
 static int g_class_method_n = 0, g_class_method_cap = 0;
 
 static void g_class_method_push(AstNode* m) {
@@ -711,7 +717,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.func_obj = rf;
           func_val.v.func.ffi_func = NULL;
           func_val.v.func.is_ffi = 0;
-          sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+          try_register_global_func($3, func_val); /* class内部不注册全局符号表 */
         }
         | FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($2, $4, $6);
@@ -725,7 +731,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.func_obj = rf;
           func_val.v.func.ffi_func = NULL;
           func_val.v.func.is_ffi = 0;
-          sym_set($2, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+          try_register_global_func($2, func_val); /* class内部不注册全局符号表 */
         }
         | FUNC operator LPAREN param_list RPAREN block_stmt {
           /* 运算符重载：func +(other) { ... } */
@@ -738,7 +744,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.func_obj = rf;
           func_val.v.func.ffi_func = NULL;
           func_val.v.func.is_ffi = 0;
-          sym_set($2, func_val); /* 注册到运行时符号表，运算符名作为键 */
+          try_register_global_func($2, func_val); /* class内部不注册全局符号表 */
         }
         | annotation_list FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);
@@ -751,7 +757,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.func_obj = rf;
           func_val.v.func.ffi_func = NULL;
           func_val.v.func.is_ffi = 0;
-          sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+          try_register_global_func($3, func_val); /* class内部不注册全局符号表 */
         }
         | CONST FUNC ID LPAREN param_list RPAREN block_stmt {
           $$ = ast_func_def($3, $5, $7);
@@ -765,7 +771,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.func_obj = rf;
           func_val.v.func.ffi_func = NULL;
           func_val.v.func.is_ffi = 0;
-          sym_set($3, func_val); /* 注册到运行时符号表，后续调用可以查到 */
+          try_register_global_func($3, func_val); /* class内部不注册全局符号表 */
         }
         /* 生成器函数：gen func name(params) { body } */
         | TOK_GEN FUNC ID LPAREN param_list RPAREN block_stmt {
@@ -779,7 +785,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.func_obj = rf;
           func_val.v.func.ffi_func = NULL;
           func_val.v.func.is_ffi = 0;
-          sym_set($3, func_val);
+          try_register_global_func($3, func_val); /* class内部不注册全局符号表 */
         }
         /* 泛型函数：func<T> name(params) { body } */
         | FUNC generic_param_list ID LPAREN param_list RPAREN block_stmt {
@@ -793,7 +799,7 @@ func_def : FUNC TOK_TYPE_ANNOT ID LPAREN param_list RPAREN block_stmt {
           func_val.v.func.func_obj = rf;
           func_val.v.func.ffi_func = NULL;
           func_val.v.func.is_ffi = 0;
-          sym_set($3, func_val);
+          try_register_global_func($3, func_val); /* class内部不注册全局符号表 */
         }
         /* FFI 外部函数声明：extern <ret_type> func name(params) */
         | TOK_EXTERN TOK_TYPE_ANNOT FUNC ID LPAREN param_list RPAREN SEMI {
@@ -1315,6 +1321,8 @@ class_prop_list
     | class_prop_list func_def  {
         /* class 方法定义：保存到临时列表，class 注册后再统一处理 */
         if($2 && $2->type == AST_FUNC_DEF) {
+            /* 标记为 class 方法，跳过顶层重复定义检查 */
+            $2->u.func_def.is_class_method = 1;
             /* 给 self 参数加上 class 类型标注 */
             AstNode* _p = $2->u.func_def.params;
             while(_p) {

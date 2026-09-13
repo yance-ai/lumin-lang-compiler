@@ -131,6 +131,7 @@ struct AstNode {
             AstNode* generic_params;  // 泛型参数列表（AST_PARAM链表，NULL=非泛型函数）
             int is_generator;  // generator function (gen func)
             char* ret_type_name;  // 返回值类型名（如 "int","double","string"），NULL=无类型声明
+            int is_class_method;  // 1=class方法，0=普通函数
         } func_def;
 
         struct {
