@@ -405,8 +405,35 @@ void collect_func_locals(BytecodeFunc* fn)
 // ---------------- 指令翻译 ----------------
 
 /* finally 完成跳转表：FIN_PUSH 的目标 pc → label 编号（生成函数头 static void* 数组） */
+/* 记录已经生成过原型的函数名，避免重复定义 */
+static char** g_proto_generated = NULL;
+static int g_proto_generated_count = 0;
+
+static int is_proto_generated(const char* name) {
+    for(int i = 0; i < g_proto_generated_count; i++) {
+        if(strcmp(g_proto_generated[i], name) == 0) return 1;
+    }
+    return 0;
+}
+
+static void mark_proto_generated(const char* name) {
+    g_proto_generated = realloc(g_proto_generated, (g_proto_generated_count + 1) * sizeof(char*));
+    g_proto_generated[g_proto_generated_count++] = strdup(name);
+}
+
 void emit_func_proto(BytecodeFunc* fn)
 {
+    /* 计算最终的函数名（包含 class 前缀和参数个数） */
+    const char* final_name = fn->name;
+    static char final_class_name[256];
+    if(fn->class_name) {
+        snprintf(final_class_name, sizeof(final_class_name), "%s_%s_%d", fn->class_name, fn->name, fn->param_cnt);
+        final_name = final_class_name;
+    }
+    /* 如果已经生成过原型，跳过 */
+    if(is_proto_generated(final_name)) return;
+    mark_proto_generated(final_name);
+
     /* 生成器函数：生成状态机结构体、创建函数、next() 函数的原型 */
     if(fn->is_generator) {
         fprintf(out, "typedef struct lumyr_gen_%s lumyr_gen_%s;\n", fn->name, fn->name);
@@ -422,11 +449,11 @@ void emit_func_proto(BytecodeFunc* fn)
     }
 
     int has_caps = lambda_has_captures(fn->name);
-    /* class 方法使用 classname_methodname 的命名方式，避免命名冲突 */
+    /* class 方法使用 classname_methodname_paramcount 的命名方式，避免命名冲突 */
     const char* func_name = fn->name;
     static char class_func_name[256];
     if(fn->class_name) {
-        snprintf(class_func_name, sizeof(class_func_name), "%s_%s", fn->class_name, fn->name);
+        snprintf(class_func_name, sizeof(class_func_name), "%s_%s_%d", fn->class_name, fn->name, fn->param_cnt);
         func_name = class_func_name;
     }
     fprintf(out, "static Value lumyr_func_%s(", func_name);
@@ -443,8 +470,35 @@ void emit_func_proto(BytecodeFunc* fn)
     fprintf(out, ");\n");
 }
 
+/* 记录已经生成过定义的函数名，避免重复定义 */
+static char** g_def_generated = NULL;
+static int g_def_generated_count = 0;
+
+static int is_def_generated(const char* name) {
+    for(int i = 0; i < g_def_generated_count; i++) {
+        if(strcmp(g_def_generated[i], name) == 0) return 1;
+    }
+    return 0;
+}
+
+static void mark_def_generated(const char* name) {
+    g_def_generated = realloc(g_def_generated, (g_def_generated_count + 1) * sizeof(char*));
+    g_def_generated[g_def_generated_count++] = strdup(name);
+}
+
 void emit_func_def(BytecodeFunc* fn)
 {
+    /* 计算最终的函数名（包含 class 前缀和参数个数） */
+    const char* final_name_def = fn->name;
+    static char final_class_name_def[256];
+    if(fn->class_name) {
+        snprintf(final_class_name_def, sizeof(final_class_name_def), "%s_%s_%d", fn->class_name, fn->name, fn->param_cnt);
+        final_name_def = final_class_name_def;
+    }
+    /* 如果已经生成过定义，跳过 */
+    if(is_def_generated(final_name_def)) return;
+    mark_def_generated(final_name_def);
+
     collect_func_locals(fn);
 
     /* 生成器函数：状态机重写（零成本抽象） */
@@ -501,11 +555,11 @@ void emit_func_def(BytecodeFunc* fn)
         if(in.op == OPC_FIN_PUSH && in.b) fin_lab_idx_of(in.b);
     }
     int has_caps = lambda_has_captures(fn->name);
-    /* class 方法使用 classname_methodname 的命名方式，避免命名冲突 */
+    /* class 方法使用 classname_methodname_paramcount 的命名方式，避免命名冲突 */
     const char* func_name = fn->name;
     static char class_func_name[256];
     if(fn->class_name) {
-        snprintf(class_func_name, sizeof(class_func_name), "%s_%s", fn->class_name, fn->name);
+        snprintf(class_func_name, sizeof(class_func_name), "%s_%s_%d", fn->class_name, fn->name, fn->param_cnt);
         func_name = class_func_name;
     }
     fprintf(out, "static Value lumyr_func_%s(", func_name);

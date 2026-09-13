@@ -1677,11 +1677,11 @@ void emit_insns(BytecodeFunc* fn)
                         fprintf(out, "        gc_write_barrier(__args[%d]);\n", fixed + k);
                         fprintf(out, "        __rest.v.array->items[%d] = __args[%d];\n", k, fixed + k);
                     }
-                    /* class 方法使用 classname_methodname 的命名方式 */
+                    /* class 方法使用 classname_methodname_paramcount 的命名方式 */
                     const char* call_func_name_var = nm;
                     static char call_class_func_name_var[256];
                     if(callee->class_name) {
-                        snprintf(call_class_func_name_var, sizeof(call_class_func_name_var), "%s_%s", callee->class_name, nm);
+                        snprintf(call_class_func_name_var, sizeof(call_class_func_name_var), "%s_%s_%d", callee->class_name, nm, callee->param_cnt);
                         call_func_name_var = call_class_func_name_var;
                     }
                     fprintf(out, "        __stk[__sp++] = lumyr_func_%s(", call_func_name_var);
@@ -1693,11 +1693,11 @@ void emit_insns(BytecodeFunc* fn)
                     if(fixed > 0) fprintf(out, ", ");
                     fprintf(out, "__rest);\n");
                 } else {
-                    /* class 方法使用 classname_methodname 的命名方式 */
+                    /* class 方法使用 classname_methodname_paramcount 的命名方式 */
                     const char* call_func_name = nm;
                     static char call_class_func_name[256];
                     if(callee->class_name) {
-                        snprintf(call_class_func_name, sizeof(call_class_func_name), "%s_%s", callee->class_name, nm);
+                        snprintf(call_class_func_name, sizeof(call_class_func_name), "%s_%s_%d", callee->class_name, nm, callee->param_cnt);
                         call_func_name = call_class_func_name;
                     }
                     fprintf(out, "        __stk[__sp++] = lumyr_func_%s(", call_func_name);
