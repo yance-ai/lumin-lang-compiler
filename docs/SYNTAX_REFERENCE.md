@@ -455,6 +455,12 @@ do {
 for (i = 0; i < 10; i = i + 1) {
     print(i);
 }
+
+// 省略初始化（变量已在外部定义）
+i = 0;
+for (; i < 3; i = i + 1) {
+    print(i);
+}
 ```
 
 ### 8.5 for-each 循环（数组）
@@ -806,21 +812,41 @@ print(f"Hello, {name}!");  // "Hello, World!"
 | `?.` | 安全调用 |
 | `??` | 空值合并 |
 
+### 16.7 三元运算符
+| 运算符 | 说明 | 示例 |
+|--------|------|------|
+| `?:` | 条件表达式 | `x > 0 ? "pos" : "neg"` |
+
+```lumyr
+r = choose(2) > 0 ? "pos" : "neg";
+```
+
 ---
 
 ## 17. 模块系统
 
-### 17.1 import
+### 17.1 import（带别名）
 ```lumyr
-import "module.lm";
+// 导入模块并起别名
+import "math.lm" as m;
+print(m.add(1, 2));
+
+// 链式导入
+import "chain_b.lm" as b;
+print(b.from_b());
 ```
 
 ### 17.2 export
 ```lumyr
-export func my_func() {
-    // ...
-}
+// 导出函数
+export func add(a, b) { return a + b; }
+export func sub(a, b) { return a - b; }
 ```
+
+### 17.3 模块特性
+- **重复导入去重**：同一模块 import 两次不会冲突
+- **循环依赖支持**：cycle_a.lm 和 cycle_b.lm 互相导入可以正常工作
+- **链式导入**：A 导入 B，B 导入 C，A 可以通过 B 间接使用 C
 
 ---
 
@@ -863,12 +889,38 @@ lock(ml);              // 加锁
 unlock(ml);            // 解锁
 ```
 
+#### 读写锁（RwLock）
+```lumyr
+rw = rwlock();         // 创建读写锁
+rdlock(rw);            // 加读锁
+// 读临界区
+unlock(rw);            // 解锁
+
+wrlock(rw);            // 加写锁
+// 写临界区
+unlock(rw);            // 解锁
+
+// 尝试加锁（非阻塞）
+tryrdlock(rw);         // 尝试加读锁
+trywrlock(rw);         // 尝试加写锁
+```
+
+#### 自旋锁（Spinlock）
+```lumyr
+sp = spinlock();       // 创建自旋锁
+lock(sp);              // 加锁
+unlock(sp);            // 解锁
+```
+
 #### 条件变量（Condition）
 ```lumyr
 cond = cond();         // 创建条件变量
 wait(cond, mutex);     // 等待条件
 signal(cond);          // 唤醒一个等待线程
 broadcast(cond);       // 唤醒所有等待线程
+
+// 带超时等待
+cond_wait_timeout(cond, mutex, timeout_ms);
 ```
 
 ### 18.4 数组与 Map 方法
