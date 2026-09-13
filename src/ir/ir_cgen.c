@@ -422,7 +422,14 @@ void emit_func_proto(BytecodeFunc* fn)
     }
 
     int has_caps = lambda_has_captures(fn->name);
-    fprintf(out, "static Value lumyr_func_%s(", fn->name);
+    /* class 方法使用 classname_methodname 的命名方式，避免命名冲突 */
+    const char* func_name = fn->name;
+    static char class_func_name[256];
+    if(fn->class_name) {
+        snprintf(class_func_name, sizeof(class_func_name), "%s_%s", fn->class_name, fn->name);
+        func_name = class_func_name;
+    }
+    fprintf(out, "static Value lumyr_func_%s(", func_name);
     if(has_caps) fprintf(out, "Value** __caps");
     int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
     for(int i = 0; i < total; i++) {
@@ -494,7 +501,14 @@ void emit_func_def(BytecodeFunc* fn)
         if(in.op == OPC_FIN_PUSH && in.b) fin_lab_idx_of(in.b);
     }
     int has_caps = lambda_has_captures(fn->name);
-    fprintf(out, "static Value lumyr_func_%s(", fn->name);
+    /* class 方法使用 classname_methodname 的命名方式，避免命名冲突 */
+    const char* func_name = fn->name;
+    static char class_func_name[256];
+    if(fn->class_name) {
+        snprintf(class_func_name, sizeof(class_func_name), "%s_%s", fn->class_name, fn->name);
+        func_name = class_func_name;
+    }
+    fprintf(out, "static Value lumyr_func_%s(", func_name);
     if(has_caps) fprintf(out, "Value** __caps");
     int total = fn->param_cnt + (fn->has_variadic ? 1 : 0);
     for(int i = 0; i < total; i++) {
@@ -755,6 +769,26 @@ void emit_main(BytecodeFunc* main_fn)
                 fprintf(out, "    %s %s;\n", ftype, td->props[fi]);
             }
             fprintf(out, "} lumyr_struct_%s;\n\n", td->name);
+        }
+    }
+
+    // 生成 C class 结构体定义（所有已注册的 class 类型）
+    for(int si = 0; si < type_count(); si++) {
+        TypeDef* td = type_get(si);
+        if(td && td->is_class && td->nprops > 0) {
+            fprintf(out, "typedef struct lumyr_class_%s lumyr_class_%s;\n", td->name, td->name);
+            fprintf(out, "struct lumyr_class_%s {\n", td->name);
+            /* 如果有父类，父类结构体作为第一个字段 */
+            if(td->parent) {
+                fprintf(out, "    lumyr_class_%s parent;\n", td->parent);
+            }
+            for(int fi = 0; fi < td->nprops; fi++) {
+                int ck = td->field_cast_kinds ? td->field_cast_kinds[fi] : CAST_LONGLONG;
+                const char* ftype = castkind_to_c_type(ck);
+                if(!ftype) ftype = "int64_t";
+                fprintf(out, "    %s %s;\n", ftype, td->props[fi]);
+            }
+            fprintf(out, "};\n\n");
         }
     }
 

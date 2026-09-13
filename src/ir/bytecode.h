@@ -200,6 +200,7 @@ typedef struct {
     char** var_struct_names;    // 变量的 struct 类型名（NULL 表示不是 struct），与 syms 平行数组
     int is_method;              // 是否为结构体方法（self 参数传递指针）
     char* method_self_struct;   // 方法 self 参数的 struct 类型名
+    char* class_name;           // 方法所属的 class 名（NULL 表示不是 class 方法）
 } BytecodeFunc;
 
 BytecodeFunc* bytecode_func_new(const char* name, int is_main);

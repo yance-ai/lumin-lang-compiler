@@ -413,6 +413,13 @@ void class_add_method(const char* class_name, const char* method_name, struct As
     if(!td) return;
     // 编译方法为 RuntimeFunc
     RuntimeFunc* rf = compile_func_from_ast(method_node);
+    // 设置 class_name 字段（用于 CC 模式方法命名，避免命名冲突）
+    if(rf && rf->capture_count == -1) {
+        InterpFuncPayload* pl = (InterpFuncPayload*)rf->captures;
+        if(pl && pl->bytecode) {
+            pl->bytecode->class_name = strdup(class_name);
+        }
+    }
     // 检查是否已有同名方法（方法重写）
     for(int i = 0; i < td->nmethods; i++) {
         if(strcmp(td->method_names[i], method_name) == 0) {
