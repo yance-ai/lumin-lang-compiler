@@ -14,6 +14,7 @@ Value lumyr_make_bool(_Bool b);
 Value lumyr_make_string(const char* s);
 Value lumyr_make_char(char ch);
 Value lumyr_make_byte(unsigned char b);   // byte：8 位无符号整数（0-255）
+Value lumyr_make_struct_ptr(void* ptr);    // C结构体指针：零拷贝传递，类型由外部标识
 
 // 算术
 Value lumyr_add(Value a, Value b);

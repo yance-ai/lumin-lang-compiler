@@ -338,6 +338,9 @@ const char* val_typename(ValueType t) {
     case VAL_ARRAY: return "array";
     case VAL_MAP: return "map";
     case VAL_ERROR: return "error";
+    case VAL_BYTE: return "byte";
+    case VAL_GENERATOR: return "generator";
+    case VAL_STRUCT_PTR: return "struct_ptr";
     default: return "unknown";
     }
 }

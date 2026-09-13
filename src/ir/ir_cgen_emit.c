@@ -382,8 +382,10 @@ void emit_insns(BytecodeFunc* fn)
                 /* struct 局部变量转换成 Value(map)，包含所有字段，用于无类型标注的参数传递；
                    OPC_LOAD_FIELD 高性能路径不受影响（直接用 lmvar_p->x，不经过栈） */
                 if(_sname && _vidx >= fn->param_cnt) {
-                    /* struct 局部变量转换成 Value(map) */
-                    emit_struct_to_value(_sname, cvar_rw(nm));
+                    /* struct 局部变量转换成 Value(map)，VAL_STRUCT_PTR 通过 v.struct_ptr 访问 */
+                    char _load_buf[256];
+                    snprintf(_load_buf, sizeof(_load_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", _sname, cvar_rw(nm));
+                    emit_struct_to_value(_sname, _load_buf);
                 } else if(_sname) {
                     /* struct 参数（self）：直接传递 Value */
                     fprintf(out, "    __stk[__sp++] = %s;\n", cvar_rw(nm));
@@ -401,7 +403,7 @@ void emit_insns(BytecodeFunc* fn)
                 /* 加载 struct 变量的指针（用于方法 self 参数），传递指针整数 */
                 const char* _sname = emit_get_var_struct_name(fn, nm);
                 if(_sname) {
-                    fprintf(out, "    { Value __pv = {0}; __pv.type = VAL_INT; __pv.v.i = (long long)%s; __stk[__sp++] = __pv; }\n", cvar_rw(nm));
+                    fprintf(out, "    { Value __pv = {0}; __pv.type = VAL_INT; __pv.v.i = (long long)%s.v.struct_ptr; __stk[__sp++] = __pv; }\n", cvar_rw(nm));
                 } else {
                     fprintf(out, "    __stk[__sp++] = %s;\n", cvar_rw(nm));
                 }
@@ -411,7 +413,9 @@ void emit_insns(BytecodeFunc* fn)
                 const char* _sname = emit_get_var_struct_name(fn, nm);
                 if(_sname) {
                     fprintf(out, "    { Value __v = __stk[--__sp];\n");
-                    emit_value_to_struct(_sname, cvar_rw(nm), "__v");
+                    char _store_buf[256];
+                    snprintf(_store_buf, sizeof(_store_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", _sname, cvar_rw(nm));
+                    emit_value_to_struct(_sname, _store_buf, "__v");
                     fprintf(out, "        __stk[__sp++] = __v;\n    }\n");
                 } else {
                     int _tag = emit_get_var_tag(fn, nm);
@@ -542,13 +546,13 @@ void emit_insns(BytecodeFunc* fn)
                         }
                     }
                     if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-                        fprintf(out, "    __stk[__sp++] = lumyr_make_double((double)((lumyr_struct_%s*)lmloc_self.v.i)->%s);\n", ss, fname);
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_double((double)((lumyr_struct_%s*)lmloc_self.v.struct_ptr)->%s);\n", ss, fname);
                     } else if(ck == CAST_STRING) {
-                        fprintf(out, "    __stk[__sp++] = lumyr_make_string(((lumyr_struct_%s*)lmloc_self.v.i)->%s);\n", ss, fname);
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_string(((lumyr_struct_%s*)lmloc_self.v.struct_ptr)->%s);\n", ss, fname);
                     } else if(ck == CAST_BOOL) {
-                        fprintf(out, "    __stk[__sp++] = lumyr_make_bool((int)((lumyr_struct_%s*)lmloc_self.v.i)->%s);\n", ss, fname);
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_bool((int)((lumyr_struct_%s*)lmloc_self.v.struct_ptr)->%s);\n", ss, fname);
                     } else {
-                        fprintf(out, "    __stk[__sp++] = lumyr_make_int((long long)((lumyr_struct_%s*)lmloc_self.v.i)->%s);\n", ss, fname);
+                        fprintf(out, "    __stk[__sp++] = lumyr_make_int((long long)((lumyr_struct_%s*)lmloc_self.v.struct_ptr)->%s);\n", ss, fname);
                     }
                     break;
                 }
@@ -579,11 +583,12 @@ void emit_insns(BytecodeFunc* fn)
                     char _struct_access_buf[256];
                     if(in.a < fn->param_cnt) {
                         /* 函数参数：Value 类型，指针存在 v.i 中 */
-                        snprintf(_struct_access_buf, sizeof(_struct_access_buf), "((lumyr_struct_%s*)%s.v.i)", sname, cvar_rw(vname));
+                        snprintf(_struct_access_buf, sizeof(_struct_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, cvar_rw(vname));
                         _struct_access = _struct_access_buf;
                     } else {
-                        /* struct 局部变量：指针类型 */
-                        _struct_access = cvar_rw(vname);
+                        /* struct 局部变量：VAL_STRUCT_PTR，通过 v.struct_ptr 访问 */
+                        snprintf(_struct_access_buf, sizeof(_struct_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, cvar_rw(vname));
+                        _struct_access = _struct_access_buf;
                     }
                     if(nested_sname) {
                         /* 嵌套 struct 字段：先把地址赋值给临时指针，再转换为 Value(Map) */
@@ -626,13 +631,13 @@ void emit_insns(BytecodeFunc* fn)
                     if(!ctype) ctype = "int64_t";
                     fprintf(out, "    { Value __v = __stk[--__sp]; Value __self = lmloc_self;\n");
                     if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {
-                        fprintf(out, "        ((lumyr_struct_%s*)__self.v.i)->%s = (%s)__v.v.d;\n", ss, fname, ctype);
+                        fprintf(out, "        ((lumyr_struct_%s*)__self.v.struct_ptr)->%s = (%s)__v.v.d;\n", ss, fname, ctype);
                     } else if(ck == CAST_STRING) {
-                        fprintf(out, "        ((lumyr_struct_%s*)__self.v.i)->%s = (%s)lumyr_str_cstr(&__v);\n", ss, fname, ctype);
+                        fprintf(out, "        ((lumyr_struct_%s*)__self.v.struct_ptr)->%s = (%s)lumyr_str_cstr(&__v);\n", ss, fname, ctype);
                     } else if(ck == CAST_BOOL) {
-                        fprintf(out, "        ((lumyr_struct_%s*)__self.v.i)->%s = (%s)__v.v.b;\n", ss, fname, ctype);
+                        fprintf(out, "        ((lumyr_struct_%s*)__self.v.struct_ptr)->%s = (%s)__v.v.b;\n", ss, fname, ctype);
                     } else {
-                        fprintf(out, "        ((lumyr_struct_%s*)__self.v.i)->%s = (%s)__v.v.i;\n", ss, fname, ctype);
+                        fprintf(out, "        ((lumyr_struct_%s*)__self.v.struct_ptr)->%s = (%s)__v.v.i;\n", ss, fname, ctype);
                     }
                     fprintf(out, "        __stk[__sp++] = __v;\n    }\n");
                     break;
@@ -656,10 +661,12 @@ void emit_insns(BytecodeFunc* fn)
                     const char* _store_access = NULL;
                     char _store_access_buf[256];
                     if(in.a < fn->param_cnt) {
-                        snprintf(_store_access_buf, sizeof(_store_access_buf), "((lumyr_struct_%s*)%s.v.i)", sname, cvar_rw(vname));
+                        snprintf(_store_access_buf, sizeof(_store_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, cvar_rw(vname));
                         _store_access = _store_access_buf;
                     } else {
-                        _store_access = cvar_rw(vname);
+                        /* struct 局部变量：VAL_STRUCT_PTR，通过 v.struct_ptr 访问 */
+                        snprintf(_store_access_buf, sizeof(_store_access_buf), "((lumyr_struct_%s*)%s.v.struct_ptr)", sname, cvar_rw(vname));
+                        _store_access = _store_access_buf;
                     }
                     fprintf(out, "    { Value __v = __stk[--__sp];\n");
                     if(ck == CAST_DOUBLE || ck == CAST_FLOAT || ck == CAST_LONG_DOUBLE) {

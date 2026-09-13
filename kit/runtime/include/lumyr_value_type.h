@@ -71,7 +71,8 @@ typedef enum {
     VAL_MAP,
     VAL_ERROR,     // 错误对象：type/message/stack（throw 与运行时错误统一）
     VAL_BYTE,      // 8 位无符号整数（0-255，C 风格截断；算术/比较按数值类型处理）
-    VAL_GENERATOR  // 生成器对象：保存冻结的执行状态，next() 恢复执行
+    VAL_GENERATOR,  // 生成器对象：保存冻结的执行状态，next() 恢复执行
+    VAL_STRUCT_PTR  // C结构体指针：零拷贝传递，直接存储void*，配合__structname__标识类型
 } ValueType;
 
 // 数组运行时对象，VAL_ARRAY 使用（原地修改语义，cap 预分配容量）
@@ -125,6 +126,7 @@ struct Value {
         ValueMap* map;         // VAL_MAP：堆上共享对象（原地改语义与数组 items 一致）
         ValueError err;        // VAL_ERROR：错误对象（type/message/stack，堆上字符串）
         void* generator;       // VAL_GENERATOR：GeneratorObject* 指针（vm.c 中定义）
+        void* struct_ptr;      // VAL_STRUCT_PTR：C结构体指针（零拷贝传递，类型由外部标识）
     } v;
 };
 

@@ -506,9 +506,9 @@ void emit_func_def(BytecodeFunc* fn)
         } else {
             const char* sname = get_var_struct_name(fn, fn_locals.names[i]);
             if(sname) {
-                /* struct 类型局部变量：真正的 C 结构体，零开销 */
+                /* struct 类型局部变量：VAL_STRUCT_PTR，零拷贝传递，C结构体在栈上 */
                 fprintf(out, "    lumyr_struct_%s lmloc_%s__s;\n", sname, fn_locals.names[i]);
-                fprintf(out, "    lumyr_struct_%s* lmloc_%s = &lmloc_%s__s;\n", sname, fn_locals.names[i], fn_locals.names[i]);
+                fprintf(out, "    Value lmloc_%s = lumyr_make_struct_ptr(&lmloc_%s__s);\n", fn_locals.names[i], fn_locals.names[i]);
             } else {
                 int tt = get_var_type_tag(fn, fn_locals.names[i]);
                 const char* ctype = (tt >= 0) ? castkind_to_c_type(tt) : NULL;
@@ -718,8 +718,9 @@ void emit_main(BytecodeFunc* main_fn)
     for(int i = 0; i < g_globals.count; i++) {
         const char* sname = get_var_struct_name(main_fn, g_globals.names[i]);
         if(sname) {
+            /* struct 类型全局变量：VAL_STRUCT_PTR，零拷贝传递，C结构体在静态存储区 */
             fprintf(out, "static lumyr_struct_%s lmvar_%s__s;\n", sname, g_globals.names[i]);
-            fprintf(out, "static lumyr_struct_%s* lmvar_%s = &lmvar_%s__s;\n", sname, g_globals.names[i], g_globals.names[i]);
+            fprintf(out, "static Value lmvar_%s;\n", g_globals.names[i]);
         } else {
             int tt = get_var_type_tag(main_fn, g_globals.names[i]);
             const char* ctype = (tt >= 0) ? castkind_to_c_type(tt) : NULL;
@@ -774,6 +775,13 @@ void emit_main(BytecodeFunc* main_fn)
     fprintf(out, "int main(void){\n");
     fprintf(out, "    Value __stk[%d];\n", maxd + 2);
     fprintf(out, "    int __sp = 0;\n");
+    /* 全局 struct 变量初始化：VAL_STRUCT_PTR，零拷贝传递 */
+    for(int gi = 0; gi < g_globals.count; gi++) {
+        const char* gsname = get_var_struct_name(main_fn, g_globals.names[gi]);
+        if(gsname) {
+            fprintf(out, "    lmvar_%s = lumyr_make_struct_ptr(&lmvar_%s__s);\n", g_globals.names[gi], g_globals.names[gi]);
+        }
+    }
     /* 栈分配数组声明 */
     for(int i = 0; i < main_fn->code_len; i++) {
         if(g_stack_alloc && g_stack_alloc[i]) {

@@ -31,6 +31,14 @@ Value lumyr_make_bool(_Bool b) {
     return v;
 }
 
+/* 创建 C 结构体指针对象（零拷贝传递，类型由外部标识） */
+Value lumyr_make_struct_ptr(void* ptr) {
+    Value v;
+    v.type = VAL_STRUCT_PTR;
+    v.v.struct_ptr = ptr;
+    return v;
+}
+
 Value lumyr_make_string(const char* s) {
     Value v;
     v.type = VAL_STRING;
@@ -919,6 +927,12 @@ void lumyr_print_inline(Value v) {
             free(js);
             break;
         }
+        case VAL_STRUCT_PTR:
+            printf("<struct_ptr>");
+            break;
+        case VAL_GENERATOR:
+            printf("<generator>");
+            break;
         default:
             printf("<unknown>");
             break;
